@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# chave da conta de serviço: nunca versionar
+electron/credentials/*.json
+# gerado por scripts/build-mobile.js
+mobile/www/

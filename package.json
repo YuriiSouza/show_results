@@ -1,0 +1,86 @@
+{
+  "name": "hub-lgo03-dashboard",
+  "productName": "Dashboard HUB LGO 03",
+  "version": "1.0.0",
+  "description": "Painel operacional do HUB LGO 03 lido da planilha Google Sheets",
+  "author": "Yuri Peixoto de Souza",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "dist:linux": "electron-builder --linux --x64",
+    "dist": "electron-builder --win --linux --x64",
+    "predist": "node scripts/check-key.js",
+    "predist:win": "node scripts/check-key.js",
+    "predist:linux": "node scripts/check-key.js",
+    "mobile:build": "node scripts/build-mobile.js && npx cap sync",
+    "mobile:ios": "npm run mobile:build && npx cap open ios",
+    "mobile:android": "npm run mobile:build && npx cap open android"
+  },
+  "build": {
+    "appId": "br.hub.lgo03.dashboard",
+    "productName": "Dashboard HUB LGO 03",
+    "artifactName": "Dashboard-HUB-LGO03-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "index.html",
+      "css/**",
+      "js/**",
+      "electron/credentials/service-account.json",
+      "electron/preload.js",
+      "electron/main.js",
+      "build/icon.png",
+      "node_modules/chart.js/dist/chart.umd.js",
+      "node_modules/@fontsource/inter/files/inter-latin-*-normal.woff2"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Dashboard HUB LGO 03",
+      "artifactName": "Dashboard-HUB-LGO03-${version}-Windows-Instalador.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "build/icon.png",
+      "maintainer": "Yuri Peixoto de Souza",
+      "syncDesktopName": true,
+      "artifactName": "Dashboard-HUB-LGO03-${version}-Linux-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Dashboard-HUB-LGO03-${version}-Windows-Portatil.${ext}"
+    }
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@fontsource/inter": "^5.3.0",
+    "chart.js": "^4.4.4"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "desktopName": "hub-lgo03-dashboard.desktop"
+}

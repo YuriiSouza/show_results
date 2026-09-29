@@ -1,0 +1,11 @@
+{
+  "appId": "br.hub.lgo03.dashboard",
+  "appName": "Dashboard HUB LGO 03",
+  "webDir": "mobile/www",
+  "backgroundColor": "#EE4D2D",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": { "allowMixedContent": false },
+  "ios": { "contentInset": "never" }
+}

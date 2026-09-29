@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard HUB LGO 03</title>
+  <meta name="description" content="Painel operacional do HUB LGO 03 alimentado pela planilha Google Sheets.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23EE4D2D'/%3E%3Cpath d='M10 12h12l-1 12H11z' fill='white'/%3E%3Cpath d='M13 12a3 3 0 0 1 6 0' stroke='white' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/theme-init.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <button class="icon-btn menu-btn" id="btnMenu" title="Mostrar/ocultar menu" aria-label="Menu" aria-controls="sidebar" aria-expanded="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#fff"/><path d="M10 12h12l-1 12H11z" fill="#EE4D2D"/><path d="M13 12a3 3 0 0 1 6 0" stroke="#EE4D2D" stroke-width="2" fill="none"/></svg>
+      <div>
+        <div class="brand-title" id="hubTitle">HUB LGO 03</div>
+        <div class="brand-sub" id="hubSub">Painel operacional</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="status" id="status"><span class="dot"></span><span id="statusText">Carregando…</span></div>
+      <label class="auto" title="Atualização automática">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2" /><circle cx="12" cy="12" r="9" /></svg>
+        <select id="autoRefresh" aria-label="Atualização automática">
+          <option value="0">Auto: off</option>
+          <option value="1">1 min</option>
+          <option value="5">5 min</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+        </select>
+      </label>
+      <button class="icon-btn" id="btnTheme" title="Tema claro/escuro" aria-label="Alternar tema">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <button class="icon-btn" id="btnTV" title="Modo TV (tela cheia, troca de abas automática)" aria-label="Modo TV">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </button>
+      <button class="icon-btn" id="btnSettings" title="Conectar ou trocar as planilhas de cada mês" aria-label="Conectar planilha">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <button class="btn-primary" id="btnRefresh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>
+        <span>Atualizar</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="demo-banner" id="demoBanner" hidden>
+    Modo demonstração — exibindo dados de exemplo (fictícios). <button class="link" id="demoConfigure">Conectar à planilha</button>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <nav id="tabs" class="nav" aria-label="Seções"></nav>
+      <div class="side-bottom">
+      <button class="conn-btn" id="btnConn" title="Conectar ou trocar as planilhas de cada mês">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></svg>
+        <span class="conn-text"><span class="conn-title">Conectar planilhas</span><span class="conn-sub" id="connSub">Não conectada</span></span>
+        <span class="conn-dot" id="connDot"></span>
+      </button>
+      <button class="collapse-btn" id="btnCollapse" title="Recolher menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Recolher</span>
+      </button>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <div class="content">
+      <div class="filters" id="filters">
+        <div class="range">
+          <button class="range-btn" id="rangeBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="rangePop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <span class="range-text"><span class="range-cap">Período</span><b id="rangeLabel">—</b></span>
+            <span class="range-days" id="rangeDays"></span>
+            <svg class="range-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="range-pop" id="rangePop" role="dialog" aria-label="Selecionar período" hidden>
+            <div class="range-presets">
+              <button data-preset="7">Últimos 7 dias</button>
+              <button data-preset="30">Últimos 30 dias</button>
+              <button data-preset="month">Mês atual</button>
+              <button data-preset="prev">Mês anterior</button>
+              <button data-preset="all">Tudo</button>
+            </div>
+            <div id="rangeCal"></div>
+            <div class="range-hint" id="rangeHint">Clique no dia inicial e depois no dia final.</div>
+          </div>
+        </div>
+        <span class="range-ref" id="refInfo"></span>
+      </div>
+
+      <main id="main"></main>
+
+      <footer class="foot">
+        <span id="footInfo"></span>
+      </footer>
+    </div>
+  </div>
+
+  <dialog id="userDlg">
+    <form method="dialog" class="settings" id="userForm">
+      <h2>Quem está usando o app?</h2>
+      <p class="muted">Seu nome fica registrado em cada report preenchido e em cada Audit importado, na planilha-base compartilhada.</p>
+      <label>Seu nome
+        <input id="userName" type="text" autocomplete="name" placeholder="Ex.: Yuri Souza" required maxlength="60">
+      </label>
+      <div class="settings-actions">
+        <button type="submit" class="btn-primary" id="userSave" value="ok">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="rpSources" class="tutorial">
+    <div class="tut">
+      <div class="tut-head">
+        <div>
+          <h2>De onde vem cada campo</h2>
+          <p class="muted">Primeiro os campos sem fonte e os que dependem da guia de report — são os que precisamos decidir de onde pegar.</p>
+        </div>
+        <button type="button" class="icon-close" id="rpSourcesClose" aria-label="Fechar">✕</button>
+      </div>
+      <div id="rpSourcesBody"></div>
+    </div>
+  </dialog>
+
+  <dialog id="auditDlg">
+    <form method="dialog" class="settings">
+      <h2>Importar relatório Audit</h2>
+      <p class="muted">Arquivo <b>.csv</b> exportado do LMHub Audit. Informe de qual dia e turno é o relatório — ele fica salvo só neste computador.</p>
+      <input id="auFile" type="file" accept=".csv,text/csv" hidden>
+      <div class="drop" id="auDrop" role="button" tabindex="0">
+        <b>Clique para escolher o arquivo</b><span class="muted">ou arraste o .csv para cá</span>
+      </div>
+      <div class="au-preview" id="auPreview"></div>
+      <div class="au-fields">
+        <label>Dia do relatório
+          <input id="auDate" type="date" required>
+        </label>
+        <fieldset class="shift-pick">
+          <legend>Turno</legend>
+          <label><input type="radio" name="auShift" value="AM"><span>AM</span></label>
+          <label><input type="radio" name="auShift" value="PM1"><span>PM1</span></label>
+          <label><input type="radio" name="auShift" value="PM2"><span>PM2</span></label>
+        </fieldset>
+      </div>
+      <div class="settings-msg" id="auMsg" role="status"></div>
+      <div class="settings-actions">
+        <button type="submit" class="btn-ghost" value="cancel" formnovalidate>Cancelar</button>
+        <button type="button" class="btn-primary" id="auSave">Importar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings">
+    <form method="dialog" class="settings">
+      <h2>Conectar planilhas</h2>
+      <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e são usadas só para digitação.</p>
+      <div class="conn-current" id="cfgCurrent" hidden></div>
+
+      <div class="conn-step">
+        <span class="conn-num">1</span>
+        <div>
+          <div class="key-title">Compartilhe a planilha com este e-mail, como <b>Leitor</b>:</div>
+          <div class="email-row">
+            <code id="cfgEmail"></code>
+            <button type="button" class="btn-ghost" id="cfgCopy">Copiar e-mail</button>
+          </div>
+          <div class="muted small">Em <b>cada</b> planilha do mês: <b>Compartilhar</b> → cole o e-mail → <b>Leitor</b> → desmarque “Notificar pessoas” → <b>Enviar</b>.</div>
+        </div>
+      </div>
+
+      <div class="conn-step">
+        <span class="conn-num">2</span>
+        <div class="grow">
+          <div class="months-head">
+            <div class="key-title">Cole o link da planilha de cada mês</div>
+            <label class="year-pick">Ano <select id="cfgYear"></select></label>
+          </div>
+          <div class="months" id="cfgMonths"></div>
+          <div class="muted small">Deixe em branco os meses que ainda não têm planilha.</div>
+        </div>
+      </div>
+
+      <div class="conn-step">
+        <span class="conn-num">3</span>
+        <div class="key-title conn-last">Clique em <b>Testar</b> (confere todos os links do ano) e depois em <b>Salvar e atualizar</b>.</div>
+      </div>
+
+      <div class="settings-msg" id="cfgMsg" role="status"></div>
+      <div class="settings-actions">
+        <button type="button" class="btn-ghost" id="cfgDemo">Usar dados de exemplo</button>
+        <button type="button" class="btn-ghost" id="cfgReloadAll" title="Baixa de novo todos os meses, ignorando as cópias salvas">Recarregar todos os meses</button>
+        <button type="button" class="btn-ghost" id="cfgTest">Testar</button>
+        <button type="submit" class="btn-ghost" value="cancel" formnovalidate>Fechar</button>
+        <button type="button" class="btn-primary" id="cfgSave">Salvar e atualizar</button>
+      </div>
+
+      <div class="base-box">
+        <div class="key-row">
+          <div>
+            <div class="key-title">☁️ Planilha-base compartilhada</div>
+            <div class="muted small">Reports preenchidos e Audits importados de todos os usuários. Compartilhe com o e-mail acima como <b>Editor</b>.</div>
+            <div class="small" id="baseStatus"></div>
+          </div>
+          <a class="btn-ghost" id="baseOpen" href="#" target="_blank" rel="noopener">Abrir</a>
+        </div>
+        <label class="user-row">Seu nome (aparece em cada gravação)
+          <input id="cfgUser" type="text" maxlength="60" placeholder="Ex.: Yuri Souza" autocomplete="name">
+        </label>
+      </div>
+
+      <button type="button" class="help-link" id="cfgHelp">📘 Passo a passo detalhado e problemas comuns</button>
+
+      <details class="adv">
+        <summary>Avançado: chave de acesso</summary>
+        <div class="key-box">
+          <div class="key-row">
+            <div>
+              <div class="key-title">Chave da conta de serviço</div>
+              <div class="muted" id="cfgKeyInfo">Nenhuma chave selecionada</div>
+            </div>
+            <div class="key-actions">
+              <button type="button" class="btn-ghost" id="cfgPickKey">Selecionar .json</button>
+              <button type="button" class="btn-ghost" id="cfgRemoveKey" hidden>Remover</button>
+            </div>
+          </div>
+        </div>
+        <p class="muted small" id="cfgWhere"></p>
+      </details>
+    </form>
+  </dialog>
+
+  <dialog id="tutorial" class="tutorial">
+    <div class="tut">
+      <div class="tut-head">
+        <div>
+          <h2>Como conectar ou trocar a planilha</h2>
+          <p class="muted">A chave de acesso já vem dentro do aplicativo. Só falta liberar a planilha para o e-mail do app. Se a planilha mudar, repita os passos com a nova.</p>
+        </div>
+        <button type="button" class="icon-close" id="tutClose" aria-label="Fechar">✕</button>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <b>Copie o e-mail do aplicativo:</b> <code class="tut-email" id="tutEmail"></code>
+          <span class="tip">Também aparece em <b>Conectar planilha</b>, com o botão <b>Copiar e-mail</b>.</span>
+        </li>
+        <li>
+          <b>Compartilhe a planilha com esse e-mail.</b> Na planilha, clique em <b>Compartilhar</b>, cole o e-mail
+          (<b>Ctrl+V</b>), escolha <b>Leitor</b>, desmarque “Notificar pessoas” e clique em <b>Enviar</b>.
+          <span class="tip">Leitor é suficiente: o aplicativo só lê as planilhas mensais, nunca as altera.
+            A exceção é a <b>planilha-base</b> do app (reports e Audit), que precisa ser compartilhada como <b>Editor</b>.</span>
+        </li>
+        <li>
+          <b>Cole o link no mês certo.</b> Copie o endereço da planilha no navegador (<b>Ctrl+C</b>) e cole (<b>Ctrl+V</b> ou botão direito → Colar)
+          no campo do mês correspondente, escolhendo o ano no topo da lista. Clique em <b>Testar</b> e depois em <b>Salvar e atualizar</b>. Pronto! ✅
+          <span class="tip">Repita os passos 2 e 3 quando começar a planilha de um mês novo.</span>
+        </li>
+      </ol>
+
+      <div class="callout warn">
+        <b>⚠ Problemas comuns</b>
+        <ul>
+          <li><b>“Sem permissão”</b> → a planilha não foi compartilhada com o e-mail da chave (passo 2).</li>
+          <li><b>“Planilha não encontrada”</b> → confira o link colado no app.</li>
+          <li><b>“Google Sheets API não está ativada”</b> → ative a Google Sheets API no projeto da chave, em
+            <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">console.cloud.google.com</a>.</li>
+          <li><b>Não consigo compartilhar com o e-mail</b> → a planilha pode estar restrita ao domínio da empresa; fale com o TI.</li>
+        </ul>
+      </div>
+
+      <details class="callout">
+        <summary><b>Avançado: usar outra chave</b></summary>
+        <p style="margin-top:6px">Se precisar trocar a chave só neste computador, use <b>Usar outra chave</b> na configuração e escolha o arquivo
+        <code>.json</code> de outra conta de serviço. Para voltar à chave do aplicativo, clique em <b>Voltar à chave embutida</b>.</p>
+      </details>
+
+      <div class="settings-actions">
+        <button type="button" class="btn-primary" id="tutDone">Entendi</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="node_modules/chart.js/dist/chart.umd.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/sample-data.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/base.js"></script>
+  <script src="js/audit.js"></script>
+  <script src="js/reports.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

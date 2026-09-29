@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dashboard HUB LGO 03</string>
+    <string name="title_activity_main">Dashboard HUB LGO 03</string>
+    <string name="package_name">br.hub.lgo03.dashboard</string>
+    <string name="custom_url_scheme">br.hub.lgo03.dashboard</string>
+</resources>
