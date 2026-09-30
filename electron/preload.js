@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('hubApi', {
   baseAppend: (id, tab, rows) => ipcRenderer.invoke('base:append', id, tab, rows),
   reportsListLocal: () => ipcRenderer.invoke('reports:listLocal'),
   platform: 'desktop',
+  os: process.platform, // 'win32' | 'linux' | 'darwin'
+  driveList: folderId => ipcRenderer.invoke('drive:list', folderId),
+  openExternal: url => ipcRenderer.invoke('app:openExternal', url),
   reportGet: date => ipcRenderer.invoke('reports:get', date),
   reportSet: (date, data) => ipcRenderer.invoke('reports:set', date, data),
   auditList: () => ipcRenderer.invoke('audit:list'),

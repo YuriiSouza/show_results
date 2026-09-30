@@ -73,7 +73,7 @@
     const tokenUri = key.token_uri || 'https://oauth2.googleapis.com/token';
     const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
     const claim = b64url(enc.encode(JSON.stringify({
-      iss: key.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets',
+      iss: key.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
       aud: tokenUri, iat: now, exp: now + 3600,
     })));
     const cryptoKey = await crypto.subtle.importKey('pkcs8', pemToDer(key.private_key),
@@ -250,6 +250,18 @@
     fetchSheets,
     auditList, auditSave, auditDelete,
     baseEnsure, baseRead, baseAppend, reportsListLocal,
+    os: Cap.getPlatform(), // 'android' | 'ios'
+    async driveList(folderId) {
+      if (!/^[a-zA-Z0-9-_]{10,}$/.test(String(folderId || ''))) throw new Error('Pasta do Drive inválida.');
+      const { token } = await baseToken();
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+      const res = await httpFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink,modifiedTime,size)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+        { headers: { Authorization: 'Bearer ' + token } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body.error && body.error.message) || ('Erro do Drive ' + res.status));
+      return body.files || [];
+    },
+    openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),
     async reportGet(date) {
       try { return JSON.parse((await Filesystem.readFile({ path: `reports/${date}.json`, directory: DATA, encoding: 'utf8' })).data); }

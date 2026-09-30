@@ -22,7 +22,7 @@ let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/,
   `<meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor: https://localhost; ` +
   `script-src 'self' 'unsafe-inline' capacitor: https://localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; ` +
-  `connect-src 'self' capacitor: https://localhost https://oauth2.googleapis.com https://sheets.googleapis.com; object-src 'none'; base-uri 'none'">`);
+  `connect-src 'self' capacitor: https://localhost https://oauth2.googleapis.com https://sheets.googleapis.com https://www.googleapis.com; object-src 'none'; base-uri 'none'">`);
 html = html.replace('width=device-width, initial-scale=1', 'width=device-width, initial-scale=1, viewport-fit=cover');
 html = html.replace('<script src="js/audit.js"></script>', '<script src="js/mobile-api.js"></script>\n  <script src="js/audit.js"></script>');
 fs.writeFileSync(path.join(out, 'index.html'), html);

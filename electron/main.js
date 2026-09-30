@@ -60,7 +60,7 @@ async function accessToken(key) {
   const claim = b64url(JSON.stringify({
     iss: key.client_email,
     // Leitura das planilhas mensais + escrita na planilha-base compartilhada do app.
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
     aud: key.token_uri || 'https://oauth2.googleapis.com/token',
     iat: now, exp: now + 3600,
   }));
@@ -224,6 +224,21 @@ const reportFile = date => {
 };
 ipcMain.handle('reports:get', (_e, date) => readJson(reportFile(date), {}));
 ipcMain.handle('reports:set', (_e, date, data) => { writePrivate(reportFile(date), JSON.stringify(data || {})); return true; });
+
+// ---------- Atualizações: lista os arquivos da pasta do Drive com os instaladores ----------
+ipcMain.handle('drive:list', async (_e, folderId) => {
+  if (!/^[a-zA-Z0-9-_]{10,}$/.test(String(folderId || ''))) throw new Error('Pasta do Drive inválida.');
+  const key = readKey();
+  if (!key) throw new Error('App sem chave de acesso.');
+  const token = await accessToken(key);
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+  const res = await httpFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink,modifiedTime,size)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+    { headers: { Authorization: 'Bearer ' + token } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body.error && body.error.message) || ('Erro do Drive ' + res.status));
+  return body.files || [];
+});
+ipcMain.handle('app:openExternal', (_e, url) => { if (/^https:\/\//.test(String(url))) shell.openExternal(url); });
 
 // ---------- IPC ----------
 ipcMain.handle('config:get', () => publicConfig());
