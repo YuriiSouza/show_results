@@ -1056,6 +1056,8 @@
   }
 
   bind();
+  $('appVersion').textContent = window.APP_VERSION || '—';
+  window.Updater.start();
   setAuto(LS.get('auto', String(C.AUTO_REFRESH_MIN || 0)));
   refresh({ silent: true });
 })();

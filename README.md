@@ -34,6 +34,8 @@ O que a aba mostra:
 
 ## Instalar
 
+> **Publicar uma nova versão e avisar todos os usuários:** veja o passo a passo em [DEPLOY.md](DEPLOY.md).
+
 Os instaladores ficam em `dist/`:
 
 | Sistema | Arquivo | Como usar |

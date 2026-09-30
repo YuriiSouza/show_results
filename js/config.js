@@ -18,12 +18,10 @@ window.APP_CONFIG = {
   // importados, para todos os usuários verem. Compartilhe com o e-mail acima como EDITOR.
   BASE_SHEET_URL: 'https://docs.google.com/spreadsheets/d/10e4zgv7kzpx8L4Gbx1TJUgmnBr3-ccSm_ty_JXvByIU/edit',
 
-  // Pasta do Google Drive com os instaladores do app. O app verifica se há versão mais nova
-  // pelo nome dos arquivos (ex.: Dashboard-HUB-LGO03-1.0.1-Windows-Instalador.exe / ...-Android.apk).
+  // Pasta do Google Drive com os instaladores do app (fixa). Ao abrir, o app verifica se há versão
+  // mais nova pelo nome dos arquivos (ex.: Dashboard-HUB-LGO03-1.0.1-Windows-Instalador.exe / ...-Android.apk).
   // Compartilhe a pasta com o e-mail acima como Leitor.
-  DRIVE_FOLDER_URL: '',
-  // Intervalo entre verificações de atualização (minutos).
-  UPDATE_CHECK_MIN: 30,
+  DRIVE_FOLDER_URL: 'https://drive.google.com/drive/folders/1enqpqllLcUkMDKoxi2QqoKmHhpFtJfaj',
 
   // Nome das guias da planilha. Ajuste se renomear alguma.
   SHEETS: {
