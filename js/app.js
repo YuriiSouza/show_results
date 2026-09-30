@@ -364,24 +364,30 @@
   function renderOverview() {
     const m = state.model, i = tabRef(state.model.rec.total), n = idx().length;
     const r = m.rec, t = m.hc.total, tr = m.tr;
-    const pctAbsDay = ratio(t.abs[i] || 0, t.presente[i]);
-    const tdpAged = m.inv.total[i] ? m.inv.aging.slice(2).reduce((s, a) => s + (a.data[i] || 0), 0) / m.inv.total[i] : null;
+    // Cada indicador usa o último dia do período em que ELE tem valor
+    // (ex.: Rotas e DS podem estar lançados só até o dia anterior ao volume).
+    const at = arr => { for (let j = state.to; j >= state.from; j--) if (hasVal(arr[j])) return j; return i; };
+    const dayTag = j => (j !== i ? `<span class="kpi-day" title="Último dia com este indicador lançado">${m.dates[j].slice(0, 5)}</span>` : '');
+    const iR = at(r.total), iX = at(r.packedXpt), iH = at(t.presente), iP = at(m.phd.phd), iT = at(tr.rotas),
+      iD = at(tr.ds), iD0 = at(tr.dsD0), iI = at(m.inv.total), iM = at(m.inv.ma.T1.total), iO = at(m.rev.onHold);
+    const pctAbsDay = ratio(t.abs[iH] || 0, t.presente[iH]);
+    const tdpAged = m.inv.total[iI] ? m.inv.aging.slice(2).reduce((s, a) => s + (a.data[iI] || 0), 0) / m.inv.total[iI] : null;
 
     main.innerHTML = head('Visão geral', periodText()) +
       `<div class="kpis">${[
-        kpi('Volume recebido', f.int(r.total[i]), [delta(r.total[i], r.total, i),
-          r.aderencia[i] != null ? status(r.aderencia[i] >= META.aderenciaMin, `${f.pct(r.aderencia[i])} do projetado`) : '']),
+        kpi('Volume recebido', f.int(r.total[iR]), [dayTag(iR), delta(r.total[iR], r.total, iR),
+          r.aderencia[iR] != null ? status(r.aderencia[iR] >= META.aderenciaMin, `${f.pct(r.aderencia[iR])} do projetado`) : '']),
         kpi('Volume no período', f.int(sum(r.total)), [sub(`Média ${f.int(avgPos(r.total))}/dia`)]),
-        kpi('Packed XPT', f.int(r.packedXpt[i]), [sub(`${f.pct(r.pctXpt[i])} do volume`)]),
-        kpi('HC presente', f.int(t.presente[i]), [sub(`AM ${f.int(m.hc.am.presente[i])} · PM ${f.int(m.hc.pm.presente[i])}`),
+        kpi('Packed XPT', f.int(r.packedXpt[iX]), [dayTag(iX), sub(`${f.pct(r.pctXpt[iX])} do volume`)]),
+        kpi('HC presente', f.int(t.presente[iH]), [dayTag(iH), sub(`AM ${f.int(m.hc.am.presente[iH])} · PM ${f.int(m.hc.pm.presente[iH])}`),
           pctAbsDay != null ? status(pctAbsDay <= META.absMax, `ABS ${f.pct(pctAbsDay)}`) : '']),
-        kpi('PHD', f.int(m.phd.phd[i]), [delta(m.phd.phd[i], m.phd.phd, i), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
-        kpi('Rotas', f.int(tr.rotas[i]), [delta(tr.rotas[i], tr.rotas, i), sub(`SPR ${f.dec(tr.spr[i])}`)]),
-        kpi('DS', f.pct(tr.ds[i], 2), [tr.ds[i] != null ? status(tr.ds[i] >= META.dsMin, `meta ${f.pct(META.dsMin, 0)}`) : '']),
-        kpi('DS D0', f.pct(tr.dsD0[i], 2), [tr.dsD0[i] != null ? status(tr.dsD0[i] >= META.dsD0Min, `meta ${f.pct(META.dsD0Min, 0)}`) : '']),
-        kpi('Inventário TDP', f.int(m.inv.total[i]), [sub(`${f.pct(tdpAged)} com 3+ dias`)]),
-        kpi('Macro Aging T1', f.int(m.inv.ma.T1.total[i]), [sub(`Backlog ${f.int(m.inv.ma.T1.backlog[i])} · Lost ${f.int(m.inv.ma.T1.lost[i])}`)]),
-        kpi('On Hold', f.int(m.rev.onHold[i]), [delta(m.rev.onHold[i], m.rev.onHold, i), sub(`Retorno SOC ${f.int(m.rev.retornoSoc[i])}`)]),
+        kpi('PHD', f.int(m.phd.phd[iP]), [dayTag(iP), delta(m.phd.phd[iP], m.phd.phd, iP), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
+        kpi('Rotas', f.int(tr.rotas[iT]), [dayTag(iT), delta(tr.rotas[iT], tr.rotas, iT), sub(`SPR ${f.dec(tr.spr[iT])}`)]),
+        kpi('DS', f.pct(tr.ds[iD], 2), [dayTag(iD), tr.ds[iD] != null ? status(tr.ds[iD] >= META.dsMin, `meta ${f.pct(META.dsMin, 0)}`) : '']),
+        kpi('DS D0', f.pct(tr.dsD0[iD0], 2), [dayTag(iD0), tr.dsD0[iD0] != null ? status(tr.dsD0[iD0] >= META.dsD0Min, `meta ${f.pct(META.dsD0Min, 0)}`) : '']),
+        kpi('Inventário TDP', f.int(m.inv.total[iI]), [dayTag(iI), sub(`${f.pct(tdpAged)} com 3+ dias`)]),
+        kpi('Macro Aging T1', f.int(m.inv.ma.T1.total[iM]), [dayTag(iM), sub(`Backlog ${f.int(m.inv.ma.T1.backlog[iM])} · Lost ${f.int(m.inv.ma.T1.lost[iM])}`)]),
+        kpi('On Hold', f.int(m.rev.onHold[iO]), [dayTag(iO), delta(m.rev.onHold[iO], m.rev.onHold, iO), sub(`Retorno SOC ${f.int(m.rev.retornoSoc[iO])}`)]),
       ].join('')}</div>
       <div class="grid">
         ${card('ovVolume', 'Volume real × projetado', 'Recebimento total por dia', { w: 8 })}

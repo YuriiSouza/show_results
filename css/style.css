@@ -604,3 +604,10 @@ body.audit-mode .range-ref { display: none; }
 .no-data { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; justify-content: space-between; margin-bottom: 14px;
   padding: 12px 16px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); font-size: 14px; }
 .no-data .btn-primary { padding: 7px 14px; font-size: 13px; }
+.kpi-day { font-size: 11px; font-weight: 700; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+
+/* HSE: nome encolhe com "…" e o status fica sempre inteiro dentro do card */
+.checklist li { min-width: 0; }
+.checklist .name { flex: 1 1 auto; min-width: 0; }
+.checklist .pill { flex: none; }
+.card .cal { max-width: 100%; }
