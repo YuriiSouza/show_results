@@ -1,7 +1,7 @@
 {
   "name": "hub-lgo03-dashboard",
   "productName": "Dashboard HUB LGO 03",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Painel operacional do HUB LGO 03 lido da planilha Google Sheets",
   "author": "Yuri Peixoto de Souza",
   "license": "UNLICENSED",
@@ -9,6 +9,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "dist:win": "electron-builder --win --x64",
     "dist:linux": "electron-builder --linux --x64",
     "dist": "electron-builder --win --linux --x64",
@@ -34,6 +35,7 @@
       "electron/credentials/service-account.json",
       "electron/preload.js",
       "electron/main.js",
+      "electron/parcel.js",
       "build/icon.png",
       "node_modules/chart.js/dist/chart.umd.js",
       "node_modules/@fontsource/inter/files/inter-latin-*-normal.woff2"

@@ -23,4 +23,9 @@ contextBridge.exposeInMainWorld('hubApi', {
   auditList: () => ipcRenderer.invoke('audit:list'),
   auditSave: rep => ipcRenderer.invoke('audit:save', rep),
   auditDelete: (date, shift) => ipcRenderer.invoke('audit:delete', { date, shift }),
+  parcelSetSession: curl => ipcRenderer.invoke('parcel:setSession', curl),
+  parcelClearSession: () => ipcRenderer.invoke('parcel:clearSession'),
+  parcelHasSession: () => ipcRenderer.invoke('parcel:hasSession'),
+  parcelTrack: code => ipcRenderer.invoke('parcel:track', code),
+  parcelAt: at => ipcRenderer.invoke('parcel:at', at),
 });

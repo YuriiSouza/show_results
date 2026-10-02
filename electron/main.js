@@ -290,6 +290,9 @@ ipcMain.handle('config:removeKey', () => {
 
 ipcMain.handle('sheets:fetch', (_e, { sheets, override } = {}) => fetchSheets(sheets, override));
 
+// Rastreio do SPX (aba Parcel): a sessão colada pelo usuário fica só na memória.
+require('./parcel').register(ipcMain);
+
 // ---------- Janela ----------
 function createWindow() {
   const win = new BrowserWindow({

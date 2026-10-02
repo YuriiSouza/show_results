@@ -42,6 +42,9 @@ window.APP_CONFIG = {
     auditShift: { T3: 'AM', T1: 'PM1' }, // turno do relatório Audit que corresponde a cada turno do report
   },
 
+  // Aba Parcel: estação do hub usada para achar a chegada e o missing no rastreio do SPX.
+  PARCEL: { stationName: 'LM Hub_GO_Anápolis', stationId: 9657 },
+
   // Metas usadas para colorir indicadores (✓ / ⚠). Ajuste conforme a operação.
   METAS: {
     absMax: 0.05,       // % ABS máximo

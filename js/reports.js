@@ -74,6 +74,44 @@ window.Reports = (() => {
     return null;
   }
 
+  // ---------- Dia do report (setas + calendário) ----------
+  // Qualquer dia pode ser aberto, mesmo sem dados nas guias: os campos ficam vazios para preencher à mão.
+  const pad = n => String(n).padStart(2, '0');
+  const dmy = dt => `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+  const toDate = d => { const [dd, mm, yy] = d.split('/').map(Number); return new Date(yy, mm - 1, dd); };
+  const addDays = (d, n) => { const x = toDate(d); x.setDate(x.getDate() + n); return dmy(x); };
+  const today = () => new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const dayLabel = d => `${toDate(d).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '').replace(/^./, c => c.toUpperCase())}, ${d}`;
+  const cal = { open: false, view: null }; // view = 1º dia do mês mostrado
+  function calHtml(sel) {
+    const m = ui.model(), vol = m.rec.total;
+    const withData = new Set(m.dates.filter((_, i) => vol[i] != null && vol[i] !== 0));
+    const mm = cal.view.getMonth(), yy = cal.view.getFullYear(), days = new Date(yy, mm + 1, 0).getDate(), now = today();
+    const cells = [];
+    for (let k = 0; k < cal.view.getDay(); k++) cells.push('<span></span>');
+    for (let dd = 1; dd <= days; dd++) {
+      const key = `${pad(dd)}/${pad(mm + 1)}/${yy}`;
+      const cls = ['cd', key === sel ? 'start end' : '', withData.has(key) ? 'data' : '', key === now ? 'today' : ''].join(' ');
+      cells.push(`<button class="${cls}" data-rp-pick="${key}" title="${key}${withData.has(key) ? '' : ' · sem volume nas guias'}">${dd}</button>`);
+    }
+    const name = cal.view.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
+    return `<div class="cal-month"><div class="cal-nav">
+        <button class="cal-arrow" data-rp-cal="-1" aria-label="Mês anterior">‹</button>
+        <div class="cal-title">${name}</div>
+        <button class="cal-arrow" data-rp-cal="1" aria-label="Próximo mês">›</button>
+      </div><div class="cal-grid">${['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(w => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div></div>
+      <div class="rp-cal-foot"><span class="range-hint"><span class="dot-data"></span> = dia com volume nas guias</span>
+        <button class="tool" data-rp-pick="${now}">Hoje</button></div>`;
+  }
+  function openCal(on) {
+    const pop = document.getElementById('rpCal'), btn = document.querySelector('[data-rp-calbtn]');
+    cal.open = !!(on && pop && current);
+    if (!pop) return;
+    if (cal.open) { const x = toDate(current.day.d); cal.view = new Date(x.getFullYear(), x.getMonth(), 1); pop.innerHTML = calHtml(current.day.d); }
+    pop.hidden = !cal.open;
+    if (btn) btn.setAttribute('aria-expanded', String(cal.open));
+  }
+
   // ---------- Definição dos campos de cada report ----------
   // Campo: { id, label, icon, auto, area, hint }. auto = valor inicial com origem (ou null).
   async function build(kind, day) {
@@ -275,7 +313,7 @@ window.Reports = (() => {
       <div class="rf-box">${control}${reset}</div></div>`;
   }
 
-  function reportHtml(def, r, day, narrow) {
+  function reportHtml(def, r, day, flow) {
     const secHtml = (s, idx) => `<section class="rs" data-sec="${idx}"><h3>${s.icon} ${esc(s.title)}${s.summary ? `<span class="rs-sum">${esc(s.summary(r.vals) || '')}</span>` : ''}</h3>
       <div class="rs-rows">${s.fields.map(fd => fieldHtml(fd, r)).join('')}</div></section>`;
     const table = def.table ? `<section class="rs rs-table"><h3>${def.table.icon} ${esc(def.table.title)}</h3>
@@ -297,14 +335,16 @@ window.Reports = (() => {
       body = `<div class="rpx-body rpx-grid2">${table}${secHtml(hor, 0)}${secHtml(qtd, 1)}${obsHtml.replace('rpx-obs', 'rpx-obs rs')}</div>`;
     } else {
       // Distribui as seções em colunas de altura parecida; os blocos esticam até o fim da coluna.
-      const n = narrow ? 2 : 4;
+      const n = 4;
       const cols = Array.from({ length: n }, () => ({ h: 0, items: [] }));
       def.sections.forEach((sec, idx) => {
         const c = cols.reduce((a, b) => (b.h < a.h ? b : a));
         c.items.push(secHtml(sec, idx));
         c.h += sec.fields.length + 1.6;
       });
-      body = `<div class="rpx-body rpx-colgrid" style="grid-template-columns: repeat(${n}, minmax(0, 1fr))">${cols.map(c => `<div class="rcol">${c.items.join('')}</div>`).join('')}</div>${obsHtml}`;
+      // Tela estreita (celular): uma coluna só, na ordem do report, com rolagem.
+      body = flow ? `<div class="rpx-body">${def.sections.map(secHtml).join('')}</div>${obsHtml}`
+        : `<div class="rpx-body rpx-colgrid" style="grid-template-columns: repeat(${n}, minmax(0, 1fr))">${cols.map(c => `<div class="rcol">${c.items.join('')}</div>`).join('')}</div>${obsHtml}`;
     }
     return `<div class="rpx rpx-${def.layout}">
       <div class="rpx-head"><div><div class="rpx-title">${esc(def.title)} · ${esc(C.HUB_NAME)}</div><div class="rpx-sub">${esc(def.sub)}</div></div>
@@ -320,7 +360,8 @@ window.Reports = (() => {
   }
   function legendHtml(r) {
     const c = counts(r);
-    return `${c.missing ? `<button class="rp-missing" data-rp-next title="Ir para o primeiro campo sem valor">* ${c.missing} sem valor</button>` : '<span class="rp-done">✓ Report completo</span>'}
+    return `${c.auto ? '' : '<span class="rp-nodata" title="Este dia não tem dados lançados nas guias: preencha os campos à mão">📭 Dia sem dados nas guias</span>'}
+      ${c.missing ? `<button class="rp-missing" data-rp-next title="Ir para o primeiro campo sem valor">* ${c.missing} sem valor</button>` : '<span class="rp-done">✓ Report completo</span>'}
       <span class="lg lg-auto"><i></i>das guias</span><span class="lg lg-calc"><i></i>calculado</span><span class="lg"><b class="req">*</b> sem valor</span>`;
   }
 
@@ -329,6 +370,7 @@ window.Reports = (() => {
     const stage = document.getElementById('rpStage');
     const rp = stage && stage.querySelector('.rpx');
     if (!rp) return;
+    if (stage.classList.contains('flow')) { rp.style.transform = ''; rp.style.left = ''; stage.style.height = ''; return; }
     rp.style.transform = 'none';
     const availW = stage.clientWidth;
     const availH = Math.max(220, window.innerHeight - stage.getBoundingClientRect().top - 12);
@@ -385,8 +427,8 @@ window.Reports = (() => {
     bindOnce();
     const my = ++seq;
     const m = ui.model();
-    if (!m || !m.dates.length) { ui.main.innerHTML = ui.empty('Sem dados.'); return; }
-    const d = m.dates[ui.dayIdx()];
+    if (!m) { ui.main.innerHTML = ui.empty('Sem dados.'); return; }
+    const d = ui.day();
     const day = await loadDay(d);
     // O Geral usa os valores efetivos dos fechamentos T1 e T3 do mesmo dia.
     if (KINDS[kind].type === 'geral') {
@@ -397,28 +439,32 @@ window.Reports = (() => {
     const edits = day.all[kind] || {};
     const r = resolve(def, edits);
     r.meta = (day.meta || {})[kind] || {};
-    current = { kind, day, def, r };
-    const i = ui.dayIdx();
-    const narrow = ui.main.clientWidth < 760;
+    const flow = isFlow();
+    current = { kind, day, def, r, flow };
+    cal.open = false;
     ui.main.innerHTML = `
-      <div class="rp-toolbar">
+      <div class="rp-toolbar ${flow ? 'flow' : ''}">
         <div class="rp-day">
-          <button class="cal-arrow" data-rp-day="-1" ${i <= 0 ? 'disabled' : ''} aria-label="Dia anterior">‹</button>
-          <div><span class="range-cap">Dia do report</span><b>${esc(d)}</b></div>
-          <button class="cal-arrow" data-rp-day="1" ${i >= m.dates.length - 1 ? 'disabled' : ''} aria-label="Próximo dia">›</button>
+          <button class="cal-arrow" data-rp-day="-1" aria-label="Dia anterior">‹</button>
+          <button class="rp-day-btn" data-rp-calbtn aria-haspopup="dialog" aria-expanded="false" aria-controls="rpCal" title="Escolher o dia no calendário">
+            <span class="range-cap">Dia do report</span><b>${esc(dayLabel(d))} <span class="rp-day-caret">▾</span></b></button>
+          <button class="cal-arrow" data-rp-day="1" aria-label="Próximo dia">›</button>
+          <div class="range-pop rp-cal" id="rpCal" role="dialog" aria-label="Escolher o dia do report" hidden></div>
         </div>
         <div class="rp-legend" id="rpLegend">${legendHtml(r)}</div>
         <div id="rpSync">${syncHtml(r.meta)}</div>
         <div class="rp-tools">
-          <span class="rp-unsaved" id="rpUnsaved"></span>
-          <button class="btn-primary solid rp-save" data-rp-save id="rpSave" disabled>Salvar</button>
+          ${flow ? '' : `<span class="rp-unsaved" id="rpUnsaved"></span>
+          <button class="btn-primary solid rp-save" data-rp-save id="rpSave" disabled>Salvar</button>`}
           <button class="tool" data-rp-refresh title="Buscar na planilha-base o que outros usuários salvaram">↻ Atualizar</button>
           <button class="tool" data-rp-sources>Fontes</button>
           <button class="tool" data-rp-clear title="Voltar todos os campos aos valores das guias (vale depois de Salvar)">Limpar edições</button>
-          <button class="tool ${zoom ? 'active' : ''}" data-rp-zoom>${zoom ? 'Ajustar à tela' : 'Ampliar'}</button>
+          ${flow ? '' : `<button class="tool ${zoom ? 'active' : ''}" data-rp-zoom>${zoom ? 'Ajustar à tela' : 'Ampliar'}</button>`}
         </div>
       </div>
-      <div class="rp-stage ${narrow ? 'narrow' : ''}" id="rpStage">${reportHtml(def, r, day, narrow)}</div>`;
+      <div class="rp-stage ${flow ? 'flow' : ''}" id="rpStage">${reportHtml(def, r, day, flow)}</div>
+      ${flow ? `<div class="rp-savebar" id="rpSavebar" hidden><span class="rp-unsaved" id="rpUnsaved"></span>
+        <button class="btn-primary solid" data-rp-save id="rpSave">Salvar</button></div>` : ''}`;
     updateUnsaved();
     requestAnimationFrame(fit);
   }
@@ -429,7 +475,10 @@ window.Reports = (() => {
     const el = document.getElementById('rpUnsaved'), btn = document.getElementById('rpSave');
     if (el) el.textContent = n ? `● ${n} alteração(ões) não salva(s)` : '';
     if (btn) btn.disabled = !n;
+    const bar = document.getElementById('rpSavebar');
+    if (bar) bar.hidden = !n;
   }
+  const isFlow = () => ui.main.clientWidth < 760;
 
   // Guarda a alteração no rascunho (não grava na planilha) e atualiza o report sem perder o foco.
   function setValue(id, value) {
@@ -511,7 +560,16 @@ window.Reports = (() => {
       const kind = active();
       if (!kind) return;
       const day = e.target.closest('[data-rp-day]');
-      if (day) { ui.setDay(ui.dayIdx() + Number(day.dataset.rpDay)); return; }
+      if (day) { ui.setDay(addDays(ui.day(), Number(day.dataset.rpDay))); return; }
+      if (e.target.closest('[data-rp-calbtn]')) { openCal(!cal.open); return; }
+      const pick = e.target.closest('[data-rp-pick]');
+      if (pick) { ui.setDay(pick.dataset.rpPick); return; }
+      const nav = e.target.closest('[data-rp-cal]');
+      if (nav && current) {
+        cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth() + Number(nav.dataset.rpCal), 1);
+        document.getElementById('rpCal').innerHTML = calHtml(current.day.d);
+        return;
+      }
       if (e.target.closest('[data-rp-zoom]')) { zoom = !zoom; render(kind, ui); return; }
       if (e.target.closest('[data-rp-sources]')) { showSources(); return; }
       if (e.target.closest('[data-rp-save]')) { await saveDraft(); return; }
@@ -522,7 +580,7 @@ window.Reports = (() => {
       }
       if (e.target.closest('[data-rp-next]')) {
         const first = document.querySelector('#rpStage .st-missing .rf-in');
-        if (first) { if (!zoom) { zoom = true; await render(kind, ui); } const el = document.querySelector('#rpStage .st-missing .rf-in'); el.scrollIntoView({ block: 'center' }); el.focus(); }
+        if (first) { if (!zoom && !current.flow) { zoom = true; await render(kind, ui); } const el = document.querySelector('#rpStage .st-missing .rf-in'); el.scrollIntoView({ block: 'center' }); el.focus(); }
         return;
       }
       if (e.target.closest('[data-rp-clear]') && current) {
@@ -547,7 +605,13 @@ window.Reports = (() => {
       e.target.blur();
       if (next) next.focus();
     });
-    window.addEventListener('resize', () => { if (active()) fit(); });
+    // Fora do calendário: fecha. (O clique num dia redesenha a tela, então o alvo pode já ter saído dela.)
+    document.addEventListener('click', e => { if (cal.open && e.target.isConnected && !e.target.closest('.rp-day')) openCal(false); });
+    window.addEventListener('resize', () => {
+      const kind = active();
+      if (!kind) return;
+      if (current && current.flow !== isFlow()) render(kind, ui); else fit();
+    });
     if (window.Base) window.Base.onChange(() => { const el = document.getElementById('rpSync'); if (el && current) el.innerHTML = syncHtml(current.r.meta); });
     document.getElementById('rpSourcesClose').addEventListener('click', () => document.getElementById('rpSources').close());
   }
