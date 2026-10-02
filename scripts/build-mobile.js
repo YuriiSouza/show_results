@@ -24,7 +24,8 @@ html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/,
   `script-src 'self' 'unsafe-inline' capacitor: https://localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; ` +
   `connect-src 'self' capacitor: https://localhost https://oauth2.googleapis.com https://sheets.googleapis.com https://www.googleapis.com; object-src 'none'; base-uri 'none'">`);
 html = html.replace('width=device-width, initial-scale=1', 'width=device-width, initial-scale=1, viewport-fit=cover');
-html = html.replace('<script src="js/audit.js"></script>', '<script src="js/mobile-api.js"></script>\n  <script src="js/audit.js"></script>');
+// A ponte com o Google (window.hubApi) precisa existir ANTES dos módulos que a usam (base, audit, reports, app...).
+html = html.replace('<script src="js/config.js"></script>', '<script src="js/config.js"></script>\n  <script src="js/mobile-api.js"></script>');
 fs.writeFileSync(path.join(out, 'index.html'), html);
 
 const key = path.join(root, 'electron', 'credentials', 'service-account.json');
