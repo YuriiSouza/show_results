@@ -32,6 +32,35 @@ O que a aba mostra:
   ranking de operadores; lista de ATs com busca.
 - **Relatórios importados**: lista para abrir ou excluir cada relatório.
 
+## Parcel (relatório de contagem + rastreio no SPX)
+
+Aba **Parcel** (grupo Qualidade). Nada é gravado: relatório, resultado e sessão ficam só na memória, até fechar o app.
+
+1. **Importar relatório** de contagem do hub (`.tsv`, `.csv` ou `.xlsx`; também dá para arrastar o arquivo). Os códigos são lidos como texto.
+2. **Filtrar**: busca na coluna do código e filtro de múltipla escolha em cada coluna (atalho **Count Type = Missing**).
+   O contador mostra "X de Y linhas". Marque linhas específicas ou deixe sem seleção para usar todas as filtradas.
+3. **Consultar rastreio** (só no app desktop). Na primeira vez o app pede a **Sessão SPX**: no navegador, com o SPX logado,
+   F12 → Rede → Fetch/XHR → requisição `tracking_info` → *Copiar como cURL* → colar no app.
+   A consulta roda com no máximo 3 códigos ao mesmo tempo, tenta de novo em 429/5xx, tem limite de 15 s por tentativa,
+   pode ser cancelada, e um código com erro não derruba os outros. Código já consultado não é consultado de novo na mesma sessão.
+4. **Resultado** (exportável em CSV): operador do missing, AT anterior ao missing, gaiola, ID e nome do motorista e observações.
+
+São duas requisições ao SPX, as mesmas que o site faz:
+- **rastreio do pedido** (`/api/fleet_order/order/detail/tracking_info?shipment_id=…`): dele saem o operador do missing e a AT anterior;
+- **detalhe da AT** (`/spx_delivery/admin/assignment/assignment_task/detail?assignment_task_id=…`): dele saem a **gaiola**
+  (`corridor_cage`) e o **motorista** (`driver_id` / `driver_name`). É uma consulta por AT, reaproveitada por todos os pedidos dela.
+
+Regras (em `js/parcel-core.js`, testadas em `test/parcel.test.js` — `npm test`):
+missing = 1º evento a partir da chegada ao hub com status 581 ou "marked as missing"; AT anterior = última AT antes do missing
+(evento com status 49/50 ou o texto "em processamento na / adicionado à Assignment Task [AT…]"). ATs depois do missing não entram.
+Se o detalhe da AT falhar, o motorista é o do evento seguinte de status 2 no rastreio (por proximidade de horário), com aviso.
+O botão **Copiar JSON** de cada linha copia as duas respostas daquele código (sem cookies).
+
+> **Sessão do SPX:** o cURL colado vale como uma senha. Ele fica só na memória do processo do app (nunca em arquivo ou log)
+> e só os cabeçalhos `cookie`, `x-csrftoken`, `device-id`, `app`, `referer`, `user-agent`, `accept` e `accept-language`
+> são reaproveitados. As assinaturas `x-sap-*` não são enviadas; se o SPX recusar a consulta (401/403), o caminho é pedir
+> ao time do SPX uma exportação/API oficial em lote.
+
 ## Instalar
 
 > **Publicar uma nova versão e avisar todos os usuários:** veja o passo a passo em [DEPLOY.md](DEPLOY.md).
@@ -102,7 +131,8 @@ Sem link configurado, o app abre em **modo demonstração**, com dados fictício
 No menu **Reports** há cinco telas: **Parcial T1**, **Fechamento T1**, **Parcial T3**, **Fechamento T3** e **Report Geral**.
 T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o **acumulado do dia**.
 
-- **Dia do report:** último dia com dados do filtro de período; as setas ‹ › trocam o dia.
+- **Dia do report:** começa em hoje e não depende do filtro de período (que não aparece nos reports). As setas ‹ › trocam o dia e o
+  botão do dia abre um **calendário** para ir direto a qualquer data, inclusive dias **sem dados nas guias** (os campos ficam vazios para preencher à mão).
 - **Todos os campos são editáveis.** O valor inicial vem só das guias de dados (as guias Report T1/T3/All **não** são usadas).
   Campos sem informação ficam vazios com um ***** ao lado do nome. O que foi digitado fica salvo por dia.
   O que é digitado fica salvo por dia, só no aparelho.
@@ -113,7 +143,8 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
   tudo às guias (também só vale depois de Salvar).
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos: atestado soma T1 + T3,
   Carregamento T1/T3 vêm de cada fechamento e o Carregamento médio é calculado.
-- Cada report é ajustado para caber na tela; **Ampliar** encaixa pela largura (útil para digitar no celular).
+- No computador o report é ajustado para caber na tela (**Ampliar** encaixa pela largura). No celular ele vira uma **coluna única com rolagem**,
+  com campos grandes e o botão **Salvar** fixo no rodapé quando há alterações.
 
 ## Planilha-base compartilhada (reports e Audit de todos os usuários)
 

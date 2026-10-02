@@ -158,6 +158,26 @@
     </form>
   </dialog>
 
+  <input id="pcFile" type="file" accept=".tsv,.csv,.txt,.xlsx" hidden>
+  <dialog id="parcelDlg">
+    <form method="dialog" class="settings">
+      <h2>Sessão do SPX</h2>
+      <p class="muted">O rastreio é consultado com a <b>sua</b> sessão do SPX. No navegador, com o SPX aberto e logado:
+        <b>F12 → Rede (Network) → Fetch/XHR</b>, abra o rastreio de um pedido, clique com o botão direito na requisição
+        <code>tracking_info</code> → <b>Copiar → Copiar como cURL</b> e cole abaixo.</p>
+      <textarea id="pcCurl" rows="7" spellcheck="false" autocomplete="off" aria-label="cURL copiado do SPX"
+        placeholder="curl 'https://spx.shopee.com.br/api/fleet_order/order/detail/tracking_info?shipment_id=…' -H '…' -b '…'"></textarea>
+      <p class="muted small">🔒 A sessão fica só na memória do app, até ele ser fechado: não é gravada em arquivo nem enviada a nenhum
+        lugar além do SPX. Trate o cURL como uma senha — não cole em conversas, e-mails ou planilhas.</p>
+      <div class="settings-msg" id="pcMsg" role="status"></div>
+      <div class="settings-actions">
+        <button type="button" class="btn-ghost" id="pcForget" hidden>Esquecer sessão</button>
+        <button type="submit" class="btn-ghost" value="cancel" formnovalidate>Fechar</button>
+        <button type="button" class="btn-primary" id="pcSaveSession">Usar esta sessão</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="settings">
     <form method="dialog" class="settings">
       <h2>Conectar planilhas</h2>
@@ -303,6 +323,8 @@
   <script src="js/charts.js"></script>
   <script src="js/base.js"></script>
   <script src="js/audit.js"></script>
+  <script src="js/parcel-core.js"></script>
+  <script src="js/parcel.js"></script>
   <script src="js/reports.js"></script>
   <script src="js/updater.js"></script>
   <script src="js/app.js"></script>

@@ -25,6 +25,7 @@
     reversa: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
     transporte: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/>',
     audit: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
+    parcel: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
     qualidade: '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/>',
     hse: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
     rpP1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="12" cy="15" r="3"/><path d="M12 13.5V15l1 .8"/>',
@@ -41,6 +42,7 @@
     { id: 'transporte', group: 'Operação', label: 'Transporte', daily: true, render: renderTransporte },
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
     { id: 'qualidade', group: 'Qualidade', label: 'Missing (planilha)', daily: false, render: renderQualidade },
+    { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: false, render: () => window.Parcel.render(pcCtx) },
     { id: 'hse', group: 'Segurança', label: 'HSE', daily: false, render: renderHSE },
     { id: 'rpP1', group: 'Reports', label: 'Parcial T1', daily: true, report: true, render: () => window.Reports.render('rpP1', rpCtx) },
     { id: 'rpF1', group: 'Reports', label: 'Fechamento T1', daily: true, report: true, render: () => window.Reports.render('rpF1', rpCtx) },
@@ -321,8 +323,10 @@
 
   // Contexto usado pelos reports de turno (js/reports.js): o dia do report é o dia de referência do filtro.
   const rpCtx = {
-    main, empty, model: () => state.model, dayIdx: () => state.ref,
-    setDay: i => { const n = state.model.dates.length; const k = Math.max(0, Math.min(n - 1, i)); setRange(k, k); },
+    main, empty, model: () => state.model,
+    // Dia do report (dd/mm/aaaa): não depende do filtro de período nem de o dia ter dados nas guias.
+    day: () => state.rpDay || (state.rpDay = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })),
+    setDay: d => { state.rpDay = d; renderAll(); },
     isActive: id => state.tab === id,
     toast: (...a) => toast(...a),
   };
@@ -341,12 +345,15 @@
     },
   };
 
+  // Contexto usado pela aba Parcel (js/parcel.js).
+  const pcCtx = { main, card, head, empty, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel' };
+
   function renderAll() {
     if (!state.model) return;
     if (!TABS.some(t => t.id === state.tab)) state.tab = 'overview';
     renderTabs();
     const tab = TABS.find(t => t.id === state.tab);
-    $('filters').classList.toggle('hidden', !tab.daily);
+    $('filters').classList.toggle('hidden', !tab.daily || !!tab.report);
     document.body.classList.toggle('report-mode', !!tab.report);
     document.body.classList.toggle('audit-mode', tab.id === 'audit');
     H.destroyAll();

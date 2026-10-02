@@ -1,0 +1,80 @@
+{
+  "_nota": "FIXTURE SINTÉTICO: montado a partir da descrição do caso BR2698263380980 (horários, status, operadores e mensagens-chave). Substituir pelo JSON real do tracking_info quando estiver disponível; os testes devem continuar passando.",
+  "retcode": 0,
+  "message": "success",
+  "data": {
+    "shipment_id": "BR2698263380980",
+    "tracking_list": [
+      {
+        "timestamp": 1790637242,
+        "status": 658,
+        "message": "Parcel assigned to Driver",
+        "operator": "[111111]MOTORISTA FIRST MILE",
+        "station_name": "FM Hub_GO_Porto Seco",
+        "station_id": 10001
+      },
+      {
+        "timestamp": 1790668206,
+        "status": 880,
+        "message": "Pedido em transferência para o Last Mile Hub",
+        "operator": "ops.anapolis@shopee.com",
+        "station_name": "LM Hub_GO_Anápolis",
+        "station_id": 9657,
+        "children": [
+          {
+            "timestamp": 1790677027,
+            "status": 10,
+            "message": "Pedido chegou ao Last Mile Hub",
+            "operator": "ops.anapolis@shopee.com",
+            "station_name": "LM Hub_GO_Anápolis",
+            "station_id": 9657
+          },
+          {
+            "timestamp": 1790695403,
+            "status": 581,
+            "message": "Parcel marked as missing",
+            "operator": "natalia.lemos@shopee.com",
+            "station_name": "LM Hub_GO_Anápolis",
+            "station_id": 9657
+          }
+        ]
+      },
+      {
+        "timestamp": 1790775135,
+        "status": 418,
+        "message": "Pedido adicionado à Assignment Task [AT20260930AH6FH]",
+        "operator": "admin.xpt.jaragua@shopee.com",
+        "station_name": "XPT_GO_Jaraguá",
+        "station_id": 20001,
+        "children": [
+          {
+            "timestamp": 1790775193,
+            "status": 2,
+            "message": "Pedido em precesso de entrega. Motorista:[287595] FRANCISCO PROCOPIO DE MENEZES NETO; Contato: 00000000000",
+            "operator": "admin.xpt.jaragua@shopee.com",
+            "station_name": "XPT_GO_Jaraguá",
+            "station_id": 20001,
+            "event_children": [
+              {
+                "timestamp": 1790782910,
+                "status": 420,
+                "message": "Pedido transferido para o motorista 3.641563e+06",
+                "operator": "[3641563]RENATA MOREIRA DAMASCENO DE MENEZES",
+                "station_name": "XPT_GO_Jaraguá",
+                "station_id": 20001
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "timestamp": 1790788059,
+        "status": 4,
+        "message": "Pedido entregue",
+        "operator": "[3641563]RENATA MOREIRA DAMASCENO DE MENEZES",
+        "station_name": "XPT_GO_Jaraguá",
+        "station_id": 20001
+      }
+    ]
+  }
+}
