@@ -18,7 +18,8 @@
     "predist:linux": "node scripts/set-version.js && node scripts/check-key.js",
     "mobile:build": "node scripts/set-version.js && node scripts/build-mobile.js && npx cap sync",
     "mobile:ios": "npm run mobile:build && npx cap open ios",
-    "mobile:android": "npm run mobile:build && npx cap open android"
+    "mobile:android": "npm run mobile:build && npx cap open android",
+    "dev": "electron ."
   },
   "build": {
     "appId": "br.hub.lgo03.dashboard",

@@ -2,7 +2,10 @@
 // chegada / missing / AT / motorista a partir do JSON de rastreio do SPX.
 // Roda no app (window.ParcelCore) e no Node (testes em test/).
 const ParcelCore = (() => {
-  const DEFAULTS = { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, driverWindowSec: 30 * 60 };
+  // tzOffsetMin: fuso do hub em minutos (Brasília = -180), usado para achar a 00:00 do dia do missing.
+  const DEFAULTS = { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, driverWindowSec: 30 * 60, tzOffsetMin: -180 };
+  // Tira o identificador entre colchetes do começo do nome: "[ops123]FULANO" -> "FULANO".
+  const stripId = v => String(v == null ? '' : v).replace(/^\s*\[[^\]]*\]\s*/, '').trim();
   const CODE_RE = /^[A-Z0-9]{8,40}$/;
   const AT_RE = /Assignment Task \[(AT\w+)\]/;
   const DRIVER_RE = /Motorista:\s*\[(\d+)\]\s*([^;]+)/;
@@ -90,13 +93,14 @@ const ParcelCore = (() => {
   // Regras por código:
   // - chegada: 1º evento na estação do hub;
   // - missing: 1º evento a partir da chegada com status 581 ou "marked as missing";
-  // - AT anterior: última AT antes do missing (ATs depois do missing não entram);
+  // - AT anterior: última AT do DIA do missing — a partir de 00:00 (horário do hub) e antes do missing.
+  //   ATs de dias anteriores e ATs depois do missing não entram; sem AT no dia, a linha fica marcada (noAtToday);
   // - gaiola e motorista: vêm do detalhe da AT (outra requisição; ver rowOf). Sem o detalhe, o motorista é o do
   //   evento seguinte de status 2 ("Motorista:[ID] NOME"), até 30 min depois — vínculo por proximidade de horário.
   function extract(resp, opts) {
     const o = { ...DEFAULTS, ...(opts || {}) };
     const ev = flatten(resp);
-    const info = { events: ev.length, arrival: null, missing: null, atBefore: null, cageTop: cageTop(resp), notes: [] };
+    const info = { events: ev.length, arrival: null, missing: null, atBefore: null, noAtToday: false, lastOldAt: null, otherAt: null, cageTop: cageTop(resp), notes: [] };
     if (!ev.length) { info.notes.push('Rastreio sem eventos'); return info; }
 
     const arrival = ev.find(e => e.station === o.stationName || e.stationId === o.stationId);
@@ -125,8 +129,24 @@ const ParcelCore = (() => {
       return { code: at.code, ts: from, station: same[0].station, cage,
         driver: m ? { id: m[1], name: m[2].trim(), ts: d.ts } : null, transfers };
     };
-    const before = ats.filter(x => x.ts < missing.ts).pop();
-    if (before) info.atBefore = describe(before); else info.notes.push('Sem AT antes do missing');
+    const off = o.tzOffsetMin * 60;
+    const dayStart = Math.floor((missing.ts + off) / 86400) * 86400 - off;   // 00:00 do dia do missing, no fuso do hub
+    info.dayStart = dayStart;
+    // Só conta AT feita no hub. AT de outra estação (ex.: XPT_GO_Crixás) indica que o pacote é daquele XPT, não do hub.
+    const atHub = x => x.station === o.stationName || x.stationId === o.stationId;
+    const hubAts = ats.filter(atHub), others = ats.filter(x => !atHub(x));
+    const other = others.filter(x => x.ts >= missing.ts)[0] || others[others.length - 1];
+    if (other) info.otherAt = { code: other.code, ts: other.ts, station: other.station };
+    const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= dayStart).pop();
+    if (before) info.atBefore = describe(before);
+    else {
+      info.noAtToday = true;
+      const old = hubAts.filter(x => x.ts < dayStart).pop();
+      const dm = ts => { const d = new Date((ts + off) * 1000); return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
+      if (old) info.lastOldAt = { code: old.code, ts: old.ts };
+      info.notes.push('Sem AT no dia (desde 00:00)' + (old ? ` · última AT: ${old.code} em ${dm(old.ts)}` : ''));
+      if (info.otherAt) info.notes.push(`Pacote de outro XPT: ${info.otherAt.station} (AT ${info.otherAt.code} em ${dm(info.otherAt.ts)})`);
+    }
     return info;
   }
 
@@ -151,13 +171,24 @@ const ParcelCore = (() => {
     }
     return {
       code,
-      missingOperator: info.missing ? info.missing.operator : '',
+      missingOperator: info.missing ? stripId(info.missing.operator) : '',
+      missingTs: info.missing ? info.missing.ts : null,
+      noAt: !!info.missing && !at,
+      // Estação da AT quando o pacote é de outro XPT (não do hub). Vazio = pacote do hub.
+      xpt: !at && info.otherAt ? info.otherAt.station : '',
       atBefore: at ? at.code : '', cage, driverId, driverName,
       note: notes.join('; '),
     };
   }
 
-  return { DEFAULTS, CODE_RE, parseTable, flatten, extract, rowOf };
+  // Destino do pacote pelo Sort Code: o último trecho de "SOC-GO2--HUB-LGO-03--XPT-JRU-01" é "XPT-JRU-01";
+  // "SOC-GO2--HUB-LGO-03" é "HUB-LGO-03"; só "SOC-GO2" (sem hub) não tem destino.
+  function destOf(sortCode) {
+    const parts = String(sortCode || '').split('--').map(x => x.trim()).filter(Boolean);
+    return parts.length > 1 ? parts[parts.length - 1] : '';
+  }
+
+  return { DEFAULTS, CODE_RE, parseTable, flatten, extract, rowOf, stripId, destOf };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = ParcelCore;
 else window.ParcelCore = ParcelCore;

@@ -87,7 +87,7 @@ window.Charts = (() => {
     const valueAxis = {
       stacked, beginAtZero: yMin == null, min: yMin, max: yMax,
       grid: { color: css('--grid'), drawTicks: false }, border: { display: false },
-      ticks: { callback: v => yFormat(v), padding: 8, maxTicksLimit: 6 },
+      ticks: { callback: v => yFormat(v), padding: 8, maxTicksLimit: 6, ...(yFormat === fmt.int ? { precision: 0 } : {}) },
     };
     const catAxis = { stacked, grid: { display: false }, border: { color: css('--border') },
                       ticks: { autoSkip: true, maxRotation: 0, autoSkipPadding: 8 } };

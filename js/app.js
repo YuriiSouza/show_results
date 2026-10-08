@@ -67,9 +67,10 @@
   const shortMonth = key => { const [y, m] = key.split('-'); return `${MONTHS[+m - 1].slice(0, 3).toLowerCase()}/${y.slice(2)}`; };
 
   // Links configurados ({ 'AAAA-MM': link }). Um link antigo (antes da lista de meses) vale para o mês atual.
+  // Os links padrão do app (config.js) valem para todos; o que o usuário salvar para um mês tem prioridade.
   const configuredMonths = cfg => {
-    const months = { ...(cfg.months || {}) };
-    if (!Object.keys(months).length && cfg.spreadsheetUrl) months[ym(new Date())] = cfg.spreadsheetUrl;
+    const months = { ...(C.DEFAULT_MONTHS || {}), ...(cfg.months || {}) };
+    if (!Object.keys(cfg.months || {}).length && cfg.spreadsheetUrl) months[ym(new Date())] = cfg.spreadsheetUrl;
     return months;
   };
 
@@ -346,7 +347,7 @@
   };
 
   // Contexto usado pela aba Parcel (js/parcel.js).
-  const pcCtx = { main, card, head, empty, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel' };
+  const pcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel' };
 
   function renderAll() {
     if (!state.model) return;
@@ -359,6 +360,7 @@
     H.destroyAll();
     H.applyDefaults();
     tab.render();
+    balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
     if (tab.daily && !tab.report && tab.id !== 'audit' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
@@ -388,7 +390,7 @@
         kpi('Packed XPT', f.int(r.packedXpt[iX]), [dayTag(iX), sub(`${f.pct(r.pctXpt[iX])} do volume`)]),
         kpi('HC presente', f.int(t.presente[iH]), [dayTag(iH), sub(`AM ${f.int(m.hc.am.presente[iH])} · PM ${f.int(m.hc.pm.presente[iH])}`),
           pctAbsDay != null ? status(pctAbsDay <= META.absMax, `ABS ${f.pct(pctAbsDay)}`) : '']),
-        kpi('PHD', f.int(m.phd.phd[iP]), [dayTag(iP), delta(m.phd.phd[iP], m.phd.phd, iP), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
+        kpi('PHD', f.int(m.phd.phd[iP]), [dayTag(iP), phdPill(m.phd.phd[iP], m.phd.dw[iP]), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
         kpi('Rotas', f.int(tr.rotas[iT]), [dayTag(iT), delta(tr.rotas[iT], tr.rotas, iT), sub(`SPR ${f.dec(tr.spr[iT])}`)]),
         kpi('DS', f.pct(tr.ds[iD], 2), [dayTag(iD), tr.ds[iD] != null ? status(tr.ds[iD] >= META.dsMin, `meta ${f.pct(META.dsMin, 0)}`) : '']),
         kpi('DS D0', f.pct(tr.dsD0[iD0], 2), [dayTag(iD0), tr.dsD0[iD0] != null ? status(tr.dsD0[iD0] >= META.dsD0Min, `meta ${f.pct(META.dsD0Min, 0)}`) : '']),
@@ -500,6 +502,21 @@
                  H.ref(`Média ${f.pct(ratio(sum(r.packedXpt), sum(r.total)))}`, ratio(sum(r.packedXpt), sum(r.total)), n)] });
   }
 
+  // PHD: meta 457. Verde = na meta sem diaristas; amarelo = na meta com diaristas ou abaixo sem diaristas;
+  // vermelho = abaixo da meta com diaristas.
+  function phdState(v, dw) {
+    if (v == null) return null;
+    const ok = v >= META.phd, hasDw = (dw || 0) > 0;
+    return ok && !hasDw ? 'good' : !ok && hasDw ? 'bad' : 'warn';
+  }
+  function phdPill(v, dw) {
+    const s = phdState(v, dw);
+    if (!s) return '';
+    const txt = { good: `✓ meta ${META.phd} · sem diaristas`, bad: `⚠ abaixo de ${META.phd} com diaristas`,
+      warn: v >= META.phd ? `na meta ${META.phd} com diaristas` : `abaixo de ${META.phd} · sem diaristas` }[s];
+    return `<span class="pill ${s}">${txt}</span>`;
+  }
+
   // ---------- HC & PHD ----------
   function renderPessoas() {
     const m = state.model, t = m.hc.total, i = tabRef(m.hc.total.presente), n = idx().length;
@@ -511,15 +528,20 @@
         kpi('HC presente', f.int(t.presente[i]), [sub(`AM ${f.int(m.hc.am.presente[i])} · PM ${f.int(m.hc.pm.presente[i])}`), delta(t.presente[i], t.presente, i)]),
         kpi('% ABS no período', f.pct(absPer), [absPer != null ? status(absPer <= META.absMax, `meta ≤ ${f.pct(META.absMax, 0)}`) : '', sub(`${f.int(sum(t.abs))} ausências`)]),
         kpi('% DW no período', f.pct(dwPer), [sub(`${f.int(sum(t.diaristas))} diárias`)]),
-        kpi('PHD', f.int(m.phd.phd[i]), [delta(m.phd.phd[i], m.phd.phd, i), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
+        (() => {
+          // PHD: último dia do período com volume e pessoas lançados (pode ser anterior ao dia do HC).
+          let k = i; for (let j = state.to; j >= state.from; j--) if (m.phd.phd[j] != null) { k = j; break; }
+          return kpi('PHD', f.int(m.phd.phd[k]), [k !== i ? `<span class="kpi-day">${m.dates[k].slice(0, 5)}</span>` : '', phdPill(m.phd.phd[k], m.phd.dw[k]),
+            sub(`${f.int(m.rec.total[k])} pacotes ÷ ${f.int(m.phd.people[k] + m.phd.dw[k])} pessoas`)]);
+        })(),
         kpi('Quadro (HC)', f.int(t.hc[i]), [sub(`Desligados ${f.int(t.desligado[i])} · Afast. ${f.int(t.afastamento[i])}`)]),
       ].join('')}</div>
       <div class="grid">
         ${card('hcTurno', 'HC presente por turno', 'AM × PM')}
         ${card('hcAbs', '% ABS diário', `Ausências ÷ HC presente · meta ≤ ${f.pct(META.absMax, 0)}`)}
         ${card('hcComp', 'Composição das ausências', 'HC TOTAL: quem do quadro não estava na operação', { w: 12 })}
-        ${card('phd', 'PHD diário', 'Pacotes por hora/pessoa · tracejado = média', { w: 8 })}
-        ${card('phdWeek', 'PHD semanal', 'Guia PHD', { w: 4 })}
+        ${card('phd', 'PHD diário', `Pacotes recebidos ÷ (pessoas + diaristas) · meta ${META.phd}`, { w: 8 })}
+        ${card('phdWeek', 'PHD por semana', 'Pacotes da semana ÷ pessoas da semana (semanas do período)', { w: 4 })}
         ${card('hcQuadro', 'Quadro × presentes', 'HC total do quadro e presentes no dia')}
         ${card('hcDw', 'Diaristas', 'Diaristas por turno')}
       </div>`;
@@ -537,14 +559,33 @@
       H.bar('ABS', sl(t.abs), H.color(1)), H.bar('DSR', sl(t.dsr), H.color(2)), H.bar('Férias', sl(t.ferias), H.color(3)),
       H.bar('Desligado', sl(t.desligado), H.color(4)), H.bar('Afastamento', sl(t.afastamento), H.color(5)),
     ] });
-    const media = avgPos(m.phd.phd);
-    H.render('phd', { labels: labels(), datasets: [
-      H.bar('PHD', sl(m.phd.phd), H.color(1)), H.ref(`Média ${f.int(media)}`, media, n),
+    const pv = sl(m.phd.phd), pd = sl(m.phd.dw);
+    const only = st => pv.map((v, k) => (phdState(v, pd[k]) === st ? v : null));
+    H.render('phd', { labels: labels(), stacked: true, datasets: [
+      H.bar('Na meta, sem diaristas', only('good'), H.css('--good')),
+      H.bar('Na meta com diaristas / abaixo sem diaristas', only('warn'), H.color(4)),
+      H.bar('Abaixo da meta com diaristas', only('bad'), H.css('--bad')),
+      H.ref(`Meta ${META.phd}`, META.phd, n),
     ] });
-    const w = m.phd.semanas.filter(s => s.phd != null);
-    const wb = document.getElementById('phdWeek').closest('.chart-box');
-    if (w.length) H.render('phdWeek', { labels: w.map(s => s.semana), datasets: [H.bar('PHD', w.map(s => s.phd), H.color(1))] });
-    else wb.innerHTML = empty('Sem PHD semanal preenchido');
+    // Semanas (segunda a domingo) dentro do período: soma dos pacotes ÷ soma das pessoas.
+    const weeks = new Map();
+    idx().forEach(k => {
+      const [dd, mm, yy] = m.dates[k].split('/').map(Number);
+      const d = new Date(yy, mm - 1, dd), mon = new Date(d); mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const key = mon.toISOString().slice(0, 10);
+      const w = weeks.get(key) || { label: `${String(mon.getDate()).padStart(2, '0')}/${String(mon.getMonth() + 1).padStart(2, '0')}`, vol: 0, ppl: 0, dw: 0 };
+      const den = m.phd.people[k] + m.phd.dw[k];
+      if (m.rec.total[k] && den) { w.vol += m.rec.total[k]; w.ppl += den; w.dw += m.phd.dw[k]; }
+      weeks.set(key, w);
+    });
+    const wk = [...weeks.entries()].sort().map(([, w]) => ({ ...w, phd: w.ppl ? Math.round(w.vol / w.ppl) : null }));
+    const wOnly = st => wk.map(w => (phdState(w.phd, w.dw) === st ? w.phd : null));
+    H.render('phdWeek', { labels: wk.map(w => 'sem. ' + w.label), stacked: true, legend: false, datasets: [
+      H.bar('Na meta, sem diaristas', wOnly('good'), H.css('--good')),
+      H.bar('Atenção', wOnly('warn'), H.color(4)),
+      H.bar('Abaixo da meta com diaristas', wOnly('bad'), H.css('--bad')),
+      H.ref(`Meta ${META.phd}`, META.phd, wk.length),
+    ] });
     H.render('hcQuadro', { labels: labels(), datasets: [
       H.line('Quadro (HC)', sl(t.hc), H.color(2)), H.line('Presentes', sl(t.presente), H.color(1)),
     ] });
@@ -782,11 +823,10 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = 'toast'; }, err ? 6000 : 2500);
   }
 
-  function setAuto(min) {
+  // Atualização automática fixa (C.AUTO_REFRESH_MIN), igual em todos os aparelhos — sem escolha do usuário.
+  function setAuto() {
     clearInterval(state.timer);
-    min = Number(min) || 0;
-    LS.set('auto', String(min));
-    $('autoRefresh').value = String(min);
+    const min = Number(C.AUTO_REFRESH_MIN) || 0;
     if (min > 0) state.timer = setInterval(() => refresh({ silent: true }), min * 60000);
   }
 
@@ -803,7 +843,6 @@
     clearInterval(state.tvTimer);
     if (on) {
       if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
-      if (!(Number($('autoRefresh').value) > 0)) setAuto(5);
       state.tvTimer = setInterval(() => {
         const k = TABS.findIndex(t => t.id === state.tab);
         selectTab(TABS[(k + 1) % TABS.length].id);
@@ -824,7 +863,6 @@
     document.title = `Dashboard ${C.HUB_NAME}`;
 
     $('btnRefresh').addEventListener('click', () => refresh());
-    $('autoRefresh').addEventListener('change', e => setAuto(e.target.value));
     $('btnTheme').addEventListener('click', () => {
       const next = isDark() ? 'light' : 'dark';
       document.documentElement.dataset.theme = next; LS.set('theme', next);
@@ -1062,9 +1100,30 @@
     }));
   }
 
+  // Cards de indicadores: distribui em linhas equilibradas conforme a largura disponível
+  // (ex.: 6 cards onde cabem 5 viram 3 + 3, em vez de 5 + 1 com espaço sobrando).
+  function balanceKpis() {
+    document.querySelectorAll('.kpis:not(.au-kpis)').forEach(el => {
+      const n = el.children.length;
+      if (!n || !el.clientWidth) return;
+      const gap = parseFloat(getComputedStyle(el).columnGap) || 12;
+      const min = window.innerWidth <= 640 ? 150 : 190;
+      const fit = Math.max(1, Math.min(n, Math.floor((el.clientWidth + gap) / (min + gap))));
+      const perRow = Math.ceil(n / Math.ceil(n / fit));
+      const tpl = `repeat(${perRow}, minmax(0, 1fr))`;
+      if (el.style.gridTemplateColumns !== tpl) el.style.gridTemplateColumns = tpl;
+    });
+  }
+  // No máximo uma vez por quadro, sem reiniciar a espera (as animações dos gráficos não atrasam o ajuste).
+  let balQueued = false;
+  const queueBalance = () => { if (balQueued) return; balQueued = true; requestAnimationFrame(() => { balQueued = false; balanceKpis(); }); };
+  new MutationObserver(queueBalance).observe(main, { childList: true, subtree: true });
+  window.addEventListener('resize', queueBalance);
+  if (window.ResizeObserver) new ResizeObserver(queueBalance).observe(main);
+
   bind();
   $('appVersion').textContent = window.APP_VERSION || '—';
   window.Updater.start();
-  setAuto(LS.get('auto', String(C.AUTO_REFRESH_MIN || 0)));
+  setAuto();
   refresh({ silent: true });
 })();
