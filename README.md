@@ -1,7 +1,7 @@
 # Dashboard HUB LGO 03 — aplicativo desktop
 
 Aplicativo para **Windows e Linux** que lê a planilha Google Sheets do HUB e mostra os dados em dashboards (cores Shopee/SPX).
-A planilha continua sendo **só para digitação**; o app apenas lê. Clique em **Atualizar** ou ligue a atualização automática.
+A planilha continua sendo **só para digitação**; o app apenas lê. Clique em **Atualizar**; o app também atualiza sozinho a cada 30 minutos.
 
 **Privacidade:** não existe site nem link público. O app fala direto com a API do Google usando uma chave que fica
 **só no computador** onde foi configurado. A planilha continua privada: só é lida por quem estiver compartilhado nela.
@@ -94,6 +94,9 @@ instalador se o arquivo não estiver lá.
 > esse e-mail do compartilhamento da planilha e gere uma chave nova no Google Cloud.
 
 ## Conectar as planilhas (uma por mês)
+
+> As planilhas de **junho a dezembro de 2026** já vêm conectadas por padrão (`DEFAULT_MONTHS` em `js/config.js`).
+> Só é preciso usar esta tela para trocar o link de um mês ou incluir outros meses.
 
 Cada mês tem a sua planilha. A conexão fica sempre disponível no botão **Conectar planilhas**, no rodapé
 do menu lateral (bolinha verde = tudo ok, amarela = dados de exemplo, vermelha = algum mês com erro),
@@ -261,3 +264,30 @@ capacitor.config.json configuração do app mobile
 ios/, android/        projetos nativos gerados pelo Capacitor
 assets/logo.png       fonte dos ícones e da tela de abertura do app mobile
 ```
+
+## PHD (calculado)
+
+O PHD não vem mais da planilha: **PHD = pacotes recebidos ÷ (pessoas presentes AM + PM + diaristas)**.
+Meta **457** (`METAS.phd` em `js/config.js`):
+
+| Situação | Cor |
+|---|---|
+| Na meta, sem diaristas | verde |
+| Na meta, com diaristas | amarelo |
+| Abaixo da meta, sem diaristas | amarelo |
+| Abaixo da meta, com diaristas | vermelho |
+
+## Parcel: AT do dia e report diário
+
+- A **AT** de um pacote só vale se for **do dia do missing** (a partir de 00:00, horário de Brasília) e antes do missing.
+  Sem AT no dia, a linha fica destacada como **"Sem AT no dia"** (a observação mostra a última AT antiga, se houver).
+- O resultado tem indicadores, gráficos por motorista, gaiola e operador, e filtros por situação, motorista, gaiola e operador.
+- **Destino pelo Sort Code:** o último trecho do Sort Code é o destino do pacote
+  (`SOC-GO2--HUB-LGO-03--XPT-JRU-01` → `XPT-JRU-01`; `SOC-GO2--HUB-LGO-03` → hub). O app cria a coluna **Destino**,
+  usada nos filtros, no dashboard e no report. Destino diferente de `PARCEL.hubCode` = pacote de outro XPT/estação.
+- Só conta **AT feita no hub de Anápolis**. Se a AT do pacote é de outra estação (ex.: `XPT_GO_Crixás`),
+  o pacote **não é do hub**: fica marcado como **"Outro XPT"** com o nome da estação.
+- **Report do dia**: texto pronto com o botão **Copiar report**. Pacotes com AT do hub no dia saem como
+  "- Anápolis (Aguardando retorno do Driver)"; os de outro XPT saem com o nome da estação (ou a sigla definida em
+  `PARCEL.xptLabels`, ex.: `{ 'XPT_GO_Crixás': 'XPT-CRX-01' }`); os do hub sem AT saem como "Sem AT no dia".
+- O identificador entre colchetes dos operadores (`[ops123]`) não é mostrado, e colunas só com Y/N ficam ocultas.

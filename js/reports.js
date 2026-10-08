@@ -171,8 +171,9 @@ window.Reports = (() => {
         sections: [
           sec('vol', '📦', 'Volumetria', [
             F('rec', `Recebimento ${S2}`, g(m.rec[s], `Guia ${S.recebimento} · Recebimento ${S2}`)),
-            F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT (valor do dia, igual no T1 e no T3)`)),
-            F('phd', 'PHD do turno', g(m.phd.phd, `Guia ${S.phd} · PHD do dia (edite se o turno for diferente)`)),
+            // Packed XPT D+1 só existe no T1; o T3 não tem.
+            ...(t === 'T1' ? [F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT`))] : []),
+            F('phd', 'PHD do turno', i >= 0 && m.phd.phd[i] != null ? src(m.phd.phd[i], 'calc', 'PHD do dia: pacotes recebidos ÷ (pessoas + diaristas). Edite se o turno for diferente') : null),
           ]),
           sec('xpt', '🚚', 'Carregamento XPT', [
             F('xpt_plan', 'Planejados', null),
@@ -225,7 +226,7 @@ window.Reports = (() => {
           F('rec_am', 'Recebimento AM', g(m.rec.am, `Guia ${S.recebimento} · Recebimento AM`)),
           F('rec_pm', 'Recebimento PM', g(m.rec.pm, `Guia ${S.recebimento} · Recebimento PM`)),
           F('rec_total', 'Total recebido', g(m.rec.total, `Guia ${S.recebimento} · Total`)),
-          F('phd', 'PHD', g(m.phd.phd, `Guia ${S.phd} · PHD do dia`)),
+          F('phd', 'PHD', i >= 0 && m.phd.phd[i] != null ? src(m.phd.phd[i], 'calc', 'Pacotes recebidos ÷ (pessoas + diaristas)') : null),
         ]),
         sec('hc', '👥', 'HC', [
           F('hc_am', 'HC AM', g(m.hc.am.presente, `Guia ${S.hc} · HC AM · TOTAL`)),

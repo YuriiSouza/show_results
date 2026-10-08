@@ -35,8 +35,12 @@ test('caso BR2698263380980: missing sem AT anterior (a AT depois do missing não
   assert.equal(info.missing.status, 581);
   assert.equal(info.missing.operator, 'natalia.lemos@shopee.com');
   assert.equal(info.atBefore, null);
+  assert.equal(info.noAtToday, true);
   assert.deepEqual(Core.rowOf('BR2698263380980', info), { code: 'BR2698263380980', missingOperator: 'natalia.lemos@shopee.com',
-    atBefore: '', cage: '', driverId: '', driverName: '', note: 'Sem AT antes do missing' });
+    missingTs: sp('2026-09-29T12:23:23'), noAt: true, xpt: 'XPT_GO_Jaraguá',
+    atBefore: '', cage: '', driverId: '', driverName: '',
+    note: 'Sem AT no dia (desde 00:00); Pacote de outro XPT: XPT_GO_Jaraguá (AT AT20260930AH6FH em 30/09)' });
+  assert.equal(info.otherAt.station, 'XPT_GO_Jaraguá');
 });
 
 test('AT anterior ao missing: usa a última antes do missing e o motorista em até 30 min', () => {
@@ -113,7 +117,8 @@ test('detalhe da AT: gaiola e motorista vêm de corridor_cage / driver_id / driv
   assert.equal(info.atBefore.code, 'AT20260929AFOV4');
   assert.equal(info.atBefore.driver, null);
   const detail = { assignment_task_id: 'AT20260929AFOV4', driver_id: 613859, driver_name: 'MOTORISTA DA AT', corridor_cage: 'D-10' };
-  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: '[ops1]OPERADOR UM',
+  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'OPERADOR UM',
+    missingTs: info.missing.ts, noAt: false, xpt: '',
     atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '' });
   assert.match(Core.rowOf('X', info, { driver_id: 0, driver_name: '', corridor_cage: '' }).note, /AT sem gaiola; AT sem motorista atribuído/);
   assert.match(Core.rowOf('X', info, null, 'SPX respondeu HTTP 500').note, /Detalhe da AT indisponível: SPX respondeu HTTP 500/);
@@ -194,4 +199,48 @@ test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => 
   _setSession(null);
   assert.equal((await track('BR2698263380980')).auth, true);
   assert.equal((await atDetail('AT20260929AFOV4')).auth, true);
+});
+
+test('AT só vale se for do dia do missing (a partir de 00:00, horário de Brasília)', () => {
+  const mk = atWhen => Core.extract({ tracking_list: [
+    ev('2026-09-28T20:00:00', 880, 'chegou'),
+    ev(atWhen, 418, 'Pedido adicionado à Assignment Task [AT20260928ZZZZZ]'),
+    ev('2026-09-29T06:00:00', 581, 'Parcel marked as missing', '[ops123]FULANO DE TAL'),
+  ] });
+  // AT de ontem (23:59): não entra, e a linha fica marcada como sem AT no dia.
+  const ontem = mk('2026-09-28T23:59:00');
+  assert.equal(ontem.atBefore, null);
+  assert.equal(ontem.noAtToday, true);
+  assert.equal(ontem.lastOldAt.code, 'AT20260928ZZZZZ');
+  const row = Core.rowOf('X', ontem);
+  assert.equal(row.noAt, true);
+  assert.equal(row.note, 'Sem AT no dia (desde 00:00) · última AT: AT20260928ZZZZZ em 28/09');
+  assert.equal(row.missingOperator, 'FULANO DE TAL');   // sem o "[ops123]"
+  // AT de hoje às 00:00 em ponto: entra.
+  const hoje = mk('2026-09-29T00:00:00');
+  assert.equal(hoje.atBefore.code, 'AT20260928ZZZZZ');
+  assert.equal(hoje.noAtToday, false);
+});
+
+test('AT de outra estação não conta como AT do hub: o pacote é marcado como de outro XPT', () => {
+  const CRX = { station_name: 'XPT_GO_Crixás', station_id: 20002 };
+  const info = Core.extract({ tracking_list: [
+    ev('2026-09-28T22:35:30', 880, 'chegou'),
+    // AT no mesmo dia e antes do missing, mas feita em Crixás: não é AT de Anápolis.
+    ev('2026-09-29T08:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260929CRX01]', '', CRX),
+    ev('2026-09-29T12:23:23', 581, 'Parcel marked as missing', 'op@shopee.com'),
+  ] });
+  assert.equal(info.atBefore, null);
+  const row = Core.rowOf('X', info);
+  assert.equal(row.xpt, 'XPT_GO_Crixás');
+  assert.equal(row.noAt, true);
+  assert.match(row.note, /Pacote de outro XPT: XPT_GO_Crixás/);
+});
+
+test('destOf: destino do pacote é o último trecho do Sort Code', () => {
+  assert.equal(Core.destOf('SOC-GO2--HUB-LGO-03--XPT-JRU-01'), 'XPT-JRU-01');
+  assert.equal(Core.destOf('SOC-GO2--HUB-LGO-03'), 'HUB-LGO-03');
+  assert.equal(Core.destOf('SOC-SP8--HUB-LSP-64'), 'HUB-LSP-64');
+  assert.equal(Core.destOf('SOC-GO2'), '');
+  assert.equal(Core.destOf(''), '');
 });

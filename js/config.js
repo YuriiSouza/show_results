@@ -9,8 +9,8 @@ window.APP_CONFIG = {
   // compartilhada com ele (como Leitor).
   SERVICE_ACCOUNT_EMAIL: 'sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com',
 
-  // Atualização automática padrão (minutos). 0 = desligada.
-  AUTO_REFRESH_MIN: 5,
+  // Atualização automática (minutos), fixa para todos os aparelhos. 0 = desligada.
+  AUTO_REFRESH_MIN: 30,
   // Tempo de cada aba no Modo TV (segundos).
   TV_ROTATE_SEC: 30,
 
@@ -23,11 +23,23 @@ window.APP_CONFIG = {
   // Compartilhe a pasta com o e-mail acima como Leitor.
   DRIVE_FOLDER_URL: 'https://drive.google.com/drive/folders/1enqpqllLcUkMDKoxi2QqoKmHhpFtJfaj',
 
+  // Planilhas mensais padrão (já vêm conectadas em todo aparelho). Chave: 'AAAA-MM'.
+  // Um link salvo pelo usuário em "Conectar planilhas" para o mesmo mês tem prioridade.
+  // Cada planilha precisa estar compartilhada com o e-mail acima como Leitor.
+  DEFAULT_MONTHS: {
+    '2026-06': 'https://docs.google.com/spreadsheets/d/1NkE0vyBZBztc6BnEppSfGD40nN-JTsQdfMHfPvfsCac/edit',
+    '2026-07': 'https://docs.google.com/spreadsheets/d/1bS4L0tZ1UmbFN27RDyCaTRvvfrQsLaqDtdytbf9VzuU/edit',
+    '2026-08': 'https://docs.google.com/spreadsheets/d/1lzYnReuKdwJ107eB7F9zNOWtOPZrNBrscuLFrZZCs7k/edit',
+    '2026-09': 'https://docs.google.com/spreadsheets/d/1hsO3OzMM8v4xWIO_CRwTRQ0y6EG1ZWzchxR-guFKJQU/edit',
+    '2026-10': 'https://docs.google.com/spreadsheets/d/1HZ67FxxF3OBIY45PiCy64lk79Gsh8RmsQ_wI1F0hNQU/edit',
+    '2026-11': 'https://docs.google.com/spreadsheets/d/1R5iGLhMuze9sLy6yqtUgFWTnxpTnGcZy-CmCo9xDvjc/edit',
+    '2026-12': 'https://docs.google.com/spreadsheets/d/1CnMff3cP7xQQpyxvGcXZrKSrgmm1IwLagi-LDG4s_gg/edit',
+  },
+
   // Nome das guias da planilha. Ajuste se renomear alguma.
   SHEETS: {
     recebimento: 'Recebimento',
     hc: 'HC',
-    phd: 'PHD',
     inventario: 'Inventario',
     reversa: 'Reversa',
     transporte: 'Transporte',
@@ -43,7 +55,9 @@ window.APP_CONFIG = {
   },
 
   // Aba Parcel: estação do hub usada para achar a chegada e o missing no rastreio do SPX.
-  PARCEL: { stationName: 'LM Hub_GO_Anápolis', stationId: 9657 },
+  // hubCode: como o hub aparece no fim do Sort Code (ex.: "SOC-GO2--HUB-LGO-03"). Pacote com outro destino
+  // (ex.: "...--XPT-CRX-01") não é do hub.
+  PARCEL: { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, hubCode: 'HUB-LGO-03' },
 
   // Metas usadas para colorir indicadores (✓ / ⚠). Ajuste conforme a operação.
   METAS: {
@@ -52,6 +66,7 @@ window.APP_CONFIG = {
     dsD0Min: 0.95,      // DS D0 mínimo
     aderenciaMin: 0.90, // Vol real / Vol projetado mínimo
     missingMax: 0.005,  // % de pedidos missing máximo
+    phd: 457,           // meta de PHD (pacotes ÷ (pessoas + diaristas))
     tempoConferenciaMin: 6, // tempo máximo de conferência por AT, em minutos (00:06:00)
   },
 };

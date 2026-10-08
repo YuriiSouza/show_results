@@ -6,7 +6,7 @@ window.buildModel = function buildModel(raw) {
   const blocks = {};
   for (const [k, name] of Object.entries(S)) blocks[k] = P.parseBlocks(sheet(name));
 
-  const firstBlock = ['recebimento', 'gerencial', 'hc', 'inventario', 'transporte', 'reversa', 'phd']
+  const firstBlock = ['recebimento', 'gerencial', 'hc', 'inventario', 'transporte', 'reversa']
     .map(k => blocks[k][0]).find(Boolean);
   const dates = firstBlock ? firstBlock.dates : [];
   const empty = () => dates.map(() => null);
@@ -39,21 +39,16 @@ window.buildModel = function buildModel(raw) {
   const planPos = fHC.find('HC Planejado');
   hc.planejado = P.num(planPos ? fHC.below(planPos, 1, 0) : '');
 
-  const fPHD = P.finder(sheet(S.phd));
-  const semanaPos = fPHD.find('Semana', { exact: true });
-  const semanas = [];
-  if (semanaPos) {
-    for (let r = semanaPos.r + 1; r < semanaPos.r + 8; r++) {
-      const w = fPHD.cell(r, semanaPos.c);
-      if (!/^w\d/i.test(w)) break;
-      semanas.push({ semana: w, phd: P.num(fPHD.cell(r, semanaPos.c + 1)) });
-    }
-  }
+  // PHD calculado (não vem da planilha): pacotes recebidos ÷ (pessoas presentes AM + PM + diaristas).
+  const phdPeople = dates.map((_, i) => (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0));
+  const phdDw = dates.map((_, i) => (hc.dwAM[i] || 0) + (hc.dwPM[i] || 0));
   const phd = {
-    phd: pick(g('phd', 'PHD'), g('gerencial', 'PHD')),
-    hcPresente: P.num(fPHD.value('HC Presente')),
-    media: P.num(fPHD.value('Média')),
-    semanas,
+    people: phdPeople,
+    dw: phdDw,
+    phd: dates.map((_, i) => {
+      const vol = rec.total[i], den = phdPeople[i] + phdDw[i];
+      return vol && den ? Math.round(vol / den) : null;
+    }),
   };
 
   const maBlock = t => Object.fromEntries([
