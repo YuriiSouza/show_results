@@ -57,7 +57,8 @@ window.APP_CONFIG = {
   // Aba Parcel: estação do hub usada para achar a chegada e o missing no rastreio do SPX.
   // hubCode: como o hub aparece no fim do Sort Code (ex.: "SOC-GO2--HUB-LGO-03"). Pacote com outro destino
   // (ex.: "...--XPT-CRX-01") não é do hub.
-  PARCEL: { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, hubCode: 'HUB-LGO-03' },
+  // atFromHour: a AT do pacote vale a partir desta hora do dia anterior ao missing (21 = 21:00 da véspera).
+  PARCEL: { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, hubCode: 'HUB-LGO-03', atFromHour: 21 },
 
   // Metas usadas para colorir indicadores (✓ / ⚠). Ajuste conforme a operação.
   METAS: {

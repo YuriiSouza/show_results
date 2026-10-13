@@ -2,8 +2,13 @@
 // chegada / missing / AT / motorista a partir do JSON de rastreio do SPX.
 // Roda no app (window.ParcelCore) e no Node (testes em test/).
 const ParcelCore = (() => {
-  // tzOffsetMin: fuso do hub em minutos (Brasília = -180), usado para achar a 00:00 do dia do missing.
-  const DEFAULTS = { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, driverWindowSec: 30 * 60, tzOffsetMin: -180 };
+  // tzOffsetMin: fuso do hub em minutos (Brasília = -180), usado para achar o dia do missing.
+  // atFromHour: a AT vale a partir desta hora do dia ANTERIOR ao missing (21 = 21:00 da véspera).
+  const DEFAULTS = { stationName: 'LM Hub_GO_Anápolis', stationId: 9657, driverWindowSec: 30 * 60, tzOffsetMin: -180, atFromHour: 21 };
+  // Avaria: só vale quando algum evento traz "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" (com ou sem "/Driver" no fim).
+  // Outros textos com a palavra "avaria" não contam.
+  const DAMAGE_RE = /avaria\s+de\s+produto|avaria\s+externa\s*[–—-]\s*soc\s*\/\s*lh\s*\/\s*xpt/i;
+  const damageIn = obj => { const v = Object.values(obj).find(x => typeof x === 'string' && DAMAGE_RE.test(x)); return v ? v.trim() : ''; };
   // Tira o identificador entre colchetes do começo do nome: "[ops123]FULANO" -> "FULANO".
   const stripId = v => String(v == null ? '' : v).replace(/^\s*\[[^\]]*\]\s*/, '').trim();
   const CODE_RE = /^[A-Z0-9]{8,40}$/;
@@ -81,7 +86,7 @@ const ParcelCore = (() => {
         if (!seen.has(key)) {
           seen.add(key);
           out.push({ ts, status: Number(ev.status), message: String(ev.message || ''), operator: String(ev.operator || '').trim(),
-            station: String(ev.station_name || '').trim(), stationId: Number(ev.station_id) || null, cage: cageIn(ev) });
+            station: String(ev.station_name || '').trim(), stationId: Number(ev.station_id) || null, cage: cageIn(ev), damage: damageIn(ev) });
         }
       }
       walk(ev.children); walk(ev.event_children);
@@ -93,23 +98,36 @@ const ParcelCore = (() => {
   // Regras por código:
   // - chegada: 1º evento na estação do hub;
   // - missing: 1º evento a partir da chegada com status 581 ou "marked as missing";
-  // - AT anterior: última AT do DIA do missing — a partir de 00:00 (horário do hub) e antes do missing.
-  //   ATs de dias anteriores e ATs depois do missing não entram; sem AT no dia, a linha fica marcada (noAtToday);
+  // - avaria: evento de "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" a partir das 21:00 da véspera do missing
+  //   (mesma janela das ATs; sem missing, qualquer um conta). Sendo avaria, não se procura AT nem motorista;
+  // - AT anterior: última AT desde as 21:00 da véspera do missing (horário do hub) e antes do missing.
+  //   ATs mais antigas e ATs depois do missing não entram; sem AT nessa janela, a linha fica marcada (noAtToday);
   // - gaiola e motorista: vêm do detalhe da AT (outra requisição; ver rowOf). Sem o detalhe, o motorista é o do
   //   evento seguinte de status 2 ("Motorista:[ID] NOME"), até 30 min depois — vínculo por proximidade de horário.
   function extract(resp, opts) {
     const o = { ...DEFAULTS, ...(opts || {}) };
     const ev = flatten(resp);
-    const info = { events: ev.length, arrival: null, missing: null, atBefore: null, noAtToday: false, lastOldAt: null, otherAt: null, cageTop: cageTop(resp), notes: [] };
+    const info = { events: ev.length, arrival: null, missing: null, atBefore: null, noAtToday: false, lastOldAt: null, otherAt: null, damage: null, cageTop: cageTop(resp), notes: [] };
     if (!ev.length) { info.notes.push('Rastreio sem eventos'); return info; }
+    // Janela: a partir das 21:00 da véspera do dia de referência (o do missing), no fuso do hub.
+    const off = o.tzOffsetMin * 60;
+    const windowOf = ts => { const dayStart = Math.floor((ts + off) / 86400) * 86400 - off; return { dayStart, from: dayStart - (24 - o.atFromHour) * 3600 }; };
+    const setDamage = from => {
+      const dmg = ev.filter(e => e.damage && e.ts >= from).pop();
+      if (dmg) { info.damage = { ts: dmg.ts, reason: dmg.damage, operator: dmg.operator }; info.notes.unshift('Avaria: ' + dmg.damage); }
+    };
 
     const arrival = ev.find(e => e.station === o.stationName || e.stationId === o.stationId);
-    if (!arrival) { info.notes.push(`Sem passagem pelo ${o.stationName}`); return info; }
+    if (!arrival) { info.notes.push(`Sem passagem pelo ${o.stationName}`); setDamage(0); return info; }
     info.arrival = { ts: arrival.ts, status: arrival.status, message: arrival.message };
 
     const missing = ev.find(e => e.ts >= arrival.ts && (e.status === ST.missing || /marked as missing/i.test(e.message)));
-    if (!missing) { info.notes.push('Sem missing após a chegada'); return info; }
+    if (!missing) { info.notes.push('Sem missing após a chegada'); setDamage(0); return info; }
     info.missing = { ts: missing.ts, status: missing.status, operator: missing.operator };
+    const { dayStart, from } = windowOf(missing.ts);
+    info.dayStart = dayStart; info.atFrom = from;
+    setDamage(from);
+    if (info.damage) return info;
 
     const ats = ev.filter(e => AT_RE.test(e.message) && (ST.at.includes(e.status) || AT_TEXT_RE.test(e.message)))
       .map(e => ({ ...e, code: e.message.match(AT_RE)[1] }));
@@ -129,22 +147,20 @@ const ParcelCore = (() => {
       return { code: at.code, ts: from, station: same[0].station, cage,
         driver: m ? { id: m[1], name: m[2].trim(), ts: d.ts } : null, transfers };
     };
-    const off = o.tzOffsetMin * 60;
-    const dayStart = Math.floor((missing.ts + off) / 86400) * 86400 - off;   // 00:00 do dia do missing, no fuso do hub
-    info.dayStart = dayStart;
+    const fromTxt = `${String(o.atFromHour).padStart(2, '0')}:00 do dia anterior`;
     // Só conta AT feita no hub. AT de outra estação (ex.: XPT_GO_Crixás) indica que o pacote é daquele XPT, não do hub.
     const atHub = x => x.station === o.stationName || x.stationId === o.stationId;
     const hubAts = ats.filter(atHub), others = ats.filter(x => !atHub(x));
     const other = others.filter(x => x.ts >= missing.ts)[0] || others[others.length - 1];
     if (other) info.otherAt = { code: other.code, ts: other.ts, station: other.station };
-    const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= dayStart).pop();
+    const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= from).pop();
     if (before) info.atBefore = describe(before);
     else {
       info.noAtToday = true;
-      const old = hubAts.filter(x => x.ts < dayStart).pop();
+      const old = hubAts.filter(x => x.ts < from).pop();
       const dm = ts => { const d = new Date((ts + off) * 1000); return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
       if (old) info.lastOldAt = { code: old.code, ts: old.ts };
-      info.notes.push('Sem AT no dia (desde 00:00)' + (old ? ` · última AT: ${old.code} em ${dm(old.ts)}` : ''));
+      info.notes.push(`Sem AT no dia (desde ${fromTxt})` + (old ? ` · última AT: ${old.code} em ${dm(old.ts)}` : ''));
       if (info.otherAt) info.notes.push(`Pacote de outro XPT: ${info.otherAt.station} (AT ${info.otherAt.code} em ${dm(info.otherAt.ts)})`);
     }
     return info;
@@ -173,7 +189,10 @@ const ParcelCore = (() => {
       code,
       missingOperator: info.missing ? stripId(info.missing.operator) : '',
       missingTs: info.missing ? info.missing.ts : null,
-      noAt: !!info.missing && !at,
+      // Avaria: motivo como veio no rastreio (vazio = não é avaria) e quem registrou.
+      damage: info.damage ? info.damage.reason : '',
+      damageOperator: info.damage ? stripId(info.damage.operator) : '',
+      noAt: !!info.missing && !at && !info.damage,
       // Estação da AT quando o pacote é de outro XPT (não do hub). Vazio = pacote do hub.
       xpt: !at && info.otherAt ? info.otherAt.station : '',
       atBefore: at ? at.code : '', cage, driverId, driverName,

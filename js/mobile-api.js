@@ -134,6 +134,8 @@
     // Audit: só o resumo calculado de cada importação (sem as linhas do CSV).
     Audit: ['Data', 'Turno', 'Arquivo', 'Status', 'Usuário', 'Gravado em', 'Import ID', 'ATs', 'Pedidos', 'Missing', '% Missing',
       'Missorted', 'ATs com missing', 'Tempo médio (min)', 'ATs acima da meta', 'Início', 'Fim', 'Operadores', 'Resumo (JSON 1)', 'Resumo (JSON 2)', 'Resumo (JSON 3)'],
+    // Parcel: resultado do rastreio de cada dia (um salvamento por linha; vale o mais recente do dia).
+    Parcel: ['Data', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Pacotes', 'Com AT', 'Sem AT', 'Avarias', 'Outro XPT', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)', 'Resultado (JSON 3)', 'Resultado (JSON 4)', 'Resultado (JSON 5)'],
   };
   const q = tab => encodeURIComponent(`'${tab}'`);
   const baseUrl = id => {
@@ -167,9 +169,9 @@
   }
   async function baseRead(id) {
     const { key, token } = await baseToken();
-    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&valueRenderOption=UNFORMATTED_VALUE`, token, key);
-    const [rep, aud] = data.valueRanges || [];
-    return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [] };
+    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&valueRenderOption=UNFORMATTED_VALUE`, token, key);
+    const [rep, aud, par] = data.valueRanges || [];
+    return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [] };
   }
   async function baseAppend(id, tab, rows) {
     if (!BASE_TABS[tab]) throw new Error('Guia inválida.');

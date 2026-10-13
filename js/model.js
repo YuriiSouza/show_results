@@ -35,9 +35,10 @@ window.buildModel = function buildModel(raw) {
   };
   hc.total.pctAbs = hc.total.abs.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
   hc.total.pctDw = hc.total.diaristas.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
-  const fHC = P.finder(sheet(S.hc));
-  const planPos = fHC.find('HC Planejado');
-  hc.planejado = P.num(planPos ? fHC.below(planPos, 1, 0) : '');
+  // HC planejado do dia = linha TOTAL do bloco HC TOTAL (linha 40 da guia HC); a soma dos dias é o "HC Planejado" do mês.
+  // HC presente do dia = TOTAL do HC AM (linha 17) + TOTAL do HC PM (linha 29).
+  hc.planDia = hc.total.presente;
+  hc.presente = dates.map((_, i) => (hc.am.presente[i] == null && hc.pm.presente[i] == null ? null : (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0)));
 
   // PHD calculado (não vem da planilha): pacotes recebidos ÷ (pessoas presentes AM + PM + diaristas).
   const phdPeople = dates.map((_, i) => (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0));
@@ -175,13 +176,17 @@ window.buildModel = function buildModel(raw) {
 
 // Junta os modelos de vários meses (uma planilha por mês) num período contínuo.
 // Séries diárias são concatenadas na ordem das datas; o que é "retrato do momento"
-// (Report T3, HSE, Missing, HC planejado, PHD semanal) vem do mês mais recente.
+// (Report T3, Missing, PHD semanal) vem do mês mais recente; o HSE fica guardado mês a mês.
 window.mergeModels = function mergeModels(models) {
   const toKey = d => d.split('/').reverse().join('');
   const list = models.filter(m => m && m.dates.length)
     .sort((a, b) => toKey(a.dates[0]).localeCompare(toKey(b.dates[0])));
   if (!list.length) return models[0] || null;
-  if (list.length === 1) return list[0];
+  // A guia HSE é diferente em cada planilha mensal: fica guardada por mês, para a tela de HSE escolher.
+  const hseByMonth = Object.fromEntries(list.filter(m => m.monthKey && m.hse).map(m => [m.monthKey, m.hse]));
+  // As guias Missing T1/T3 também são de cada planilha mensal: a tela Missing escolhe o mês.
+  const missingByMonth = Object.fromEntries(list.filter(m => m.monthKey && m.missing).map(m => [m.monthKey, m.missing]));
+  if (list.length === 1) return { ...list[0], hseByMonth, missingByMonth };
 
   // Mantém cada data uma vez só (se duas planilhas repetirem dias, vale a do mês mais recente).
   const seen = new Map();
@@ -210,6 +215,11 @@ window.mergeModels = function mergeModels(models) {
     ...latest,
     ...merged,
     dates,
+    // Missing T1/T3 é o retrato de um dia: vale o mês mais recente em que a guia está preenchida
+    // (as planilhas dos meses futuros já existem, mas com essas guias vazias).
+    missing: Object.fromEntries(['T3', 'T1'].map(k => [k, ([...list].reverse().find(m => m.missing && (m.missing[k] || []).length) || latest).missing[k] || []])),
+    hseByMonth,
+    missingByMonth,
     months: list.map(m => m.monthKey).filter(Boolean),
   };
 };

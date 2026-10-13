@@ -1,6 +1,7 @@
 // Aba "Parcel": importa o relatório de contagem do hub (TSV/CSV/XLSX), filtra por coluna e consulta o
-// rastreio de cada código no SPX (operador do missing, AT anterior e motorista). Nada é gravado:
-// relatório, resultados e sessão do SPX ficam só na memória, até fechar o app.
+// rastreio de cada código no SPX (operador do missing, AT anterior e motorista). Relatório, resultados e sessão
+// do SPX ficam só na memória, até fechar o app; o resultado só vai para a planilha-base quando o usuário clica em
+// "Salvar resultado" (sub-aba Histórico: consolidado por operador, para o feedback do líder).
 window.Parcel = (() => {
   const C = window.ParcelCore;
   const H = window.Charts;
@@ -14,11 +15,33 @@ window.Parcel = (() => {
 
   const st = { file: '', demo: false, headers: [], rows: [], codeCol: 0, distinct: [], hidden: new Set(), filters: {}, search: '', view: [],
     selected: new Set(), session: false, out: new Map(), ats: new Map(), results: [], run: null,
-    rf: { q: '', status: 'all', driver: '', cage: '', op: '' },          // filtros da tabela de resultado
+    tab: 'rel',                                                          // sub-aba: rel (relatório) · req (requisição/rastreio) · hist (histórico salvo)
+    hf: { q: '', status: new Set(), op: new Set() },                     // filtros do histórico
+    rf: { q: '', status: new Set(), driver: new Set(), cage: new Set(), op: new Set() },   // filtros da tabela de resultado (vários por vez)
     rep: { date: '', empty: 0, col: -1, text: '', manual: false } };     // report diário
   let ui = null, bound = false;
   const $ = id => document.getElementById(id);
   const cfg = () => (window.APP_CONFIG && window.APP_CONFIG.PARCEL) || {};
+
+  // ---------- Filtros salvos (ficam no aparelho; os dados do relatório e do rastreio não são gravados) ----------
+  // Os filtros do relatório são guardados pelo nome da coluna, para valerem no próximo arquivo importado.
+  const SAVE_KEY = 'hub.parcel';
+  const RF_SETS = ['status', 'driver', 'cage', 'op'];
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (e) { return {}; } })();
+  if (['req', 'rel', 'hist'].includes(saved.tab)) st.tab = saved.tab;
+  if (saved.hf) { st.hf.q = String(saved.hf.q || ''); ['status', 'op'].forEach(k => { st.hf[k] = new Set(Array.isArray(saved.hf[k]) ? saved.hf[k] : []); }); }
+  if (saved.rf) { st.rf.q = String(saved.rf.q || ''); RF_SETS.forEach(k => { st.rf[k] = new Set(Array.isArray(saved.rf[k]) ? saved.rf[k] : []); }); }
+  function persist() {
+    if (st.headers.length && !st.demo) {
+      saved.search = st.search;
+      saved.filters = {};
+      Object.entries(st.filters).forEach(([c, set]) => { if (set.size) saved.filters[st.headers[c]] = [...set]; });
+    }
+    saved.tab = st.tab;
+    saved.rf = { q: st.rf.q, ...Object.fromEntries(RF_SETS.map(k => [k, [...st.rf[k]]])) };
+    saved.hf = { q: st.hf.q, status: [...st.hf.status], op: [...st.hf.op] };
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(saved)); } catch (e) { /* sem armazenamento: os filtros valem só nesta sessão */ }
+  }
 
   // ---------- Leitura do arquivo ----------
   // .xlsx mínimo (1ª guia): o arquivo é um zip com XML dentro. Os valores vêm como texto, sem conversão.
@@ -95,8 +118,15 @@ window.Parcel = (() => {
       for (const r of st.rows) { m.set(r[i], (m.get(r[i]) || 0) + 1); if (m.size > MAX_DISTINCT) return null; }
       return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR', { numeric: true }));
     });
-    st.filters = {}; st.search = ''; st.selected = new Set(); st.results = [];
-    st.rf = { q: '', status: 'all', driver: '', cage: '', op: '' };
+    // Filtros salvos: voltam os que ainda existem neste arquivo (mesma coluna e mesmo valor).
+    st.filters = {}; st.search = demo ? '' : String(saved.search || '');
+    if (!demo) Object.entries(saved.filters || {}).forEach(([name, vals]) => {
+      const c = st.headers.indexOf(name);
+      if (c < 0 || !st.distinct[c] || !Array.isArray(vals)) return;
+      const keep = vals.filter(v => st.distinct[c].some(([x]) => x === v));
+      if (keep.length) st.filters[c] = new Set(keep);
+    });
+    st.selected = new Set(); st.results = [];
     st.rep = { date: '', empty: 0, col: -1, text: '', manual: false };
     applyFilters();
     if (ui.isActive()) draw();
@@ -134,8 +164,17 @@ window.Parcel = (() => {
 
   function draw() {
     const m = ui.main;
+    const tabs = `<div class="pc-tabs" role="tablist">${[['rel', 'Relatório de contagem'], ['req', 'Rastreio (requisição)<span id="pcTabN"></span>'], ['hist', 'Histórico (operadores)']].map(([k, l]) =>
+      `<button role="tab" aria-selected="${st.tab === k}" class="${st.tab === k ? 'active' : ''}" data-pc-tab="${k}">${l}</button>`).join('')}</div>`;
+    if (st.tab === 'hist') {
+      m.innerHTML = ui.head('Parcel', 'Relatório de contagem · rastreio no SPX') + tabs + '<div id="pcHist"></div>';
+      drawHist();
+      const B = window.Base;
+      if (B && B.enabled()) B.load().then(() => { if (ui.isActive() && st.tab === 'hist') drawHist(); });
+      return;
+    }
     if (!st.rows.length) {
-      m.innerHTML = ui.head('Parcel', 'Relatório de contagem · rastreio no SPX') + `
+      m.innerHTML = ui.head('Parcel', 'Relatório de contagem · rastreio no SPX') + tabs + `
         <div class="au-empty">
           <div class="au-empty-icon">📦</div>
           <h2>Nenhum relatório importado</h2>
@@ -152,8 +191,8 @@ window.Parcel = (() => {
     m.innerHTML = ui.head('Parcel', 'Relatório de contagem · rastreio no SPX') + `
       ${st.demo ? '<div class="au-demo">Exemplo com dados fictícios. <button class="link" data-pc="import">Importar um relatório</button></div>' : ''}
       <div class="au-bar" id="pcBar"></div>
-      <div class="pc-results" id="pcResults"></div>
-      <div class="section-sub pc-sec">Relatório de contagem</div>
+      ${tabs}
+      ${st.tab === 'req' ? '<div class="pc-results" id="pcResults"></div>' : `
       <div class="kpis" id="pcKpis"></div>
       <div class="grid" id="pcDash"></div>
       <div class="grid pc-data">
@@ -161,9 +200,10 @@ window.Parcel = (() => {
           <div class="card-head"><div><div class="card-title">Linhas do relatório</div><div class="card-sub">Os filtros valem para os gráficos acima e para a consulta de rastreio</div></div></div>
           <div class="pc-filters" id="pcFilters"></div><div id="pcTable"></div>
         </section>
-      </div>`;
+      </div>`}`;
     drawBar(); drawFilters(); drawTable(); drawDash(); drawResults();
   }
+  function setTab(tab) { st.tab = tab; persist(); draw(); }
 
   function drawBar() {
     const el = $('pcBar');
@@ -280,6 +320,7 @@ window.Parcel = (() => {
     ['Gaiola', r => r.cage],
     ['ID do motorista', r => r.driverId],
     ['Nome do motorista', r => r.driverName],
+    ['Avaria', r => r.damage],
     ['Observação/erro', r => r.note],
   ];
   const resultCells = code => {
@@ -290,11 +331,13 @@ window.Parcel = (() => {
     return RESULT_COLS.map(([, get]) => get(o.row) || '');
   };
 
-  // Situação de um código consultado: ok (AT do hub no dia) · xpt (pacote de outro XPT) · noat (sem AT no dia) · nomiss · err · wait
+  // Situação de um código consultado: avaria · ok (AT do hub no dia) · xpt (pacote de outro XPT) · noat (sem AT no dia) · nomiss · err · wait
   const situ = code => {
     const o = st.out.get(code);
     if (!o) return 'wait';
     if (!o.ok) return 'err';
+    // Avaria vem antes de tudo: não tem AT nem motorista para procurar.
+    if (o.row.damage) return 'avaria';
     // O destino vem primeiro: pacote de outro XPT/estação não é do hub, mesmo que tenha AT.
     return otherDest(code, o.row) ? 'xpt' : o.row.atBefore ? 'ok' : o.row.noAt ? 'noat' : 'nomiss';
   };
@@ -309,24 +352,31 @@ window.Parcel = (() => {
     return !d && row && !row.atBefore && row.xpt ? row.xpt : '';
   };
   const xptLabel = x => otherDest(x.code, x.row);
-  const SITU = { ok: ['good', 'AT no dia'], xpt: ['info', 'Outro XPT'], noat: ['bad', 'Sem AT no dia'], nomiss: ['neutral', 'Sem missing'], err: ['warn', 'Erro'], wait: ['neutral', 'Na fila'] };
+  const SITU = { avaria: ['warn', 'Avaria'], ok: ['good', 'AT no dia'], xpt: ['info', 'Outro XPT'], noat: ['bad', 'Sem AT no dia'], nomiss: ['neutral', 'Sem missing'], err: ['warn', 'Erro'], wait: ['neutral', 'Na fila'] };
   const hm = ts => (ts ? new Date(ts * 1000).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
   const rowsDone = () => st.results.map(code => ({ code, s: situ(code), row: (st.out.get(code) || {}).row || null, o: st.out.get(code) }));
 
   function drawResults() {
-    const el = $('pcResults');
+    const el = $('pcResults'), tn = $('pcTabN');
+    if (tn) tn.innerHTML = st.results.length ? ` <b>${st.results.length}</b>` : '';
     if (!el) return;
-    if (!st.results.length) { el.innerHTML = ''; return; }
+    if (!st.results.length) {
+      el.innerHTML = `<div class="au-empty"><div class="au-empty-icon">🔎</div><h2>Nenhuma consulta ainda</h2>
+        <p class="muted">Em <b>Relatório de contagem</b>, filtre as linhas (ex.: Count Type = Missing) e clique em <b>Consultar rastreio</b>.
+        O resultado da requisição aparece aqui.</p>
+        <div class="au-empty-actions"><button class="btn-ghost" data-pc-tab="rel">Ir para o relatório</button></div></div>`;
+      return;
+    }
     const all = rowsDone();
     const n = k => all.filter(x => x.s === k).length;
     const done = all.filter(x => x.s !== 'wait').length;
     el.innerHTML = `
-      <div class="section-sub pc-sec">Resultado do rastreio</div>
       <div class="kpis">${[
         ui.kpi('Códigos consultados', `${done}/${all.length}`, [st.run ? '<span>consultando…</span>' : '']),
         ui.kpi('Com AT no dia', H.fmt.int(n('ok')), ['<span class="pill good">✓ saiu com motorista</span>']),
         ui.kpi('De outro XPT / estação', H.fmt.int(n('xpt')), ['<span>destino do Sort Code não é o hub</span>']),
-        ui.kpi('Sem AT no dia', H.fmt.int(n('noat')), [n('noat') ? '<span class="pill bad">⚠ sem AT desde 00:00</span>' : '<span class="pill good">✓ nenhum</span>']),
+        ui.kpi('Sem AT no dia', H.fmt.int(n('noat')), [n('noat') ? '<span class="pill bad">⚠ sem AT desde 21:00 da véspera</span>' : '<span class="pill good">✓ nenhum</span>']),
+        ui.kpi('Avarias', H.fmt.int(n('avaria')), ['<span>sem busca de AT</span>']),
         ui.kpi('Sem missing / erro', `${n('nomiss')} / ${n('err')}`, ['<span>no rastreio</span>']),
       ].join('')}</div>
       <div class="grid">
@@ -337,7 +387,9 @@ window.Parcel = (() => {
         ${st.run ? '' : reportCard()}
         <section class="card w12">
           <div class="card-head"><div><div class="card-title">Pacotes consultados</div><div class="card-sub" id="pcRCount"></div></div>
-            <div class="card-tools"><button class="tool" data-pc="export" ${done ? '' : 'disabled'}>Exportar CSV</button></div></div>
+            <div class="card-tools"><button class="tool" data-pc="export" ${done ? '' : 'disabled'}>Exportar CSV</button>
+              <button class="btn-primary solid pc-copy" data-pc="save" ${done && !st.run && baseOn() ? '' : 'disabled'}
+                title="${baseOn() ? 'Grava o resultado deste dia na planilha-base, para o histórico por operador' : 'Disponível com a planilha-base conectada (fora do modo de exemplo)'}">Salvar resultado</button></div></div>
           <div class="pc-filters" id="pcRFilters"></div>
           <div id="pcRTable"></div>
         </section>
@@ -355,36 +407,46 @@ window.Parcel = (() => {
     }
   }
 
+  // Filtros da tabela de resultado: todos aceitam mais de um valor ao mesmo tempo.
+  const RSTATUS = [['ok', 'Com AT no dia'], ['xpt', 'Outro XPT'], ['noat', 'Sem AT no dia'], ['avaria', 'Avaria'], ['nomiss', 'Sem missing'], ['err', 'Erro']];
+  const RF = { driver: ['Motorista', r => r.driverName], cage: ['Gaiola', r => r.cage], op: ['Operador do missing', r => r.missingOperator] };
+  const rfVals = k => [...new Set(rowsDone().filter(x => x.row).map(x => RF[k][1](x.row)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  // Valor salvo que não existe no resultado atual não filtra nada (não esconde a tabela inteira).
+  const rfActive = (k, vals = rfVals(k)) => vals.filter(v => st.rf[k].has(v));
+  const rfSummary = (k, vals) => { const n = rfActive(k, vals).length; return `${RF[k][0]}${n ? ` <b>${n}</b>` : ''}`; };
   function drawResultFilters() {
     const el = $('pcRFilters');
     if (!el) return;
-    const all = rowsDone().filter(x => x.row);
-    const opts = (get, cur, label) => {
-      const vals = [...new Set(all.map(get).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
-      return `<select data-pc-rf="${label[0]}" aria-label="${label[1]}"><option value="">${label[1]}: todos</option>${vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
-    };
     el.innerHTML = `
       <input class="search" id="pcRSearch" type="search" placeholder="Buscar código, AT, motorista…" value="${esc(st.rf.q)}">
-      ${[['all', 'Todos'], ['ok', 'Com AT no dia'], ['xpt', 'Outro XPT'], ['noat', 'Sem AT no dia'], ['nomiss', 'Sem missing'], ['err', 'Erro']].map(([k, l]) =>
-        `<button class="chip ${st.rf.status === k ? 'active' : ''}" data-pc-rs="${k}">${l}</button>`).join('')}
-      ${opts(x => x.row.driverName, st.rf.driver, ['driver', 'Motorista'])}
-      ${opts(x => x.row.cage, st.rf.cage, ['cage', 'Gaiola'])}
-      ${opts(x => x.row.missingOperator, st.rf.op, ['op', 'Operador'])}
-      <button class="tool" data-pc="rclear">Limpar</button>`;
+      <button class="chip ${st.rf.status.size ? '' : 'active'}" data-pc-rs="all">Todos</button>
+      ${RSTATUS.map(([k, l]) => `<button class="chip ${st.rf.status.has(k) ? 'active' : ''}" data-pc-rs="${k}" aria-pressed="${st.rf.status.has(k)}">${l}</button>`).join('')}
+      ${Object.keys(RF).map(k => {
+        const vals = rfVals(k);
+        if (!vals.length) return '';
+        return `<details class="pc-filter ${rfActive(k, vals).length ? 'active' : ''}" data-rf="${k}"><summary>${rfSummary(k, vals)}</summary>
+          <div class="pc-pop">
+            ${vals.length > 10 ? '<input type="search" class="pc-pop-search" placeholder="Buscar valor…">' : ''}
+            <div class="pc-pop-list">${vals.map(v => `<label><input type="checkbox" data-pc-rval="${esc(v)}" ${st.rf[k].has(v) ? 'checked' : ''}>
+              <span class="pc-val">${esc(v)}</span></label>`).join('')}</div>
+            <div class="pc-pop-foot"><button class="tool" data-pc-rnone="${k}">Limpar</button></div>
+          </div></details>`;
+      }).join('')}
+      <button class="tool" data-pc="rclear">Limpar filtros</button>`;
   }
 
   function drawResultTable() {
     const el = $('pcRTable');
     if (!el) return;
     const q = st.rf.q.trim().toLowerCase();
+    const act = Object.fromEntries(Object.keys(RF).map(k => [k, new Set(rfActive(k))]));
+    const order = ['noat', 'err', 'avaria', 'xpt', 'nomiss', 'ok', 'wait'];
     const list = rowsDone().filter(x => {
-      if (st.rf.status !== 'all' && x.s !== st.rf.status) return false;
+      if (st.rf.status.size && !st.rf.status.has(x.s)) return false;
       const r = x.row || {};
-      if (st.rf.driver && r.driverName !== st.rf.driver) return false;
-      if (st.rf.cage && r.cage !== st.rf.cage) return false;
-      if (st.rf.op && r.missingOperator !== st.rf.op) return false;
-      return !q || [x.code, r.atBefore, r.driverName, r.driverId, r.cage, r.missingOperator].join(' ').toLowerCase().includes(q);
-    }).sort((a, b) => ['noat', 'err', 'xpt', 'nomiss', 'ok', 'wait'].indexOf(a.s) - ['noat', 'err', 'xpt', 'nomiss', 'ok', 'wait'].indexOf(b.s));
+      if (Object.keys(RF).some(k => act[k].size && !act[k].has(RF[k][1](r)))) return false;
+      return !q || [x.code, r.atBefore, r.driverName, r.driverId, r.cage, r.missingOperator, r.damage].join(' ').toLowerCase().includes(q);
+    }).sort((a, b) => order.indexOf(a.s) - order.indexOf(b.s));
     const c = $('pcRCount');
     if (c) c.textContent = `${list.length} de ${st.results.length} código(s) · os sem AT no dia aparecem primeiro`;
     const dash = '<span class="muted">—</span>';
@@ -396,13 +458,147 @@ window.Parcel = (() => {
         return `<tr class="${x.s === 'noat' ? 'hl' : ''}"><td class="left pc-code">${esc(x.code)}</td>
           <td class="left"><span class="pill ${cls}">${label}</span></td>
           <td class="left">${hm(r.missingTs) || dash}</td><td class="left">${esc(r.missingOperator || '') || dash}</td>
-          <td class="left">${r.atBefore ? esc(r.atBefore) : x.s === 'xpt' ? `<b>${esc(xptLabel(x))}</b>${r.atBefore ? ` <span class="muted">· AT ${esc(r.atBefore)}</span>` : ''}` : x.s === 'noat' ? '<b class="bad">Sem AT</b>' : dash}</td>
+          <td class="left">${x.s === 'avaria' ? '<b>Avaria</b>' : r.atBefore ? esc(r.atBefore) : x.s === 'xpt' ? `<b>${esc(xptLabel(x))}</b>` : x.s === 'noat' ? '<b class="bad">Sem AT</b>' : dash}</td>
           <td class="left">${esc(r.cage || '') || dash}</td>
           <td class="left">${r.driverName ? `${esc(r.driverName)}${r.driverId ? ` <span class="muted">· ${esc(r.driverId)}</span>` : ''}` : dash}</td>
           <td class="left pc-obs">${note ? esc(note) : dash}</td>
           <td>${x.o && x.o.raw ? `<button class="tool" data-pc-json="${esc(x.code)}" title="Copiar as respostas do SPX para este código (JSON, sem cookies)">JSON</button>` : ''}</td></tr>`;
       }).join('')}
       </tbody></table></div>${list.length ? '' : ui.empty('Nenhum código com esses filtros.')}`;
+  }
+
+  // ---------- Histórico: resultados salvos na planilha-base, consolidados por operador do missing ----------
+  const baseOn = () => !!(window.Base && window.Base.enabled());
+  const brDay = iso => iso.split('-').reverse().slice(0, 2).join('/');
+  // Operador que aparece como e-mail @shopee.com não é do time do hub: o pacote é salvo, mas sem operador
+  // (não entra na lista de operadores para feedback).
+  const skipOp = op => /@shopee\.com\s*$/i.test(String(op || ''));
+  async function saveResult() {
+    if (st.run || !baseOn()) return;
+    const B = window.Base;
+    const iso = st.rep.date || defaultDate();
+    const items = rowsDone().filter(x => x.s !== 'wait' && x.s !== 'err').map(x => {
+      const r = x.row || {};
+      return { c: x.code, s: x.s, op: skipOp(r.missingOperator) ? '' : r.missingOperator || '', mt: r.missingTs || null, at: r.atBefore || '', cage: r.cage || '',
+        dn: r.driverName || '', di: r.driverId || '', dest: x.s === 'xpt' ? xptLabel(x) : '', dmg: r.damage || '' };
+    });
+    if (!items.length) return ui.toast('Não há pacotes consultados para salvar.', true);
+    const cur = B.parcelGet(iso);
+    if (cur && !confirm(`Já existe um resultado salvo para ${brDay(iso)} (${cur.items.length} pacotes, por ${cur.user}). Substituir pelo resultado atual (${items.length} pacotes)?`)) return;
+    try {
+      await B.parcelSave(iso, items);
+      const ign = rowsDone().filter(x => x.row && x.s !== 'err' && skipOp(x.row.missingOperator)).length;
+      ui.toast(`Resultado de ${brDay(iso)} salvo (${items.length} pacotes${ign ? ` · ${ign} sem operador: e-mail @shopee.com ignorado` : ''})`);
+    } catch (e) { ui.toast(String(e.message || e), true); }
+  }
+  // Registros do período escolhido no filtro do app, achatados: um item por pacote, com o dia.
+  function histItems() {
+    const B = window.Base, r = ui.range ? ui.range() : null;
+    const days = (B ? B.parcelList() : []).filter(p => !r || (p.date >= r.from && p.date <= r.to));
+    return { days, items: days.flatMap(p => p.items.map(x => ({ ...x, date: p.date, by: p.user }))) };
+  }
+  const HSTATUS = [['ok', 'Com AT no dia'], ['noat', 'Sem AT no dia'], ['avaria', 'Avaria'], ['xpt', 'Outro XPT'], ['nomiss', 'Sem missing']];
+  const hfOps = items => [...new Set(items.map(x => x.op).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  function drawHist() {
+    const el = $('pcHist');
+    if (!el) return;
+    if (!baseOn()) {
+      el.innerHTML = `<div class="au-empty"><div class="au-empty-icon">🗂️</div><h2>Histórico indisponível</h2>
+        <p class="muted">O histórico fica na planilha-base compartilhada. Ele aparece quando o app está conectado às planilhas (fora do modo de exemplo).</p></div>`;
+      return;
+    }
+    const { days, items } = histItems();
+    const r = ui.range();
+    const per = r.from === r.to ? brDay(r.from) : `${brDay(r.from)} a ${brDay(r.to)}`;
+    if (!items.length) {
+      el.innerHTML = `<div class="au-empty"><div class="au-empty-icon">🗂️</div><h2>Nenhum resultado salvo em ${per}</h2>
+        <p class="muted">Depois de consultar o rastreio, clique em <b>Salvar resultado</b> na sub-aba Rastreio. O resultado do dia fica guardado aqui,
+        para todos os usuários. Para ver outros dias, mude o <b>período</b> no filtro do topo.</p></div>`;
+      return;
+    }
+    const withOp = items.filter(x => x.op);
+    const byOp = new Map();
+    withOp.forEach(x => {
+      const o = byOp.get(x.op) || { op: x.op, n: 0, days: new Set(), ok: 0, noat: 0, avaria: 0, xpt: 0, nomiss: 0, last: '' };
+      o.n++; o.days.add(x.date); if (o[x.s] != null) o[x.s]++; if (x.date > o.last) o.last = x.date;
+      byOp.set(x.op, o);
+    });
+    const ops = [...byOp.values()].sort((a, b) => b.n - a.n || a.op.localeCompare(b.op, 'pt-BR'));
+    const n = s => items.filter(x => x.s === s).length;
+    el.innerHTML = `
+      <div class="kpis">${[
+        ui.kpi('Dias com resultado salvo', H.fmt.int(days.length), [`<span>${per}</span>`]),
+        ui.kpi('Pacotes registrados', H.fmt.int(items.length), [`<span>${H.fmt.int(n('ok'))} com AT · ${H.fmt.int(n('noat'))} sem AT</span>`]),
+        ui.kpi('Operadores envolvidos', H.fmt.int(ops.length), ['<span>operador do missing</span>']),
+        ui.kpi('Operador com mais pacotes', ops[0] ? esc(ops[0].op) : '—', [ops[0] ? `<span>${ops[0].n} pacote(s) em ${ops[0].days.size} dia(s)</span>` : '']),
+        ui.kpi('Avarias / outro XPT', `${n('avaria')} / ${n('xpt')}`, ['<span>no período</span>']),
+      ].join('')}</div>
+      <div class="grid">
+        ${ui.card('pcH1', 'Pacotes por operador', 'Operador do missing · período do filtro', { w: 6, h: 'tall' })}
+        ${ui.card('pcH2', 'Pacotes por dia', 'Resultados salvos no período', { w: 6, h: 'tall' })}
+        ${ui.card('', 'Operadores para feedback', `${ops.length} operador(es) · clique em um nome para ver os pacotes dele`, { w: 12,
+          tools: '<button class="tool" data-pc="hist-copy" title="Copia a lista de operadores e quantidades">Copiar lista</button>',
+          body: `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Operador do missing</th><th>Pacotes</th><th>Dias</th><th>Com AT</th><th>Sem AT</th><th>Avaria</th><th>Outro XPT</th><th class="left">Último dia</th></tr></thead><tbody>
+            ${ops.map(o => `<tr class="${st.hf.op.has(o.op) ? 'hl' : ''}"><td class="left"><button class="link" data-pc-hop="${esc(o.op)}">${esc(o.op)}</button></td>
+              <td><b>${o.n}</b></td><td>${o.days.size}</td><td>${o.ok}</td><td>${o.noat}</td><td>${o.avaria}</td><td>${o.xpt}</td><td class="left">${brDay(o.last)}</td></tr>`).join('')}
+            </tbody></table></div>` })}
+        <section class="card w12">
+          <div class="card-head"><div><div class="card-title">Pacotes registrados</div><div class="card-sub" id="pcHCount"></div></div></div>
+          <div class="pc-filters" id="pcHFilters"></div>
+          <div id="pcHTable"></div>
+        </section>
+      </div>`;
+    const topOps = top(ops.map(o => [o.op, o.n]));
+    H.render('pcH1', { labels: topOps.map(x => x[0]), horizontal: true, legend: false, datasets: [H.bar('Pacotes', topOps.map(x => x[1]), H.color(1))] });
+    H.render('pcH2', { labels: days.map(d => H.dayLabel(d.date)), stacked: true, datasets: HSTATUS.slice(0, 4).map(([k, l], i) =>
+      H.bar(l, days.map(d => d.items.filter(x => x.s === k).length || null), [H.css('--good'), H.css('--bad'), H.color(4), H.color(2)][i])) });
+    drawHistFilters(items); drawHistTable(items);
+  }
+  function drawHistFilters(items = histItems().items) {
+    const el = $('pcHFilters');
+    if (!el) return;
+    const vals = hfOps(items), act = vals.filter(v => st.hf.op.has(v));
+    el.innerHTML = `
+      <input class="search" id="pcHSearch" type="search" placeholder="Buscar código, operador, AT, motorista…" value="${esc(st.hf.q)}">
+      <button class="chip ${st.hf.status.size ? '' : 'active'}" data-pc-hs="all">Todos</button>
+      ${HSTATUS.map(([k, l]) => `<button class="chip ${st.hf.status.has(k) ? 'active' : ''}" data-pc-hs="${k}" aria-pressed="${st.hf.status.has(k)}">${l}</button>`).join('')}
+      <details class="pc-filter ${act.length ? 'active' : ''}" data-hf="op"><summary>Operador${act.length ? ` <b>${act.length}</b>` : ''}</summary>
+        <div class="pc-pop">
+          ${vals.length > 10 ? '<input type="search" class="pc-pop-search" placeholder="Buscar valor…">' : ''}
+          <div class="pc-pop-list">${vals.map(v => `<label><input type="checkbox" data-pc-hval="${esc(v)}" ${st.hf.op.has(v) ? 'checked' : ''}><span class="pc-val">${esc(v)}</span></label>`).join('')}</div>
+          <div class="pc-pop-foot"><button class="tool" data-pc="hclear-op">Limpar</button></div>
+        </div></details>
+      <button class="tool" data-pc="hclear">Limpar filtros</button>`;
+  }
+  function drawHistTable(items = histItems().items) {
+    const el = $('pcHTable');
+    if (!el) return;
+    const q = st.hf.q.trim().toLowerCase();
+    const ops = new Set(hfOps(items).filter(v => st.hf.op.has(v)));   // valor salvo que não existe no período não filtra
+    const list = items.filter(x => (!st.hf.status.size || st.hf.status.has(x.s)) && (!ops.size || ops.has(x.op))
+      && (!q || [x.c, x.op, x.at, x.dn, x.di, x.cage, x.dest, x.dmg].join(' ').toLowerCase().includes(q)))
+      .sort((a, b) => b.date.localeCompare(a.date) || a.op.localeCompare(b.op, 'pt-BR') || a.c.localeCompare(b.c));
+    const c = $('pcHCount');
+    if (c) c.textContent = `${list.length} de ${items.length} pacote(s)` + (list.length > MAX_ROWS ? ` · mostrando os primeiros ${MAX_ROWS}` : '');
+    const dash = '<span class="muted">—</span>';
+    el.innerHTML = `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Dia</th><th class="left">Código</th><th class="left">Situação</th><th class="left">Operador do missing</th>
+        <th class="left">Missing em</th><th class="left">AT / destino</th><th class="left">Gaiola</th><th class="left">Motorista</th><th class="left">Salvo por</th></tr></thead><tbody>
+      ${list.slice(0, MAX_ROWS).map(x => {
+        const [cls, label] = SITU[x.s] || SITU.nomiss;
+        return `<tr><td class="left">${brDay(x.date)}</td><td class="left pc-code">${esc(x.c)}</td><td class="left"><span class="pill ${cls}">${label}</span></td>
+          <td class="left">${esc(x.op) || dash}</td><td class="left">${hm(x.mt) || dash}</td>
+          <td class="left">${x.s === 'avaria' ? esc(x.dmg || 'Avaria') : x.s === 'xpt' ? esc(x.dest) : esc(x.at) || dash}</td>
+          <td class="left">${esc(x.cage) || dash}</td><td class="left">${x.dn ? `${esc(x.dn)}${x.di ? ` <span class="muted">· ${esc(x.di)}</span>` : ''}` : dash}</td>
+          <td class="left muted">${esc(x.by)}</td></tr>`;
+      }).join('')}
+      </tbody></table></div>${list.length ? '' : ui.empty('Nenhum pacote com esses filtros.')}`;
+  }
+  function copyHist() {
+    const { items } = histItems(), r = ui.range();
+    const m = new Map();
+    items.filter(x => x.op).forEach(x => m.set(x.op, (m.get(x.op) || 0) + 1));
+    const lines = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')).map(([op, k]) => `${op}\t${k}`);
+    copyText([`Pacotes voadores por operador — ${r.from === r.to ? brDay(r.from) : `${brDay(r.from)} a ${brDay(r.to)}`}`, '', ...lines].join('\n'), 'Lista copiada');
   }
 
   // ---------- Report diário (texto pronto para copiar) ----------
@@ -423,6 +619,7 @@ window.Parcel = (() => {
     const list = rowsDone().filter(x => x.s !== 'wait');
     const textOf = x => {
       if (x.s === 'ok') return `- ${city()} (Aguardando retorno do Driver)`;
+      if (x.s === 'avaria') return 'Avaria';
       // Consulta com erro não ganha destino: fica marcada para o analista conferir antes de enviar.
       if (x.s === 'err') return '(erro na consulta — conferir)';
       // Pacote de outro XPT: sai com o destino do Sort Code (ex.: XPT-CRX-01); sem Sort Code, com o nome
@@ -431,8 +628,8 @@ window.Parcel = (() => {
       const extra = col >= 0 && byCode.get(x.code) ? byCode.get(x.code)[col] : '';
       return extra || 'Sem AT no dia';
     };
-    // Ordem do report: sem AT primeiro, depois os do hub, por último os XPTs (em ordem, iguais juntos).
-    const grp = x => (x.s === 'xpt' ? 2 : x.s === 'ok' ? 1 : 0);
+    // Ordem do report: sem AT primeiro, depois as avarias, os do hub e por último os XPTs (em ordem, iguais juntos).
+    const grp = x => (x.s === 'xpt' ? 3 : x.s === 'ok' ? 2 : x.s === 'avaria' ? 1 : 0);
     const lines = list.map(x => ({ g: grp(x), t: textOf(x), code: x.code }))
       .sort((p, q) => p.g - q.g || p.t.localeCompare(q.t, 'pt-BR', { numeric: true }) || p.code.localeCompare(q.code))
       .map(l => `${l.code}\t${l.t}`);
@@ -527,7 +724,8 @@ window.Parcel = (() => {
         tick();
       }
     };
-    paint();
+    st.tab = 'req'; persist();
+    if (ui.isActive()) draw();
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, worker));
     st.run = null;
     if (job.auth) { st.session = false; api().parcelClearSession(); ui.toast(job.auth, true); }
@@ -577,32 +775,64 @@ window.Parcel = (() => {
     const main = ui.main;
     main.addEventListener('click', e => {
       if (!ui.isActive()) return;
-      const t = e.target.closest('[data-pc],[data-pc-none],[data-pc-json],[data-pc-rs]');
+      const t = e.target.closest('[data-pc],[data-pc-none],[data-pc-json],[data-pc-rs],[data-pc-rnone],[data-pc-tab],[data-pc-hs],[data-pc-hop]');
       if (!t) return;
       const d = t.dataset;
-      if (d.pcRs) { st.rf.status = d.pcRs; drawResultFilters(); drawResultTable(); return; }
+      if (d.pcTab) { setTab(d.pcTab); return; }
+      if (d.pcHs) {
+        if (d.pcHs === 'all') st.hf.status.clear();
+        else if (!st.hf.status.delete(d.pcHs)) st.hf.status.add(d.pcHs);
+        persist(); drawHistFilters(); drawHistTable(); return;
+      }
+      // Clique no nome do operador: liga/desliga o filtro dele na tabela de pacotes.
+      if (d.pcHop) { if (!st.hf.op.delete(d.pcHop)) st.hf.op.add(d.pcHop); persist(); drawHist(); return; }
+      if (d.pc === 'save') { saveResult(); return; }
+      if (d.pc === 'hist-copy') { copyHist(); return; }
+      if (d.pc === 'hclear-op') { st.hf.op.clear(); persist(); drawHist(); return; }
+      if (d.pc === 'hclear') { st.hf.q = ''; st.hf.status.clear(); st.hf.op.clear(); persist(); drawHist(); return; }
+      if (d.pcRs) {
+        // "Todos" limpa; os demais ligam/desligam, e dá para deixar vários ligados.
+        if (d.pcRs === 'all') st.rf.status.clear();
+        else if (!st.rf.status.delete(d.pcRs)) st.rf.status.add(d.pcRs);
+        persist(); drawResultFilters(); drawResultTable(); return;
+      }
+      if (d.pcRnone) { st.rf[d.pcRnone].clear(); persist(); drawResultFilters(); drawResultTable(); return; }
       if (d.pcJson) { copyText(JSON.stringify((st.out.get(d.pcJson) || {}).raw, null, 2)); return; }
-      if (d.pcNone != null) { delete st.filters[d.pcNone]; applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash(); }
+      if (d.pcNone != null) { delete st.filters[d.pcNone]; persist(); applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash(); }
       else if (d.pc === 'import') { $('pcFile').value = ''; $('pcFile').click(); }
       else if (d.pc === 'demo') setData('exemplo-contagem.tsv', demoGrid(), true);
       else if (d.pc === 'session') openSession();
       else if (d.pc === 'run') run();
       else if (d.pc === 'cancel') { if (st.run) { st.run.cancel = true; drawBar(); } }
       else if (d.pc === 'export') exportCsv();
-      else if (d.pc === 'rclear') { st.rf = { q: '', status: 'all', driver: '', cage: '', op: '' }; drawResultFilters(); drawResultTable(); }
+      else if (d.pc === 'rclear') { st.rf.q = ''; RF_SETS.forEach(k => st.rf[k].clear()); persist(); drawResultFilters(); drawResultTable(); }
       else if (d.pc === 'rep-copy') { const ta = $('pcRepText'); if (ta) copyText(ta.value, 'Report copiado'); }
       else if (d.pc === 'rep-reset') { st.rep.manual = false; syncReport(); }
-      else if (d.pc === 'clear') { st.filters = {}; st.search = ''; applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash(); }
+      else if (d.pc === 'clear') { st.filters = {}; st.search = ''; persist(); applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash(); }
       else if (d.pc === 'only-missing') {
         const mk = missingShortcut(), cur = st.filters[mk.c];
         if (cur && cur.size === 1 && cur.has(mk.v)) delete st.filters[mk.c]; else st.filters[mk.c] = new Set([mk.v]);
-        applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash();
+        persist(); applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash();
       }
     });
     main.addEventListener('change', e => {
       if (!ui.isActive()) return;
       const t = e.target, d = t.dataset;
-      if (d.pcRf) { st.rf[d.pcRf] = t.value; drawResultTable(); return; }
+      if (d.pcHval != null) {
+        if (t.checked) st.hf.op.add(d.pcHval); else st.hf.op.delete(d.pcHval);
+        const box = t.closest('.pc-filter'), k = hfOps(histItems().items).filter(v => st.hf.op.has(v)).length;
+        box.classList.toggle('active', k > 0);
+        box.querySelector('summary').innerHTML = `Operador${k ? ` <b>${k}</b>` : ''}`;
+        persist(); drawHistTable(); return;
+      }
+      if (d.pcRval != null) {
+        // O painel continua aberto: só a tabela e o contador do filtro são redesenhados.
+        const box = t.closest('.pc-filter'), k = box.dataset.rf;
+        if (t.checked) st.rf[k].add(d.pcRval); else st.rf[k].delete(d.pcRval);
+        box.classList.toggle('active', rfActive(k).length > 0);
+        box.querySelector('summary').innerHTML = rfSummary(k);
+        persist(); drawResultTable(); return;
+      }
       if (t.id === 'pcRepDate') { st.rep.date = t.value; st.rep.manual = false; syncReport(); return; }
       if (t.id === 'pcRepEmpty') { st.rep.empty = Math.max(0, parseInt(t.value, 10) || 0); st.rep.manual = false; syncReport(); return; }
       if (t.id === 'pcRepCol') { st.rep.col = +t.value; st.rep.manual = false; syncReport(); return; }
@@ -619,13 +849,14 @@ window.Parcel = (() => {
         if (t.checked) set.add(d.pcVal); else set.delete(d.pcVal);
         box.classList.toggle('active', set.size > 0);
         box.querySelector('summary').innerHTML = summaryHtml(c);
-        applyFilters(); drawTable(); drawBar(); drawDash();
+        persist(); applyFilters(); drawTable(); drawBar(); drawDash();
       }
     });
     main.addEventListener('input', e => {
       if (!ui.isActive()) return;
-      if (e.target.id === 'pcSearch') { st.search = e.target.value; applyFilters(); drawTable(); drawBar(); drawDash(); }
-      else if (e.target.id === 'pcRSearch') { st.rf.q = e.target.value; drawResultTable(); }
+      if (e.target.id === 'pcSearch') { st.search = e.target.value; persist(); applyFilters(); drawTable(); drawBar(); drawDash(); }
+      else if (e.target.id === 'pcHSearch') { st.hf.q = e.target.value; persist(); drawHistTable(); }
+      else if (e.target.id === 'pcRSearch') { st.rf.q = e.target.value; persist(); drawResultTable(); }
       else if (e.target.id === 'pcRepText') { st.rep.text = e.target.value; st.rep.manual = true; }
       else if (e.target.classList.contains('pc-pop-search')) {
         const q = e.target.value.trim().toLowerCase();
