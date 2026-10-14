@@ -72,6 +72,9 @@ window.Charts = (() => {
     const canvas = document.getElementById(id);
     if (!canvas) return null;
     if (registry.has(id)) registry.get(id).destroy();
+    // Rótulo de data com dia da semana (dayLabel): a 2ª linha ("seg", "ter"…) só aparece em gráfico de colunas em pé.
+    const cols = !horizontal && datasets.some(d => d.type === 'bar');
+    labels = labels.map(l => (Array.isArray(l) && !cols ? l[0] : l));
     // Nenhum valor lançado no período: mostra um aviso no lugar de eixos vazios.
     // Só zeros também conta como vazio (dias ainda não lançados costumam vir como 0 pelas fórmulas).
     const hasData = datasets.some(d => !d.isRef && (d.data || []).some(v => v != null && v !== 0 && !(typeof v === 'number' && isNaN(v))));
@@ -107,6 +110,7 @@ window.Charts = (() => {
             borderColor: css('--border'), borderWidth: 1, padding: 10, boxPadding: 4, usePointStyle: true,
             filter: item => item.raw != null && !item.dataset.isRef,
             callbacks: {
+              title: items => (items[0] ? flat(items[0].chart.data.labels[items[0].dataIndex]) : ''),
               label: c => ` ${c.dataset.label}: ${tf(c.raw)}`,
               footer: items => {
                 if (!stacked) return '';
@@ -134,13 +138,22 @@ window.Charts = (() => {
     const f = chart.$yFormat || fmt.int;
     const head = `<tr><th></th>${ds.map(d => `<th>${esc(d.label)}</th>`).join('')}</tr>`;
     const rows = chart.data.labels.map((l, i) =>
-      `<tr><td>${esc(l)}</td>${ds.map(d => `<td>${d.data[i] == null ? '—' : f(d.data[i])}</td>`).join('')}</tr>`).join('');
+      `<tr><td>${esc(flat(l))}</td>${ds.map(d => `<td>${d.data[i] == null ? '—' : f(d.data[i])}</td>`).join('')}</tr>`).join('');
     return `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
   }
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // Rótulo de eixo para um dia: ["dd/mm", "ddd"] (duas linhas no eixo). Aceita "dd/mm/aaaa" ou "aaaa-mm-dd".
+  const WEEK = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  function dayLabel(date) {
+    const [d, m, y] = date.includes('-') ? date.split('-').reverse().map(Number) : date.split('/').map(Number);
+    const p = n => String(n).padStart(2, '0');
+    return [`${p(d)}/${p(m)}`, WEEK[new Date(y, m - 1, d).getDay()]];
+  }
+  const flat = l => (Array.isArray(l) ? l.join(' ') : l);
+
   function destroyAll() { registry.forEach(c => c.destroy()); registry.clear(); }
 
-  return { fmt, applyDefaults, color, seq, css, bar, line, ref, render, tableFor, destroyAll, esc };
+  return { fmt, applyDefaults, color, seq, css, bar, line, ref, render, tableFor, destroyAll, esc, dayLabel };
 })();

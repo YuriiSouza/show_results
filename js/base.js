@@ -2,6 +2,8 @@
 // para que todos os usuários do app vejam o que os outros fizeram.
 // - Reports: cada salvamento vira UMA linha, com as alterações em JSON; vale a gravação mais recente de cada campo.
 // - Audit: cada importação vira uma linha com o resumo calculado (as linhas do CSV não são guardadas).
+// - Parcel: cada salvamento vira uma linha com o resultado do rastreio do dia (pacote, operador do missing, AT, motorista…);
+//   vale o salvamento mais recente de cada dia.
 // - Sem internet: as gravações ficam numa fila no aparelho e são enviadas depois.
 window.Base = (() => {
   const api = window.hubApi || null;
@@ -16,6 +18,7 @@ window.Base = (() => {
 
   let reports = new Map(); // "iso|kind|campo" -> { v, user, at, removed }
   let audits = new Map();  // "iso|turno" -> { date, shift, fileName, status, user, importedAt, importId, summary }
+  let parcels = new Map(); // "iso" -> { date, status, user, at, items: [{ c, s, op, mt, at, cage, dn, di, dest, dmg }] }
   let loadedAt = 0;
   let loading = null;
   let ensured = false;
@@ -70,6 +73,20 @@ window.Base = (() => {
     audits.set(key, { date, shift, fileName, status: st, user: who, importedAt: at, importId, summary });
   }
 
+  // Colunas: Data, Status, Usuário, Gravado em, Aparelho, 6 colunas legíveis, Resultado (JSON 1..5).
+  const PARCEL_JSON_AT = 11, PARCEL_CHUNKS = 5;
+  function applyParcelRow(r) {
+    const cells = r.map(x => (x == null ? '' : String(x)));
+    const [date, st, who, at] = cells;
+    if (!date) return;
+    const cur = parcels.get(date);
+    if (cur && at < cur.at) return;
+    let items = [];
+    try { const js = cells.slice(PARCEL_JSON_AT).join(''); items = js ? JSON.parse(js) : []; } catch (e) { return; }
+    parcels.set(date, { date, status: st, user: who, at, items: Array.isArray(items) ? items : [] });
+  }
+  const APPLY = { Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow };
+
   async function load(force = false) {
     await ready;
     if (!enabled()) return false;
@@ -81,11 +98,12 @@ window.Base = (() => {
         if (!ensured) { await api.baseEnsure(ID); ensured = true; }
         await flush();
         const data = await api.baseRead(ID);
-        reports = new Map(); audits = new Map();
+        reports = new Map(); audits = new Map(); parcels = new Map();
         data.reports.forEach(applyReportRow);
         data.audit.forEach(applyAuditRow);
+        (data.parcel || []).forEach(applyParcelRow);
         // O que ainda está na fila (não enviado) vale por cima do que veio da planilha.
-        ls.get('basePending', []).forEach(op => op.rows.forEach(op.tab === 'Reports' ? applyReportRow : op.tab === 'Audit' ? applyAuditRow : () => {}));
+        ls.get('basePending', []).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
         loadedAt = Date.now();
         const pend = ls.get('basePending', []).length;
         setStatus(pend ? 'pending' : 'ok', pend ? `${pend} envio(s) pendente(s)` : 'Sincronizado');
@@ -192,6 +210,27 @@ window.Base = (() => {
     queue('Audit', [row]);
   }
 
+  // ---------- Parcel (resultado do rastreio por dia) ----------
+  const parcelList = () => [...parcels.values()].filter(p => p.status !== 'excluido').sort((a, b) => a.date.localeCompare(b.date));
+  const parcelGet = iso => { const p = parcels.get(iso); return p && p.status !== 'excluido' ? p : null; };
+  async function parcelSave(iso, items) {
+    const who = await ensureUser(), at = nowIso();
+    const json = JSON.stringify(items);
+    const chunks = [];
+    for (let k = 0; k < json.length; k += CHUNK) chunks.push(json.slice(k, k + CHUNK));
+    if (chunks.length > PARCEL_CHUNKS) throw new Error('Resultado grande demais para a planilha-base. Salve menos pacotes por dia.');
+    const n = s => items.filter(x => x.s === s).length;
+    const row = [iso, 'ativo', who, at, device(), items.length, n('ok'), n('noat'), n('avaria'), n('xpt'), new Set(items.map(x => x.op).filter(Boolean)).size, ...chunks];
+    applyParcelRow(row);
+    queue('Parcel', [row]);
+    return parcels.get(iso);
+  }
+  async function parcelDelete(iso) {
+    const row = [iso, 'excluido', await ensureUser(), nowIso(), device()];
+    applyParcelRow(row);
+    queue('Parcel', [row]);
+  }
+
   // ---------- Migração única dos dados que estavam só neste aparelho ----------
   async function migrateOnce() {
     if (ls.get('baseMigrated', false) || !api) return;
@@ -221,6 +260,7 @@ window.Base = (() => {
     user, setUser, ensureUser, setAskUser: fn => { askUser = fn; },
     reportDay, setField, saveFields, clearReport, loadedAt: () => loadedAt,
     auditList, auditSave, auditDelete,
+    parcelList, parcelGet, parcelSave, parcelDelete,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();

@@ -154,6 +154,8 @@ const AUDIT_COLS = ['Data', 'Turno', 'Arquivo', 'Status', 'Usuário', 'Gravado e
 const BASE_TABS = {
   Reports: ['Data', 'Report', 'Usuário', 'Gravado em', 'Aparelho', 'Campos alterados', 'Alterações (JSON)'],
   Audit: AUDIT_COLS,
+  // Parcel: resultado do rastreio de cada dia (um salvamento por linha; vale o mais recente do dia).
+  Parcel: ['Data', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Pacotes', 'Com AT', 'Sem AT', 'Avarias', 'Outro XPT', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)', 'Resultado (JSON 3)', 'Resultado (JSON 4)', 'Resultado (JSON 5)'],
 };
 const baseId = id => { if (!/^[a-zA-Z0-9-_]{20,}$/.test(String(id || ''))) throw new Error('Link da planilha-base inválido.'); return id; };
 const q = tab => encodeURIComponent(`'${tab}'`);
@@ -187,13 +189,13 @@ ipcMain.handle('base:ensure', async (_e, id) => {
   return { title: meta.properties.title, created: missing };
 });
 
-// Lê o que o app precisa: Reports e o resumo de cada Audit importado.
+// Lê o que o app precisa: Reports, o resumo de cada Audit importado e os resultados do Parcel.
 ipcMain.handle('base:read', async (_e, id) => {
   const token = await baseToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${baseId(id)}`;
-  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&valueRenderOption=UNFORMATTED_VALUE`, token);
-  const [rep, aud] = data.valueRanges || [];
-  return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [] };
+  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&valueRenderOption=UNFORMATTED_VALUE`, token);
+  const [rep, aud, par] = data.valueRanges || [];
+  return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [] };
 });
 
 // Acrescenta linhas ao fim de uma guia.

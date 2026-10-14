@@ -13,7 +13,7 @@
   const state = {
     model: null, sheetName: '', demo: false, updatedAt: null, loading: false,
     from: 0, to: 0, ref: 0,
-    tab: LS.get('tab', 'overview'), maMode: 'T1', missMode: 'T3', hseSearch: '',
+    tab: LS.get('tab', 'overview'), maMode: 'T1', missMode: 'T3', hseSearch: '', hseMonth: '', missMonth: '',
     timer: null, tvTimer: null,
   };
 
@@ -42,7 +42,7 @@
     { id: 'transporte', group: 'Operação', label: 'Transporte', daily: true, render: renderTransporte },
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
     { id: 'qualidade', group: 'Qualidade', label: 'Missing (planilha)', daily: false, render: renderQualidade },
-    { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: false, render: () => window.Parcel.render(pcCtx) },
+    { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: true, render: () => window.Parcel.render(pcCtx) },
     { id: 'hse', group: 'Segurança', label: 'HSE', daily: false, render: renderHSE },
     { id: 'rpP1', group: 'Reports', label: 'Parcial T1', daily: true, report: true, render: () => window.Reports.render('rpP1', rpCtx) },
     { id: 'rpF1', group: 'Reports', label: 'Fechamento T1', daily: true, report: true, render: () => window.Reports.render('rpF1', rpCtx) },
@@ -258,7 +258,7 @@
   }
   const idx = () => { const a = []; for (let i = state.from; i <= state.to; i++) a.push(i); return a; };
   const sl = arr => (arr || []).slice(state.from, state.to + 1);
-  const labels = () => sl(state.model.dates).map(d => d.slice(0, 5));
+  const labels = () => sl(state.model.dates).map(H.dayLabel);
   const vals = arr => sl(arr).filter(v => v != null);
   const sum = arr => vals(arr).reduce((s, v) => s + v, 0);
   const avgPos = arr => { const v = vals(arr).filter(x => x > 0); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
@@ -347,7 +347,7 @@
   };
 
   // Contexto usado pela aba Parcel (js/parcel.js).
-  const pcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel' };
+  const pcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel', range: () => uiCtx.range() };
 
   function renderAll() {
     if (!state.model) return;
@@ -362,7 +362,7 @@
     tab.render();
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);
@@ -377,7 +377,7 @@
     // (ex.: Rotas e DS podem estar lançados só até o dia anterior ao volume).
     const at = arr => { for (let j = state.to; j >= state.from; j--) if (hasVal(arr[j])) return j; return i; };
     const dayTag = j => (j !== i ? `<span class="kpi-day" title="Último dia com este indicador lançado">${m.dates[j].slice(0, 5)}</span>` : '');
-    const iR = at(r.total), iX = at(r.packedXpt), iH = at(t.presente), iP = at(m.phd.phd), iT = at(tr.rotas),
+    const iR = at(r.total), iX = at(r.packedXpt), iH = at(m.hc.presente), iP = at(m.phd.phd), iT = at(tr.rotas),
       iD = at(tr.ds), iD0 = at(tr.dsD0), iI = at(m.inv.total), iM = at(m.inv.ma.T1.total), iO = at(m.rev.onHold);
     const pctAbsDay = ratio(t.abs[iH] || 0, t.presente[iH]);
     const tdpAged = m.inv.total[iI] ? m.inv.aging.slice(2).reduce((s, a) => s + (a.data[iI] || 0), 0) / m.inv.total[iI] : null;
@@ -388,7 +388,7 @@
           r.aderencia[iR] != null ? status(r.aderencia[iR] >= META.aderenciaMin, `${f.pct(r.aderencia[iR])} do projetado`) : '']),
         kpi('Volume no período', f.int(sum(r.total)), [sub(`Média ${f.int(avgPos(r.total))}/dia`)]),
         kpi('Packed XPT', f.int(r.packedXpt[iX]), [dayTag(iX), sub(`${f.pct(r.pctXpt[iX])} do volume`)]),
-        kpi('HC presente', f.int(t.presente[iH]), [dayTag(iH), sub(`AM ${f.int(m.hc.am.presente[iH])} · PM ${f.int(m.hc.pm.presente[iH])}`),
+        kpi('HC presente', f.int(m.hc.presente[iH]), [dayTag(iH), sub(`AM ${f.int(m.hc.am.presente[iH])} · PM ${f.int(m.hc.pm.presente[iH])}`),
           pctAbsDay != null ? status(pctAbsDay <= META.absMax, `ABS ${f.pct(pctAbsDay)}`) : '']),
         kpi('PHD', f.int(m.phd.phd[iP]), [dayTag(iP), phdPill(m.phd.phd[iP], m.phd.dw[iP]), sub(`Média diária ${f.int(avgPos(m.phd.phd))}`)]),
         kpi('Rotas', f.int(tr.rotas[iT]), [dayTag(iT), delta(tr.rotas[iT], tr.rotas, iT), sub(`SPR ${f.dec(tr.spr[iT])}`)]),
@@ -519,13 +519,18 @@
 
   // ---------- HC & PHD ----------
   function renderPessoas() {
-    const m = state.model, t = m.hc.total, i = tabRef(m.hc.total.presente), n = idx().length;
+    const m = state.model, t = m.hc.total, i = tabRef(m.hc.presente), n = idx().length;
+    const plan = m.hc.planDia, pres = m.hc.presente;
+    const adDay = ratio(pres[i] || 0, plan[i]), adPer = ratio(sum(pres), sum(plan));
     const absPer = ratio(sum(t.abs), sum(t.presente));
     const dwPer = ratio(sum(t.diaristas), sum(t.presente));
     main.innerHTML = head('HC & Produtividade', periodText()) +
       `<div class="kpis">${[
-        kpi('HC planejado', f.int(m.hc.planejado), [sub('acumulado do mês (guia HC)')]),
-        kpi('HC presente', f.int(t.presente[i]), [sub(`AM ${f.int(m.hc.am.presente[i])} · PM ${f.int(m.hc.pm.presente[i])}`), delta(t.presente[i], t.presente, i)]),
+        kpi('HC planejado do dia', f.int(plan[i]), [sub(`${H.dayLabel(m.dates[i]).reverse().join(' ')}/${m.dates[i].slice(6)}`)]),
+        kpi('HC presente', f.int(pres[i]), [sub(`AM ${f.int(m.hc.am.presente[i])} · PM ${f.int(m.hc.pm.presente[i])}`),
+          adDay != null ? sub(`${f.pct(adDay, 0)} do planejado`) : '', delta(pres[i], pres, i)]),
+        kpi('HC planejado no período', f.int(sum(plan)), [sub(`soma dos ${n} dia(s) do período`)]),
+        kpi('HC presente no período', f.int(sum(pres)), [adPer != null ? sub(`${f.pct(adPer, 0)} do planejado`) : '']),
         kpi('% ABS no período', f.pct(absPer), [absPer != null ? status(absPer <= META.absMax, `meta ≤ ${f.pct(META.absMax, 0)}`) : '', sub(`${f.int(sum(t.abs))} ausências`)]),
         kpi('% DW no período', f.pct(dwPer), [sub(`${f.int(sum(t.diaristas))} diárias`)]),
         (() => {
@@ -538,11 +543,11 @@
       ].join('')}</div>
       <div class="grid">
         ${card('hcTurno', 'HC presente por turno', 'AM × PM')}
-        ${card('hcAbs', '% ABS diário', `Ausências ÷ HC presente · meta ≤ ${f.pct(META.absMax, 0)}`)}
+        ${card('hcAbs', '% ABS diário', `Ausências ÷ HC planejado (como na guia HC) · meta ≤ ${f.pct(META.absMax, 0)}`)}
         ${card('hcComp', 'Composição das ausências', 'HC TOTAL: quem do quadro não estava na operação', { w: 12 })}
         ${card('phd', 'PHD diário', `Pacotes recebidos ÷ (pessoas + diaristas) · meta ${META.phd}`, { w: 8 })}
         ${card('phdWeek', 'PHD por semana', 'Pacotes da semana ÷ pessoas da semana (semanas do período)', { w: 4 })}
-        ${card('hcQuadro', 'Quadro × presentes', 'HC total do quadro e presentes no dia')}
+        ${card('hcQuadro', 'Quadro × planejado × presente', 'HC do quadro, HC planejado e HC presente (AM + PM) por dia')}
         ${card('hcDw', 'Diaristas', 'Diaristas por turno')}
       </div>`;
     H.render('hcTurno', { labels: labels(), datasets: [
@@ -587,7 +592,7 @@
       H.ref(`Meta ${META.phd}`, META.phd, wk.length),
     ] });
     H.render('hcQuadro', { labels: labels(), datasets: [
-      H.line('Quadro (HC)', sl(t.hc), H.color(2)), H.line('Presentes', sl(t.presente), H.color(1)),
+      H.line('Quadro (HC)', sl(t.hc), H.color(2)), H.line('Planejado', sl(plan), H.color(3)), H.line('Presente', sl(pres), H.color(1)),
     ] });
     H.render('hcDw', { labels: labels(), stacked: true, datasets: [
       H.bar('Diaristas AM', sl(m.hc.dwAM), H.color(2)), H.bar('Diaristas PM', sl(m.hc.dwPM), H.color(1)),
@@ -685,9 +690,20 @@
 
   // ---------- Missing ----------
   function renderQualidade() {
-    const rows = state.model.missing[state.missMode] || [];
-    const toggle = ['T3', 'T1'].map(k => `<button class="chip ${state.missMode === k ? 'active' : ''}" data-miss="${k}">Missing ${k}</button>`).join('');
-    if (!rows.length) { main.innerHTML = head('Missing', toggle) + empty(`Guia ${C.SHEETS['missing' + state.missMode]} sem dados.`); return; }
+    // Cada planilha mensal tem as suas guias Missing: o seletor de mês diz de qual planilha puxar.
+    // Padrão: mês atual, se a guia estiver preenchida; senão, o mês mais recente com dados.
+    const byMonth = state.model.missingByMonth || {}, mKeys = Object.keys(byMonth).sort();
+    const has = k => ((byMonth[k] || {})[state.missMode] || []).length > 0;
+    const nowKey = ym(new Date());
+    const mk = mKeys.includes(state.missMonth) ? state.missMonth : has(nowKey) ? nowKey : [...mKeys].reverse().find(has) || (mKeys.includes(nowKey) ? nowKey : mKeys[mKeys.length - 1]);
+    const rows = (mk ? (byMonth[mk] || {})[state.missMode] : state.model.missing[state.missMode]) || [];
+    const monthSel = mKeys.length ? `<label class="hse-month">Mês <select id="missMonth" aria-label="Mês da planilha">${mKeys.map(k => `<option value="${k}" ${k === mk ? 'selected' : ''}>${monthName(k)}${has(k) ? '' : ' (vazio)'}</option>`).join('')}</select></label>` : '';
+    const bindMonth = () => { const s = $('missMonth'); if (s) s.addEventListener('change', e => { state.missMonth = e.target.value; renderQualidade(); }); };
+    const toggle = monthSel + ['T3', 'T1'].map(k => `<button class="chip ${state.missMode === k ? 'active' : ''}" data-miss="${k}">Missing ${k}</button>`).join('');
+    if (!rows.length) {
+      main.innerHTML = head('Missing', `<div class="chips">${toggle}</div>`) + empty(`Guia ${C.SHEETS['missing' + state.missMode]} sem dados${mk ? ` na planilha de ${monthName(mk)}` : ''}.`);
+      bindMonth(); return;
+    }
     const tot = k => rows.reduce((s, r) => s + r[k], 0);
     const initial = tot('initial'), missing = tot('missing'), missorted = tot('missorted');
     const pctMiss = ratio(missing, initial);
@@ -741,11 +757,17 @@
       H.bar('Missing', byCorr.map(r => r.missing), H.color(1)), H.bar('Missorted', byCorr.map(r => r.missorted), H.color(2)),
     ] });
     H.render('msHour', { labels: hours.map(h => `${String(h).padStart(2, '0')}h`), datasets: [H.bar('ATs', hours.map(h => byHour.get(h)), H.color(1))] });
+    bindMonth();
   }
 
   // ---------- HSE ----------
   function renderHSE() {
-    const hse = state.model.hse;
+    // Cada planilha mensal tem a sua guia HSE: a tela mostra um mês por vez (padrão: mês atual, se conectado).
+    const byMonth = state.model.hseByMonth || {}, hseKeys = Object.keys(byMonth).sort();
+    const nowKey = ym(new Date());
+    const mk = hseKeys.includes(state.hseMonth) ? state.hseMonth : hseKeys.includes(nowKey) ? nowKey : hseKeys[hseKeys.length - 1];
+    const hse = (mk && byMonth[mk]) || state.model.hse;
+    const monthSel = hseKeys.length ? `<label class="hse-month">Mês <select id="hseMonth" aria-label="Mês do HSE">${hseKeys.map(k => `<option value="${k}" ${k === mk ? 'selected' : ''}>${monthName(k)}</option>`).join('')}</select></label>` : '';
     if (!hse) { main.innerHTML = head('HSE') + empty(`Guia ${C.SHEETS.hse} não encontrada.`); return; }
     const ppl = hse.people;
     const count = (arr, fn) => arr.reduce((m, x) => { const k = fn(x) || '—'; m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
@@ -777,7 +799,7 @@
     const q = state.hseSearch.toLowerCase();
     const filtered = ppl.filter(p => !q || Object.values(p).join(' ').toLowerCase().includes(q));
 
-    main.innerHTML = head('HSE — Saúde, Segurança e Meio Ambiente', `${ppl.length} colaboradores na guia ${C.SHEETS.hse}`) +
+    main.innerHTML = head('HSE — Saúde, Segurança e Meio Ambiente', `${monthSel}${ppl.length} colaboradores na guia ${C.SHEETS.hse}`) +
       `<div class="kpis">${[
         kpi('Colaboradores', f.int(ppl.length), [...count(ppl, p => p.bpo)].map(([k, v]) => sub(`${esc(k)} ${v}`))),
         ...[...count(ppl, p => p.contrato)].map(([k, v]) => kpi(esc(k), f.int(v), [sub(f.pct(v / ppl.length, 0) + ' do quadro')])),
@@ -800,6 +822,8 @@
       </div>`;
     H.render('hsLider', { labels: lideres, horizontal: true, stacked: true, totals: false,
       datasets: contratos.map((c, k) => H.bar(c, lideres.map(l => ppl.filter(p => p.lider === l && p.contrato === c).length || null), H.color([2, 1, 3, 5][k] || 4))) });
+    const ms = $('hseMonth');
+    if (ms) ms.addEventListener('change', e => { state.hseMonth = e.target.value; renderHSE(); });
     const s = $('hseSearch');
     if (s) s.addEventListener('input', e => {
       state.hseSearch = e.target.value;

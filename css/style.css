@@ -716,3 +716,15 @@ body.report-mode main:has(.rp-stage.flow) { padding-bottom: 16px; }
 b.bad { color: var(--bad); }
 .pill.info { background: #E6EEFB; color: #1F56A8; }
 :root[data-theme="dark"] .pill.info { background: #18294a; color: #8fb4f5; }
+
+/* Parcel: sub-abas (relatório de contagem · rastreio) */
+.pc-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.pc-tabs button { border: 0; background: none; color: var(--text-2); font-size: 14px; font-weight: 600; padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; cursor: pointer; }
+.pc-tabs button:hover { color: var(--shopee); }
+.pc-tabs button.active { color: var(--shopee); border-bottom-color: var(--shopee); }
+.pc-tabs b { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--shopee); color: #fff; font-size: 11px; text-align: center; }
+
+/* HSE: seletor de mês no título */
+.hse-month { display: inline-flex; align-items: center; gap: 8px; margin-right: 14px; font-weight: 600; color: var(--text-2); }
+.hse-month select { padding: 5px 8px; }
+.chips { align-items: center; flex-wrap: wrap; }

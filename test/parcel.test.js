@@ -37,9 +37,9 @@ test('caso BR2698263380980: missing sem AT anterior (a AT depois do missing não
   assert.equal(info.atBefore, null);
   assert.equal(info.noAtToday, true);
   assert.deepEqual(Core.rowOf('BR2698263380980', info), { code: 'BR2698263380980', missingOperator: 'natalia.lemos@shopee.com',
-    missingTs: sp('2026-09-29T12:23:23'), noAt: true, xpt: 'XPT_GO_Jaraguá',
+    missingTs: sp('2026-09-29T12:23:23'), damage: '', damageOperator: '', noAt: true, xpt: 'XPT_GO_Jaraguá',
     atBefore: '', cage: '', driverId: '', driverName: '',
-    note: 'Sem AT no dia (desde 00:00); Pacote de outro XPT: XPT_GO_Jaraguá (AT AT20260930AH6FH em 30/09)' });
+    note: 'Sem AT no dia (desde 21:00 do dia anterior); Pacote de outro XPT: XPT_GO_Jaraguá (AT AT20260930AH6FH em 30/09)' });
   assert.equal(info.otherAt.station, 'XPT_GO_Jaraguá');
 });
 
@@ -118,7 +118,7 @@ test('detalhe da AT: gaiola e motorista vêm de corridor_cage / driver_id / driv
   assert.equal(info.atBefore.driver, null);
   const detail = { assignment_task_id: 'AT20260929AFOV4', driver_id: 613859, driver_name: 'MOTORISTA DA AT', corridor_cage: 'D-10' };
   assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'OPERADOR UM',
-    missingTs: info.missing.ts, noAt: false, xpt: '',
+    missingTs: info.missing.ts, damage: '', damageOperator: '', noAt: false, xpt: '',
     atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '' });
   assert.match(Core.rowOf('X', info, { driver_id: 0, driver_name: '', corridor_cage: '' }).note, /AT sem gaiola; AT sem motorista atribuído/);
   assert.match(Core.rowOf('X', info, null, 'SPX respondeu HTTP 500').note, /Detalhe da AT indisponível: SPX respondeu HTTP 500/);
@@ -201,25 +201,64 @@ test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => 
   assert.equal((await atDetail('AT20260929AFOV4')).auth, true);
 });
 
-test('AT só vale se for do dia do missing (a partir de 00:00, horário de Brasília)', () => {
+test('AT só vale a partir das 21:00 da véspera do missing (horário de Brasília)', () => {
   const mk = atWhen => Core.extract({ tracking_list: [
     ev('2026-09-28T20:00:00', 880, 'chegou'),
     ev(atWhen, 418, 'Pedido adicionado à Assignment Task [AT20260928ZZZZZ]'),
     ev('2026-09-29T06:00:00', 581, 'Parcel marked as missing', '[ops123]FULANO DE TAL'),
   ] });
-  // AT de ontem (23:59): não entra, e a linha fica marcada como sem AT no dia.
-  const ontem = mk('2026-09-28T23:59:00');
-  assert.equal(ontem.atBefore, null);
-  assert.equal(ontem.noAtToday, true);
-  assert.equal(ontem.lastOldAt.code, 'AT20260928ZZZZZ');
-  const row = Core.rowOf('X', ontem);
+  // AT da véspera às 20:59: não entra, e a linha fica marcada como sem AT no dia.
+  const antes = mk('2026-09-28T20:59:00');
+  assert.equal(antes.atBefore, null);
+  assert.equal(antes.noAtToday, true);
+  assert.equal(antes.lastOldAt.code, 'AT20260928ZZZZZ');
+  const row = Core.rowOf('X', antes);
   assert.equal(row.noAt, true);
-  assert.equal(row.note, 'Sem AT no dia (desde 00:00) · última AT: AT20260928ZZZZZ em 28/09');
+  assert.equal(row.note, 'Sem AT no dia (desde 21:00 do dia anterior) · última AT: AT20260928ZZZZZ em 28/09');
   assert.equal(row.missingOperator, 'FULANO DE TAL');   // sem o "[ops123]"
-  // AT de hoje às 00:00 em ponto: entra.
-  const hoje = mk('2026-09-29T00:00:00');
-  assert.equal(hoje.atBefore.code, 'AT20260928ZZZZZ');
-  assert.equal(hoje.noAtToday, false);
+  // AT da véspera às 21:00 em ponto e às 23:59: entram.
+  for (const when of ['2026-09-28T21:00:00', '2026-09-28T23:59:00', '2026-09-29T00:00:00']) {
+    const ok = mk(when);
+    assert.equal(ok.atBefore.code, 'AT20260928ZZZZZ');
+    assert.equal(ok.noAtToday, false);
+  }
+});
+
+test('avaria: não procura AT nem motorista, só devolve que é avaria', () => {
+  const info = Core.extract({ tracking_list: [
+    ev('2026-09-28T22:00:00', 880, 'chegou'),
+    ev('2026-09-29T05:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260929AAAAA]'),
+    ev('2026-09-29T05:10:00', 2, 'Motorista:[123] FULANO; saiu'),
+    { ...ev('2026-09-29T07:00:00', 700, 'Avaria Externa – SOC/LH/XPT/Driver', '[Ops36477]NATALIA CARDOSO DE LEMOS'), status_name: 'Exception_Reason_Added' },
+    ev('2026-09-29T08:00:00', 581, 'Parcel marked as missing', 'op@shopee.com'),
+  ] });
+  assert.equal(info.damage.reason, 'Avaria Externa – SOC/LH/XPT/Driver');
+  assert.equal(info.atBefore, null);
+  const row = Core.rowOf('X', info);
+  assert.equal(row.damage, 'Avaria Externa – SOC/LH/XPT/Driver');
+  assert.equal(row.damageOperator, 'NATALIA CARDOSO DE LEMOS');
+  assert.equal(row.atBefore, '');
+  assert.equal(row.driverName, '');
+  assert.equal(row.noAt, false);
+  assert.match(row.note, /^Avaria: Avaria Externa/);
+  // "Avaria de Produto" também conta, mesmo em outro campo do evento e sem missing.
+  const produto = Core.extract({ tracking_list: [
+    ev('2026-09-28T22:00:00', 880, 'chegou'),
+    { ...ev('2026-09-29T07:00:00', 700, 'Exception_Reason_Added'), reason: 'AVARIA DE PRODUTO' },
+  ] });
+  assert.equal(produto.damage.reason, 'AVARIA DE PRODUTO');
+  // Outros textos com a palavra "avaria" não contam.
+  const mk = (when, msg) => Core.extract({ tracking_list: [
+    ev('2026-09-27T10:00:00', 880, 'chegou'),
+    ev(when, 700, msg),
+    ev('2026-09-29T08:00:00', 581, 'Parcel marked as missing', 'op@shopee.com'),
+  ] });
+  assert.equal(mk('2026-09-29T07:00:00', 'Avaria interna').damage, null);
+  assert.equal(mk('2026-09-29T07:00:00', 'Avaria Externa - SOC/LH/XPT').damage.reason, 'Avaria Externa - SOC/LH/XPT');
+  // Só vale a partir das 21:00 da véspera do missing (mesma janela das ATs).
+  assert.equal(mk('2026-09-28T20:59:00', 'Avaria de Produto').damage, null);
+  assert.equal(mk('2026-09-28T21:00:00', 'Avaria de Produto').damage.reason, 'Avaria de Produto');
+  assert.equal(mk('2026-09-29T09:00:00', 'Avaria de Produto').damage.reason, 'Avaria de Produto');   // depois do missing também conta
 });
 
 test('AT de outra estação não conta como AT do hub: o pacote é marcado como de outro XPT', () => {

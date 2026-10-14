@@ -34,7 +34,9 @@ O que a aba mostra:
 
 ## Parcel (relatório de contagem + rastreio no SPX)
 
-Aba **Parcel** (grupo Qualidade). Nada é gravado: relatório, resultado e sessão ficam só na memória, até fechar o app.
+Aba **Parcel** (grupo Qualidade), com duas sub-abas: **Relatório de contagem** (o arquivo importado) e **Rastreio (requisição)**
+(o resultado da consulta ao SPX). Relatório, resultado e sessão ficam só na memória, até fechar o app; só os **filtros escolhidos**
+ficam salvos no aparelho, para continuarem lá quando você voltar à tela.
 
 1. **Importar relatório** de contagem do hub (`.tsv`, `.csv` ou `.xlsx`; também dá para arrastar o arquivo). Os códigos são lidos como texto.
 2. **Filtrar**: busca na coluna do código e filtro de múltipla escolha em cada coluna (atalho **Count Type = Missing**).
@@ -277,11 +279,29 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 | Abaixo da meta, sem diaristas | amarelo |
 | Abaixo da meta, com diaristas | vermelho |
 
+## HC planejado × HC presente, e mês do HSE
+
+- **HC planejado do dia** = linha **TOTAL do bloco HC TOTAL** da guia HC (linha 40). **HC planejado no período** = soma dos dias
+  (no mês inteiro, bate com a célula "HC Planejado" da guia).
+- **HC presente do dia** = TOTAL do **HC AM** (linha 17) + TOTAL do **HC PM** (linha 29). As linhas são achadas pelo rótulo, não pela posição.
+- **HSE**: cada planilha mensal tem a sua guia HSE. A tela tem um seletor de **Mês** (abre no mês atual) e não segue o filtro de período.
+
+## Parcel: histórico por operador (planilha-base)
+
+- Na sub-aba **Rastreio**, o botão **Salvar resultado** grava o resultado do dia na guia **Parcel** da planilha-base
+  (uma linha por salvamento, com os pacotes em JSON; salvar de novo o mesmo dia substitui). O dia é o do campo "Dia" do report.
+- A sub-aba **Histórico (operadores)** mostra, para o período do filtro do app, os pacotes por **operador do missing**
+  (quantidade, dias, situação), para o líder dar o feedback, e a lista de pacotes com filtros. Funciona também no mobile.
+
 ## Parcel: AT do dia e report diário
 
-- A **AT** de um pacote só vale se for **do dia do missing** (a partir de 00:00, horário de Brasília) e antes do missing.
-  Sem AT no dia, a linha fica destacada como **"Sem AT no dia"** (a observação mostra a última AT antiga, se houver).
-- O resultado tem indicadores, gráficos por motorista, gaiola e operador, e filtros por situação, motorista, gaiola e operador.
+- A **AT** de um pacote só vale se for **a partir das 21:00 do dia anterior ao missing** (horário de Brasília) e antes do missing
+  (hora configurável em `PARCEL.atFromHour`).
+- **Avaria:** vale quando algum evento do rastreio traz **"Avaria de Produto"** ou **"Avaria Externa – SOC/LH/XPT"**
+  (outros textos com a palavra "avaria" não contam), **a partir das 21:00 do dia anterior ao missing** — a mesma janela das ATs.
+  O pacote é marcado como **Avaria**: o app não procura a AT nem consulta o detalhe da AT. Há um filtro só para as avarias.
+- O resultado tem indicadores, gráficos por motorista, gaiola e operador, e filtros por situação, motorista, gaiola e operador —
+  todos aceitam **mais de um valor ao mesmo tempo**.
 - **Destino pelo Sort Code:** o último trecho do Sort Code é o destino do pacote
   (`SOC-GO2--HUB-LGO-03--XPT-JRU-01` → `XPT-JRU-01`; `SOC-GO2--HUB-LGO-03` → hub). O app cria a coluna **Destino**,
   usada nos filtros, no dashboard e no report. Destino diferente de `PARCEL.hubCode` = pacote de outro XPT/estação.
