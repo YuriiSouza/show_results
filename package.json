@@ -1,7 +1,7 @@
 {
   "name": "hub-lgo03-dashboard",
   "productName": "Dashboard HUB LGO 03",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Painel operacional do HUB LGO 03 lido da planilha Google Sheets",
   "author": "Yuri Peixoto de Souza",
   "license": "UNLICENSED",
