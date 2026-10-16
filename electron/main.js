@@ -227,19 +227,6 @@ const reportFile = date => {
 ipcMain.handle('reports:get', (_e, date) => readJson(reportFile(date), {}));
 ipcMain.handle('reports:set', (_e, date, data) => { writePrivate(reportFile(date), JSON.stringify(data || {})); return true; });
 
-// ---------- Atualizações: lista os arquivos da pasta do Drive com os instaladores ----------
-ipcMain.handle('drive:list', async (_e, folderId) => {
-  if (!/^[a-zA-Z0-9-_]{10,}$/.test(String(folderId || ''))) throw new Error('Pasta do Drive inválida.');
-  const key = readKey();
-  if (!key) throw new Error('App sem chave de acesso.');
-  const token = await accessToken(key);
-  const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-  const res = await httpFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink,modifiedTime,size)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`,
-    { headers: { Authorization: 'Bearer ' + token } });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body.error && body.error.message) || ('Erro do Drive ' + res.status));
-  return body.files || [];
-});
 ipcMain.handle('app:openExternal', (_e, url) => { if (/^https:\/\//.test(String(url))) shell.openExternal(url); });
 
 // ---------- IPC ----------
@@ -295,6 +282,10 @@ ipcMain.handle('sheets:fetch', (_e, { sheets, override } = {}) => fetchSheets(sh
 // Rastreio do SPX (aba Parcel): a sessão colada pelo usuário fica só na memória.
 require('./parcel').register(ipcMain);
 
+// Atualização automática (GitHub Releases).
+const updater = require('./updater');
+updater.register(ipcMain);
+
 // ---------- Janela ----------
 function createWindow() {
   const win = new BrowserWindow({
@@ -309,6 +300,7 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, '..', 'index.html'));
+  updater.setWindow(win);
 
   // Links (ex.: HSE) abrem no navegador do sistema; a janela do app nunca navega para fora.
   win.webContents.setWindowOpenHandler(({ url }) => {

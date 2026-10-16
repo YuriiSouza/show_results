@@ -16,7 +16,6 @@ contextBridge.exposeInMainWorld('hubApi', {
   reportsListLocal: () => ipcRenderer.invoke('reports:listLocal'),
   platform: 'desktop',
   os: process.platform, // 'win32' | 'linux' | 'darwin'
-  driveList: folderId => ipcRenderer.invoke('drive:list', folderId),
   openExternal: url => ipcRenderer.invoke('app:openExternal', url),
   reportGet: date => ipcRenderer.invoke('reports:get', date),
   reportSet: (date, data) => ipcRenderer.invoke('reports:set', date, data),
@@ -28,4 +27,21 @@ contextBridge.exposeInMainWorld('hubApi', {
   parcelHasSession: () => ipcRenderer.invoke('parcel:hasSession'),
   parcelTrack: code => ipcRenderer.invoke('parcel:track', code),
   parcelAt: at => ipcRenderer.invoke('parcel:at', at),
+});
+
+// Atualização automática: cada on* devolve uma função que cancela a inscrição.
+const listen = channel => fn => {
+  const h = (_e, payload) => fn(payload);
+  ipcRenderer.on(channel, h);
+  return () => ipcRenderer.removeListener(channel, h);
+};
+contextBridge.exposeInMainWorld('updater', {
+  check: () => ipcRenderer.invoke('updater:check'),
+  download: () => ipcRenderer.invoke('updater:download'),
+  install: () => ipcRenderer.invoke('updater:install'),
+  onAvailable: listen('updater:available'),
+  onNotAvailable: listen('updater:not-available'),
+  onProgress: listen('updater:progress'),
+  onDownloaded: listen('updater:downloaded'),
+  onError: listen('updater:error'),
 });

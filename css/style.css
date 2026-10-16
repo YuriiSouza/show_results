@@ -618,13 +618,8 @@ body.audit-mode .range-ref { display: none; }
 .card .cal { max-width: 100%; }
 
 /* Aviso de nova versão */
-.update-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
-  padding: 10px 24px; background: #1f6f4a; color: #fff; font-size: 14px; }
-.update-banner.ok { background: var(--good); } .update-banner.err { background: var(--bad); }
-.update-banner .muted-w { opacity: .8; }
-.update-banner .update-actions { display: flex; align-items: center; gap: 8px; }
-.update-banner .btn-primary { padding: 6px 16px; }
-.update-banner .icon-close { background: rgba(255,255,255,.15); color: #fff; }
+.update-dlg { width: min(460px, calc(100vw - 32px)); }
+.update-dlg .upd-body p { margin: 0 0 8px; }
 .version-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
 /* ---------- Parcel ---------- */
