@@ -43,5 +43,13 @@ jobs:
           printf '%s' "$GOOGLE_OAUTH_JSON" > google-oauth.local.json
           node -e "const j=require('./google-oauth.local.json'); if(!j.desktop||!j.desktop.clientId||!j.desktop.clientSecret) throw new Error('google-oauth.local.json sem desktop.clientId/clientSecret')"
 
+      # Cria a Release antes do build: se ela não existir, os envios paralelos do electron-builder
+      # criam uma Release v* para cada arquivo (aconteceu na v1.3.0).
+      - name: Criar Release
+        shell: bash
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --generate-notes --target "$GITHUB_SHA"
+
       - name: Gerar e publicar instaladores
         run: npm run dist:win -- --publish always
