@@ -1,0 +1,47 @@
+name: Release desktop (Windows)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      # A tag (v1.2.3) precisa bater com a versão do package.json, senão o latest.yml aponta para outra versão.
+      - name: Conferir versão da tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          [ "v$pkg" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME diferente da versão do package.json ($pkg)"; exit 1; }
+
+      # Client OAuth (Desktop) do Google: fica fora do git e entra no instalador em tempo de build.
+      - name: Restaurar google-oauth.local.json
+        shell: bash
+        env:
+          GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+        run: |
+          [ -n "$GOOGLE_OAUTH_JSON" ] || { echo "Secret GOOGLE_OAUTH_JSON não configurado"; exit 1; }
+          printf '%s' "$GOOGLE_OAUTH_JSON" > google-oauth.local.json
+          node -e "const j=require('./google-oauth.local.json'); if(!j.desktop||!j.desktop.clientId||!j.desktop.clientSecret) throw new Error('google-oauth.local.json sem desktop.clientId/clientSecret')"
+
+      - name: Gerar e publicar instaladores
+        run: npm run dist:win -- --publish always
