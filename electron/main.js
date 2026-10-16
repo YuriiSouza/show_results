@@ -1,14 +1,13 @@
 // Processo principal do aplicativo desktop.
-// Lê a planilha pela API do Google Sheets usando uma conta de serviço cuja chave
-// fica somente neste computador (pasta de dados do usuário).
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+// Lê a planilha pela API do Google Sheets com o login Google de quem usa o app (electron/googleAuth.js):
+// cada pessoa só acessa as planilhas compartilhadas com a própria conta.
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
+const auth = require('./googleAuth');
 
 const DATA_DIR = () => app.getPath('userData');
 const CONFIG_FILE = () => path.join(DATA_DIR(), 'config.json');
-const KEY_FILE = () => path.join(DATA_DIR(), 'service-account.json');
 
 // ---------- Configuração local ----------
 function readJson(file, fallback) {
@@ -21,14 +20,6 @@ function writePrivate(file, content) {
 }
 const readConfig = () => readJson(CONFIG_FILE(), {});
 const writeConfig = cfg => writePrivate(CONFIG_FILE(), JSON.stringify(cfg, null, 2));
-// Chave embutida no instalador (electron/credentials/service-account.json, fora do git).
-// Uma chave escolhida pelo usuário nas configurações tem prioridade sobre ela.
-const EMBEDDED_KEY_FILE = path.join(__dirname, 'credentials', 'service-account.json');
-const validKey = k => (k && k.type === 'service_account' && k.client_email && k.private_key ? k : null);
-const customKey = () => validKey(readJson(KEY_FILE(), null));
-const embeddedKey = () => validKey(readJson(EMBEDDED_KEY_FILE, null));
-const readKey = () => customKey() || embeddedKey();
-
 function spreadsheetId(input) {
   const s = String(input || '').trim();
   const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -38,45 +29,14 @@ function spreadsheetId(input) {
 
 function publicConfig() {
   const cfg = readConfig();
-  const key = readKey();
+  const st = auth.getAuthState();
   return {
     spreadsheetUrl: cfg.spreadsheetUrl || '',
     months: cfg.months || {},
-    hasKey: !!key,
-    keySource: customKey() ? 'custom' : key ? 'embedded' : '',
-    clientEmail: key ? key.client_email : '',
+    signedIn: st.signedIn,
+    email: st.email,
     dataDir: DATA_DIR(),
   };
-}
-
-// ---------- Google OAuth (JWT da conta de serviço) ----------
-let tokenCache = { token: null, exp: 0, email: null };
-const b64url = buf => Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-async function accessToken(key) {
-  const now = Math.floor(Date.now() / 1000);
-  if (tokenCache.token && tokenCache.email === key.client_email && tokenCache.exp - 60 > now) return tokenCache.token;
-  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const claim = b64url(JSON.stringify({
-    iss: key.client_email,
-    // Leitura das planilhas mensais + escrita na planilha-base compartilhada do app.
-    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
-    aud: key.token_uri || 'https://oauth2.googleapis.com/token',
-    iat: now, exp: now + 3600,
-  }));
-  const signature = b64url(crypto.createSign('RSA-SHA256').update(`${header}.${claim}`).sign(key.private_key));
-  const res = await httpFetch(key.token_uri || 'https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${claim}.${signature}`,
-    }).toString(),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error('A chave da conta de serviço foi recusada pelo Google (' + (body.error_description || body.error || res.status) + ').');
-  tokenCache = { token: body.access_token, exp: now + (body.expires_in || 3600), email: key.client_email };
-  return tokenCache.token;
 }
 
 async function httpFetch(url, opts) {
@@ -88,11 +48,11 @@ async function sheetsGet(url, token) {
   const res = await httpFetch(url, { headers: { Authorization: 'Bearer ' + token } });
   const body = await res.json().catch(() => ({}));
   if (res.ok) return body;
-  const key = readKey();
+  if (res.status === 401) throw new Error('O login do Google expirou. Entre de novo em ⚙ Conectar planilhas.');
   if (res.status === 403) {
     const msg = (body.error && body.error.message) || '';
-    if (/has not been used|is disabled/i.test(msg)) throw new Error('A "Google Sheets API" não está ativada no projeto da conta de serviço. Ative em console.cloud.google.com → APIs e serviços.');
-    throw new Error(`Sem permissão. Compartilhe a planilha (como Leitor) com: ${key ? key.client_email : 'o e-mail da conta de serviço'}`);
+    if (/has not been used|is disabled/i.test(msg)) throw new Error('A "Google Sheets API" não está ativada no projeto do Google Cloud do app. Ative em console.cloud.google.com → APIs e serviços.');
+    throw new Error(`Sem permissão. Peça para compartilharem a planilha com a sua conta (${auth.getAuthState().email || 'conta Google conectada'}).`);
   }
   if (res.status === 404) throw new Error('Planilha não encontrada. Confira o link da planilha nas configurações.');
   throw new Error('Erro da API do Google: ' + ((body.error && body.error.message) || res.status));
@@ -102,10 +62,8 @@ async function sheetsGet(url, token) {
 async function fetchSheets(wanted, override) {
   const cfg = readConfig();
   const id = spreadsheetId(override && override.spreadsheetUrl != null ? override.spreadsheetUrl : cfg.spreadsheetUrl);
-  const key = readKey();
-  if (!key) throw new Error('Selecione o arquivo de chave (.json) da conta de serviço nas configurações.');
   if (!id) throw new Error('Informe o link da planilha nas configurações.');
-  const token = await accessToken(key);
+  const token = await auth.getValidAccessToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${id}`;
   const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token);
   const existing = (meta.sheets || []).map(s => s.properties.title);
@@ -164,16 +122,11 @@ async function sheetsSend(method, url, token, body) {
   const res = await httpFetch(url, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const out = await res.json().catch(() => ({}));
   if (res.ok) return out;
-  const key = readKey();
-  if (res.status === 403) throw new Error(`Sem permissão para gravar. Compartilhe a planilha-base como EDITOR com: ${key ? key.client_email : 'o e-mail da conta de serviço'}`);
+  if (res.status === 403) throw new Error(`Sem permissão para gravar. Peça para compartilharem a planilha-base como EDITOR com a sua conta (${auth.getAuthState().email || 'conta Google conectada'}).`);
   if (res.status === 404) throw new Error('Planilha-base não encontrada. Confira o link em js/config.js (BASE_SHEET_URL).');
   throw new Error('Erro ao gravar na planilha-base: ' + ((out.error && out.error.message) || res.status));
 }
-async function baseToken() {
-  const key = readKey();
-  if (!key) throw new Error('App sem chave de acesso.');
-  return accessToken(key);
-}
+const baseToken = () => auth.getValidAccessToken();
 
 // Cria as guias que faltarem, com cabeçalho.
 ipcMain.handle('base:ensure', async (_e, id) => {
@@ -255,27 +208,15 @@ ipcMain.handle('cache:get', (_e, month) => readJson(cacheFile(month), null));
 ipcMain.handle('cache:set', (_e, month, data) => { writePrivate(cacheFile(month), JSON.stringify(data)); return true; });
 ipcMain.handle('cache:clear', () => { fs.rmSync(CACHE_DIR(), { recursive: true, force: true }); return true; });
 
-ipcMain.handle('config:pickKey', async e => {
+// Login Google de quem usa o app.
+ipcMain.handle('auth:state', () => auth.getAuthState());
+ipcMain.handle('auth:sign-in', async e => {
+  const st = await auth.signIn();
   const win = BrowserWindow.fromWebContents(e.sender);
-  const r = await dialog.showOpenDialog(win, {
-    title: 'Selecione a chave JSON da conta de serviço',
-    properties: ['openFile'],
-    filters: [{ name: 'Chave JSON', extensions: ['json'] }],
-  });
-  if (r.canceled || !r.filePaths[0]) return { ...publicConfig(), canceled: true };
-  const key = readJson(r.filePaths[0], null);
-  if (!validKey(key))
-    throw new Error('Este arquivo não é uma chave de conta de serviço do Google (tipo "service_account").');
-  writePrivate(KEY_FILE(), JSON.stringify(key));
-  tokenCache = { token: null, exp: 0, email: null };
-  return publicConfig();
+  if (win) { if (win.isMinimized()) win.restore(); win.focus(); } // volta do navegador para o app
+  return st;
 });
-
-ipcMain.handle('config:removeKey', () => {
-  try { fs.unlinkSync(KEY_FILE()); } catch (e) { /* já removida */ }
-  tokenCache = { token: null, exp: 0, email: null };
-  return publicConfig();
-});
+ipcMain.handle('auth:sign-out', () => auth.signOut());
 
 ipcMain.handle('sheets:fetch', (_e, { sheets, override } = {}) => fetchSheets(sheets, override));
 

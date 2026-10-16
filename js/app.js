@@ -87,7 +87,7 @@
     const cfg = await api.getConfig();
     const months = configuredMonths(cfg);
     const keys = Object.keys(months).sort();
-    if (!cfg.hasKey || !keys.length) return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
+    if (!cfg.signedIn || !keys.length) return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
 
     const now = new Date();
     const hot = new Set([ym(now), ym(new Date(now.getFullYear(), now.getMonth() - 1, 1))]);
@@ -971,19 +971,12 @@
     // Configurações
     const dlg = $('settings');
     const msg = (t, ok) => { $('cfgMsg').textContent = t; $('cfgMsg').className = 'settings-msg ' + (t ? (ok ? 'ok' : 'err') : ''); };
-    const shareEmail = cfg => (cfg && cfg.clientEmail) || C.SERVICE_ACCOUNT_EMAIL || '';
-    const showKey = cfg => {
-      const embedded = cfg.keySource === 'embedded';
-      $('cfgKeyInfo').textContent = embedded ? 'Chave embutida no aplicativo ✓' : cfg.hasKey ? 'Chave própria carregada ✓' : 'Nenhuma chave encontrada';
-      $('cfgPickKey').textContent = cfg.hasKey ? 'Usar outra chave' : 'Selecionar .json';
-      $('cfgRemoveKey').hidden = cfg.keySource !== 'custom';
-      $('cfgRemoveKey').textContent = embedded || !cfg.hasKey ? 'Remover' : 'Voltar à chave embutida';
-      $('cfgEmail').textContent = shareEmail(cfg);
-      $('tutEmail').textContent = shareEmail(cfg);
+    const showAuth = cfg => {
+      $('authInfo').innerHTML = cfg.signedIn ? `Conectado como <b>${esc(cfg.email || 'conta Google')}</b> ✓` : 'Não conectado';
+      $('authSignIn').hidden = !!cfg.signedIn;
+      $('authSignOut').hidden = !cfg.signedIn;
       $('cfgWhere').textContent = cfg.dataDir ? `Configuração salva apenas neste computador, em: ${cfg.dataDir}` : '';
     };
-    $('cfgEmail').textContent = shareEmail();
-    $('tutEmail').textContent = shareEmail();
     // Links por mês: rascunho editável de todos os anos; a tela mostra um ano por vez.
     let draft = {};
     const statusOf = key => (state.sources || []).find(x => x.month === key);
@@ -1035,7 +1028,7 @@
       $('cfgCurrent').hidden = !state.sheetName;
       $('cfgCurrent').innerHTML = state.sheetName ? `Conectado agora: <b>${esc(state.sheetName)}</b>.` : '';
       if (!api) {
-        ['cfgYear', 'cfgPickKey', 'cfgTest', 'cfgSave', 'cfgReloadAll'].forEach(id => { $(id).disabled = true; });
+        ['cfgYear', 'authSignIn', 'cfgTest', 'cfgSave', 'cfgReloadAll'].forEach(id => { $(id).disabled = true; });
         draft = {};
         fillYears(); drawMonths();
         $('cfgMonths').querySelectorAll('input').forEach(i => { i.disabled = true; });
@@ -1044,7 +1037,7 @@
         const cfg = await api.getConfig();
         draft = configuredMonths(cfg);
         fillYears(); drawMonths();
-        showKey(cfg);
+        showAuth(cfg);
       }
       dlg.showModal();
     };
@@ -1063,14 +1056,17 @@
     $('tutDone').addEventListener('click', () => tut.close());
     tut.addEventListener('click', e => { if (e.target === tut) tut.close(); });
     $('demoConfigure').addEventListener('click', openSettings);
-    $('cfgPickKey').addEventListener('click', async () => {
-      try { const cfg = await api.pickKey(); showKey(cfg); if (!cfg.canceled) msg('Chave salva. Agora compartilhe a planilha com o e-mail acima.', true); }
+    // Login Google: depois de entrar ou sair, recarrega a tela para ler (ou largar) os dados com a conta certa.
+    $('authSignIn').addEventListener('click', async () => {
+      $('authSignIn').disabled = true;
+      msg('Continue o login no navegador…', true);
+      try { await window.auth.signIn(); msg('Login concluído. Atualizando…', true); setTimeout(() => location.reload(), 600); }
       catch (err) { msg(cleanErr(err), false); }
+      finally { $('authSignIn').disabled = false; }
     });
-    $('cfgRemoveKey').addEventListener('click', async () => { const cfg = await api.removeKey(); showKey(cfg); msg(cfg.hasKey ? 'Voltando a usar a chave embutida.' : 'Chave removida deste computador.', true); });
-    $('cfgCopy').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText($('cfgEmail').textContent); msg('E-mail copiado. Agora cole no “Compartilhar” da planilha.', true); }
-      catch (e) { msg('Não foi possível copiar automaticamente — selecione o e-mail e use Ctrl+C.', false); }
+    $('authSignOut').addEventListener('click', async () => {
+      try { await window.auth.signOut(); LS.set('demo', ''); location.reload(); }
+      catch (err) { msg(cleanErr(err), false); }
     });
     $('cfgTest').addEventListener('click', async () => {
       const y = $('cfgYear').value;

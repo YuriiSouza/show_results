@@ -1,0 +1,9 @@
+{
+  "desktop": {
+    "clientId": "<CLIENT_ID_DESKTOP>",
+    "clientSecret": "<CLIENT_SECRET_DESKTOP>"
+  },
+  "android": {
+    "clientId": "<CLIENT_ID_ANDROID>"
+  }
+}

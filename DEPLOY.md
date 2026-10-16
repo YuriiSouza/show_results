@@ -1,125 +1,93 @@
-# Como publicar uma versão (Windows e Android) no Google Drive
+# Como publicar uma versão (Windows e Android) no GitHub Releases
 
-Toda vez que é aberto, o app verifica se existe na pasta do Drive (fixa no app) um instalador com
-**versão maior** que a dele. Se existir, aparece no topo: **"🚀 Nova versão X disponível — Baixar"**.
-O usuário clica em Baixar, o Drive abre o arquivo e ele instala por cima.
+O app desktop verifica sozinho, ao abrir, se existe uma Release mais nova em
+https://github.com/YuriiSouza/show_results/releases. Se existir, mostra a janela **"Atualização do aplicativo"**:
+**Atualizar agora** baixa (com barra de progresso) e **Reiniciar e instalar** aplica. Se a pessoa deixar para depois,
+a versão baixada é instalada ao fechar o app.
 
-A versão é lida do **nome do arquivo**, então os nomes precisam seguir este padrão:
-
-| Sistema | Nome do arquivo |
-|---|---|
-| Windows (instalador) | `Dashboard-HUB-LGO03-1.0.1-Windows-Instalador.exe` |
-| Windows (portátil) | `Dashboard-HUB-LGO03-1.0.1-Windows-Portatil.exe` |
-| Android | `Dashboard-HUB-LGO03-1.0.1-Android.apk` |
+No Android o app consulta a mesma Release e, se houver um `.apk` mais novo, oferece **Baixar**.
 
 ---
 
 ## Parte 1 — Configuração (uma vez só)
 
-### 1.1 Pasta no Drive
-A pasta já está fixa no app (`DRIVE_FOLDER_URL` em `js/config.js`):
-https://drive.google.com/drive/folders/1enqpqllLcUkMDKoxi2QqoKmHhpFtJfaj
+### 1.1 Google Cloud
+- Tela de consentimento **Interna** (Google Workspace), Google Sheets API ativada,
+  escopo `https://www.googleapis.com/auth/spreadsheets`.
+- Client OAuth **App para computador** (desktop) e client **Android** (pacote `br.hub.lgo03.dashboard`, com o SHA-1 da
+  chave de assinatura; em "Configurações avançadas", ative o **esquema de URI personalizado**).
+- Crie `google-oauth.local.json` na raiz do projeto (modelo em `google-oauth.example.json`). Ele está no `.gitignore`:
+  **nunca** comite o client secret (`GOCSPX-...`) — o GitHub bloqueia o push.
 
-Em **Compartilhar** dessa pasta:
-- adicione o e-mail do app como **Leitor** (desmarque "Notificar pessoas"):
-  `sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com`
-- adicione as pessoas da equipe (ou o grupo da equipe) como **Leitor**, para elas conseguirem baixar.
-- **Não** deixe como "Qualquer pessoa com o link": o instalador leva a chave de acesso dentro dele.
+### 1.2 GitHub
+- **Settings → Secrets and variables → Actions → New repository secret**:
+  `GOOGLE_OAUTH_JSON` = o conteúdo inteiro do `google-oauth.local.json`.
+- **Settings → Actions → General → Workflow permissions**: marque **Read and write permissions**
+  (o workflow cria a Release e envia os instaladores).
 
-### 1.2 Ativar a Google Drive API
-1. Acesse https://console.cloud.google.com/apis/library/drive.googleapis.com
-2. Confira no topo se o projeto selecionado é **shopee-convocation-control**.
-3. Clique em **Ativar**.
+### 1.3 Planilhas
+Compartilhe as planilhas mensais (Leitor) e a planilha-base (**Editor**) com as contas de quem usa o app.
 
-### 1.3 Chave de acesso no projeto
-```bash
-cp ~/Downloads/shopee-convocation-control-9b7517cdb3e2.json /Users/yurisouza/dev/show/electron/credentials/service-account.json
-```
-
-### 1.4 Android: instalar o Android Studio e criar a chave de assinatura
-1. Instale o [Android Studio](https://developer.android.com/studio) (traz o Java e o Android SDK).
-2. Abra o projeto Android uma vez para ele baixar o que falta:
-   ```bash
-   cd /Users/yurisouza/dev/show && npm run mobile:android
-   ```
-3. Crie a **chave de assinatura** (feito uma única vez): no Android Studio,
-   **Build → Generate Signed App Bundle / APK → APK → Next → Create new…**
-   - Salve o arquivo `.jks` num lugar seguro **fora do projeto** e anote as senhas.
-   - **Guarde bem essa chave:** as próximas versões precisam ser assinadas com ela,
-     senão o Android não deixa instalar a atualização por cima.
+### 1.4 Android: chave de assinatura
+No Android Studio: **Build → Generate Signed App Bundle / APK → APK → Create new…**. Guarde o `.jks` fora do projeto:
+as próximas versões precisam ser assinadas com ele, senão o Android não instala a atualização por cima.
+Cadastre o SHA-1 dessa chave no client OAuth Android.
 
 ---
 
 ## Parte 2 — A cada nova versão
 
-### 2.1 Aumentar o número da versão
-Na pasta do projeto, escolha um:
+### 2.1 Aumentar a versão e criar a tag
 ```bash
-npm version patch --no-git-tag-version
+npm version patch
 ```
-(1.0.0 → 1.0.1: correções). Para novidades maiores use `minor` (1.0.1 → 1.1.0).
+(1.3.0 → 1.3.1; use `minor` para novidades maiores). Isso atualiza o `package.json`, faz o commit e cria a tag `v1.3.1`.
 
-A versão é copiada automaticamente para o app, o Android e os nomes dos instaladores.
-
-### 2.2 Gerar o Windows
 ```bash
-cd /Users/yurisouza/dev/show && npm run dist:win
+git push --follow-tags
 ```
-Saem em `dist/`:
-- `Dashboard-HUB-LGO03-1.0.1-Windows-Instalador.exe`
-- `Dashboard-HUB-LGO03-1.0.1-Windows-Portatil.exe`
 
-### 2.3 Gerar o Android
+### 2.2 Windows (automático)
+O push da tag `v*` dispara o workflow **Release desktop (Windows)** (`.github/workflows/release-desktop.yml`), que gera
+e publica na Release:
+- `Dashboard-HUB-LGO03-<versão>-Windows-Instalador.exe` (+ `.blockmap`)
+- `Dashboard-HUB-LGO03-<versão>-Windows-Portatil.exe`
+- `latest.yml` (é o que a atualização automática lê)
+
+A tag precisa bater com a versão do `package.json`, senão o workflow falha. Também dá para rodar manualmente em
+**Actions → Release desktop → Run workflow**.
+
+Para gerar localmente (sem publicar): `npm run dist:win` (saem em `dist/`).
+
+### 2.3 Android (manual)
 ```bash
-cd /Users/yurisouza/dev/show && npm run mobile:android
+npm run mobile:android
 ```
-No Android Studio: **Build → Generate Signed App Bundle / APK → APK → Next**, escolha a chave `.jks`
-criada no passo 1.4, variante **release** → **Create**.
-O arquivo sai em `android/app/release/app-release.apk`. **Renomeie** para:
-`Dashboard-HUB-LGO03-1.0.1-Android.apk`
+No Android Studio: **Build → Generate Signed App Bundle / APK → APK**, chave `.jks` do passo 1.4, variante **release**.
+Renomeie `android/app/release/app-release.apk` para `Dashboard-HUB-LGO03-<versão>-Android.apk` e anexe na Release
+da mesma versão (**Releases → Edit → Attach binaries**).
 
-### 2.4 Subir no Drive
-Arraste para a pasta do Drive:
-- `Dashboard-HUB-LGO03-1.0.1-Windows-Instalador.exe`
-- `Dashboard-HUB-LGO03-1.0.1-Windows-Portatil.exe` (opcional)
-- `Dashboard-HUB-LGO03-1.0.1-Android.apk`
-
-Pronto: da próxima vez que cada pessoa abrir o app, aparece o aviso.
-Pode deixar as versões antigas na pasta; o app sempre escolhe a maior.
+Linha de comando (Capacitor 8 precisa do **JDK 21**; o JDK 25 embutido no Android Studio novo e o 17 não servem):
+```bash
+JAVA_HOME=~/.jdks/jbr-21.0.11 ./android/gradlew -p android assembleRelease
+```
 
 ---
 
-## Parte 3 — Instalar em qualquer computador ou celular
+## Parte 3 — Instalar
 
 ### Windows
-1. Abra a pasta do Drive e baixe o **Instalador**.
-2. Execute. Se aparecer **"O Windows protegeu o computador"** (o app não tem assinatura digital paga):
-   **Mais informações → Executar assim mesmo**.
-3. Escolha a pasta e conclua. O atalho fica no menu Iniciar.
-   - Sem permissão de administrador? Use o **Portatil.exe**: é só abrir, não instala nada.
-4. **Atualizar:** quando aparecer o aviso, clique em **Baixar**, feche o app e rode o novo instalador
-   por cima. Configuração, nome de usuário e rascunhos continuam.
+1. Baixe o **Instalador** na página de Releases e execute. Se aparecer **"O Windows protegeu o computador"**
+   (o app não tem assinatura digital paga): **Mais informações → Executar assim mesmo**.
+2. Sem permissão de administrador? Use o **Portatil.exe** (ele avisa das versões novas, mas a atualização é baixar o novo `.exe`).
+3. As próximas versões chegam pela janela de atualização do próprio app.
 
 ### Android
-1. No celular, abra a pasta do Drive (app do Google Drive, logado com a conta que tem acesso) e toque no `.apk`.
-2. O Android pede para permitir **"Instalar apps desconhecidos"** para o Drive: **Configurações → Permitir**.
-3. Toque em **Instalar**. Se o Play Protect avisar, **Instalar mesmo assim**.
-4. **Atualizar:** quando aparecer o aviso, toque em **Baixar** e instale por cima (os dados continuam,
-   desde que o APK seja assinado com a mesma chave `.jks`).
+1. Baixe o `.apk` na página de Releases e toque nele. Permita **"Instalar apps desconhecidos"** quando o Android pedir.
+2. **Atualizar:** quando o app avisar, toque em **Baixar** e instale por cima (os dados continuam, desde que o APK seja
+   assinado com a mesma chave `.jks`).
 
 ### Primeiro uso (qualquer aparelho)
-1. Abra o app → **Conectar planilhas** (rodapé do menu).
-2. Cole o link da planilha de cada mês → **Testar** → **Salvar e atualizar**.
+1. Abra o app → **Conectar planilhas** (rodapé do menu) → **Entrar com Google**.
+2. Confira os links das planilhas de cada mês → **Testar** → **Salvar e atualizar**.
 3. Na primeira vez que salvar um report ou importar um Audit, o app pede o **seu nome**.
-
----
-
-## Resumo do que precisa estar compartilhado com `sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com`
-
-| O quê | Permissão |
-|---|---|
-| Planilhas mensais | Leitor |
-| Planilha-base (reports e Audit) | **Editor** |
-| Pasta do Drive com os instaladores | Leitor |
-
-APIs ativadas no projeto `shopee-convocation-control`: **Google Sheets API** e **Google Drive API**.

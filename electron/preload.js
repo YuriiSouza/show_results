@@ -4,8 +4,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('hubApi', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   saveConfig: cfg => ipcRenderer.invoke('config:save', cfg),
-  pickKey: () => ipcRenderer.invoke('config:pickKey'),
-  removeKey: () => ipcRenderer.invoke('config:removeKey'),
   fetchSheets: (sheets, override) => ipcRenderer.invoke('sheets:fetch', { sheets, override }),
   cacheGet: month => ipcRenderer.invoke('cache:get', month),
   cacheSet: (month, data) => ipcRenderer.invoke('cache:set', month, data),
@@ -27,6 +25,13 @@ contextBridge.exposeInMainWorld('hubApi', {
   parcelHasSession: () => ipcRenderer.invoke('parcel:hasSession'),
   parcelTrack: code => ipcRenderer.invoke('parcel:track', code),
   parcelAt: at => ipcRenderer.invoke('parcel:at', at),
+});
+
+// Login Google de quem usa o app.
+contextBridge.exposeInMainWorld('auth', {
+  getState: () => ipcRenderer.invoke('auth:state'),
+  signIn: () => ipcRenderer.invoke('auth:sign-in'),
+  signOut: () => ipcRenderer.invoke('auth:sign-out'),
 });
 
 // Atualização automática: cada on* devolve uma função que cancela a inscrição.

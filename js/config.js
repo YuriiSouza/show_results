@@ -1,13 +1,9 @@
 // Configuração do dashboard.
-// O link da planilha e a chave de acesso são definidos na engrenagem (⚙) do aplicativo
-// e ficam salvos apenas no computador.
+// Os links das planilhas e o login Google ficam na engrenagem (⚙) do aplicativo
+// e são salvos apenas no aparelho.
 window.APP_CONFIG = {
   HUB_NAME: 'HUB LGO 03',
   HUB_CITY: 'Anápolis',
-
-  // E-mail da conta de serviço embutida: toda planilha conectada precisa ser
-  // compartilhada com ele (como Leitor).
-  SERVICE_ACCOUNT_EMAIL: 'sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com',
 
   // Atualização automática (minutos), fixa para todos os aparelhos. 0 = desligada.
   AUTO_REFRESH_MIN: 30,
@@ -15,12 +11,12 @@ window.APP_CONFIG = {
   TV_ROTATE_SEC: 30,
 
   // Planilha-base compartilhada: onde o app grava os reports preenchidos e os relatórios Audit
-  // importados, para todos os usuários verem. Compartilhe com o e-mail acima como EDITOR.
+  // importados, para todos os usuários verem. Compartilhe como EDITOR com as contas de quem usa o app.
   BASE_SHEET_URL: 'https://docs.google.com/spreadsheets/d/10e4zgv7kzpx8L4Gbx1TJUgmnBr3-ccSm_ty_JXvByIU/edit',
 
   // Planilhas mensais padrão (já vêm conectadas em todo aparelho). Chave: 'AAAA-MM'.
   // Um link salvo pelo usuário em "Conectar planilhas" para o mesmo mês tem prioridade.
-  // Cada planilha precisa estar compartilhada com o e-mail acima como Leitor.
+  // Cada planilha precisa estar compartilhada (como Leitor) com as contas de quem usa o app.
   DEFAULT_MONTHS: {
     '2026-06': 'https://docs.google.com/spreadsheets/d/1NkE0vyBZBztc6BnEppSfGD40nN-JTsQdfMHfPvfsCac/edit',
     '2026-07': 'https://docs.google.com/spreadsheets/d/1bS4L0tZ1UmbFN27RDyCaTRvvfrQsLaqDtdytbf9VzuU/edit',

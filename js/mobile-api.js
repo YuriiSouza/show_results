@@ -1,12 +1,12 @@
 // Versão mobile (Android/iOS, via Capacitor) da ponte window.hubApi que o Electron
 // fornece em electron/preload.js. Mesmas funções, implementadas no próprio aparelho:
-// - lê a planilha pela API do Google com a chave da conta de serviço embutida no app;
+// - lê a planilha pela API do Google com o login Google de quem usa o app (OAuth com PKCE no navegador);
 // - guarda configuração e relatórios Audit na área privada do app.
 (() => {
   const Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform() || window.hubApi) return;
 
-  const { Preferences, Filesystem } = Cap.Plugins;
+  const { Preferences, Filesystem, App, Browser, SecureStorage } = Cap.Plugins;
   const DATA = 'DATA';
   const AUDIT_DIR = 'audit';
   const SHIFTS = ['AM', 'PM1', 'PM2'];
@@ -19,17 +19,6 @@
   };
   const setPref = (key, v) => Preferences.set({ key, value: JSON.stringify(v) });
 
-  let embedded; // undefined = não carregada ainda; null = não existe no app
-  async function embeddedKey() {
-    if (embedded !== undefined) return embedded;
-    try {
-      const res = await fetch('credentials/service-account.json', { cache: 'no-store' });
-      const k = res.ok ? await res.json() : null;
-      embedded = k && k.type === 'service_account' && k.client_email && k.private_key ? k : null;
-    } catch (e) { embedded = null; }
-    return embedded;
-  }
-
   function spreadsheetId(input) {
     const s = String(input || '').trim();
     const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -39,54 +28,126 @@
 
   async function publicConfig() {
     const cfg = await getPref('config', {});
-    const key = await embeddedKey();
+    const st = await authState();
     return {
       spreadsheetUrl: cfg.spreadsheetUrl || '',
       months: cfg.months || {},
-      hasKey: !!key,
-      keySource: key ? 'embedded' : '',
-      clientEmail: key ? key.client_email : '',
+      signedIn: st.signedIn,
+      email: st.email,
       dataDir: '',
       mobile: true,
     };
   }
 
-  // ---------- Google OAuth (JWT RS256 assinado com WebCrypto) ----------
-  let tokenCache = { token: null, exp: 0 };
-  const enc = new TextEncoder();
+  // ---------- Login Google (authorization code + PKCE, client OAuth Android) ----------
+  // O navegador (Custom Tab) volta para o app pelo esquema reverso do client id, registrado no AndroidManifest.
+  const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+  const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+  const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+  const SCOPES = 'https://www.googleapis.com/auth/spreadsheets openid email';
+  const AUTH_KEY = 'hub_google_auth';       // { refreshToken, email } no Keystore (SecureStorage)
+  const PENDING_KEY = 'hub_google_pending'; // { verifier, state } enquanto o login está no navegador
+  const clientId = () => (window.GOOGLE_OAUTH && window.GOOGLE_OAUTH.androidClientId) || '';
+  const redirectScheme = () => `com.googleusercontent.apps.${clientId().replace('.apps.googleusercontent.com', '')}`;
+  const redirectUri = () => `${redirectScheme()}:/oauthredirect`;
+
   const b64url = bytes => {
     let bin = '';
     new Uint8Array(bytes).forEach(b => { bin += String.fromCharCode(b); });
     return btoa(bin).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
   };
-  const pemToDer = pem => {
-    const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out.buffer;
+  const randomStr = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
+
+  async function readAuth() {
+    try { const { data } = await SecureStorage.internalGetItem({ prefixedKey: AUTH_KEY }); return data ? JSON.parse(data) : null; }
+    catch (e) { return null; }
+  }
+  const writeAuth = v => SecureStorage.internalSetItem({ prefixedKey: AUTH_KEY, data: JSON.stringify(v) });
+  const clearAuth = () => SecureStorage.internalRemoveItem({ prefixedKey: AUTH_KEY }).catch(() => {});
+  async function authState() {
+    const a = await readAuth();
+    return { signedIn: !!(a && a.refreshToken), email: (a && a.email) || '' };
+  }
+  function notSignedIn() {
+    const e = new Error('Entre com sua conta Google em ⚙ Conectar planilhas.');
+    e.code = 'NOT_SIGNED_IN';
+    return e;
+  }
+
+  let tokenCache = { token: null, exp: 0 };
+  async function postForm(url, params) {
+    const res = await httpFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params).toString() });
+    return { ok: res.ok, status: res.status, body: await res.json().catch(() => ({})) };
+  }
+  const emailFromIdToken = t => {
+    try { return JSON.parse(atob(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).email || ''; } catch (e) { return ''; }
   };
 
-  async function accessToken(key) {
-    const now = Math.floor(Date.now() / 1000);
-    if (tokenCache.token && tokenCache.exp - 60 > now) return tokenCache.token;
-    const tokenUri = key.token_uri || 'https://oauth2.googleapis.com/token';
-    const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
-    const claim = b64url(enc.encode(JSON.stringify({
-      iss: key.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
-      aud: tokenUri, iat: now, exp: now + 3600,
-    })));
-    const cryptoKey = await crypto.subtle.importKey('pkcs8', pemToDer(key.private_key),
-      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
-    const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, enc.encode(`${header}.${claim}`));
-    const res = await httpFetch(tokenUri, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${header}.${claim}.${b64url(sig)}`,
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error('A chave da conta de serviço foi recusada pelo Google (' + (body.error_description || body.error || res.status) + ').');
-    tokenCache = { token: body.access_token, exp: now + (body.expires_in || 3600) };
+  let signInWaiter = null; // { resolve, reject } do login em andamento
+  async function signIn() {
+    if (!clientId()) throw new Error('Este aplicativo foi gerado sem o client OAuth do Google (google-oauth.local.json).');
+    const verifier = randomStr(32);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const state = randomStr(16);
+    await setPref(PENDING_KEY, { verifier, state });
+    const url = `${AUTH_URL}?${new URLSearchParams({
+      client_id: clientId(), redirect_uri: redirectUri(), response_type: 'code', scope: SCOPES,
+      code_challenge: challenge, code_challenge_method: 'S256', state, access_type: 'offline', prompt: 'consent',
+    })}`;
+    if (signInWaiter) signInWaiter.reject(new Error('Login anterior cancelado.'));
+    const done = new Promise((resolve, reject) => { signInWaiter = { resolve, reject }; });
+    await Browser.open({ url });
+    return done;
+  }
+
+  // Recebe com.googleusercontent.apps.<id>:/oauthredirect?code=...&state=... e troca o código por tokens.
+  async function handleRedirect(url) {
+    if (!url || !clientId() || !url.startsWith(redirectScheme() + ':')) return;
+    const waiter = signInWaiter;
+    signInWaiter = null;
+    try {
+      Browser.close().catch(() => {});
+      const params = new URL(url.replace(/^[^:]+:\/*/, 'https://x/')).searchParams;
+      const pending = await getPref(PENDING_KEY, null);
+      await Preferences.remove({ key: PENDING_KEY });
+      if (params.get('error')) throw new Error(params.get('error') === 'access_denied' ? 'Login cancelado.' : 'O Google não devolveu a autorização. Tente de novo.');
+      if (!pending || params.get('state') !== pending.state || !params.get('code')) throw new Error('Login inválido ou expirado. Tente de novo.');
+      const r = await postForm(TOKEN_URL, { code: params.get('code'), client_id: clientId(), code_verifier: pending.verifier, redirect_uri: redirectUri(), grant_type: 'authorization_code' });
+      if (!r.ok || !r.body.refresh_token) throw new Error('O Google recusou o login (' + (r.body.error_description || r.body.error || r.status) + ').');
+      await writeAuth({ refreshToken: r.body.refresh_token, email: emailFromIdToken(r.body.id_token) });
+      tokenCache = { token: r.body.access_token, exp: Date.now() + (r.body.expires_in || 3600) * 1000 };
+      const st = await authState();
+      if (waiter) waiter.resolve(st);
+      else location.reload(); // o app foi reaberto pelo retorno do login
+    } catch (err) {
+      if (waiter) waiter.reject(err);
+    }
+  }
+  App.addListener('appUrlOpen', e => handleRedirect(e.url));
+  App.getLaunchUrl().then(r => r && handleRedirect(r.url)).catch(() => {});
+  // Fechou o navegador sem concluir: libera o botão "Entrar".
+  Browser.addListener('browserFinished', () => setTimeout(() => {
+    if (signInWaiter) { signInWaiter.reject(new Error('Login cancelado.')); signInWaiter = null; }
+  }, 1500));
+
+  async function signOut() {
+    const a = await readAuth();
+    await clearAuth();
+    tokenCache = { token: null, exp: 0 };
+    if (a && a.refreshToken) await postForm(REVOKE_URL, { token: a.refreshToken }).catch(() => {});
+    return authState();
+  }
+
+  async function getValidAccessToken() {
+    if (tokenCache.token && tokenCache.exp - 60000 > Date.now()) return tokenCache.token;
+    const a = await readAuth();
+    if (!a || !a.refreshToken) throw notSignedIn();
+    const r = await postForm(TOKEN_URL, { client_id: clientId(), refresh_token: a.refreshToken, grant_type: 'refresh_token' });
+    if (!r.ok) {
+      if (r.body.error === 'invalid_grant') { await clearAuth(); throw notSignedIn(); }
+      throw new Error('Não foi possível renovar o login do Google (' + (r.body.error_description || r.body.error || r.status) + ').');
+    }
+    tokenCache = { token: r.body.access_token, exp: Date.now() + (r.body.expires_in || 3600) * 1000 };
     return tokenCache.token;
   }
 
@@ -95,14 +156,15 @@
     catch (e) { throw new Error('Sem conexão com o Google. Verifique a internet do aparelho.'); }
   }
 
-  async function sheetsGet(url, token, key) {
+  async function sheetsGet(url, token) {
     const res = await httpFetch(url, { headers: { Authorization: 'Bearer ' + token } });
     const body = await res.json().catch(() => ({}));
     if (res.ok) return body;
     const msg = (body.error && body.error.message) || '';
+    if (res.status === 401) throw new Error('O login do Google expirou. Entre de novo em ⚙ Conectar planilhas.');
     if (res.status === 403) {
-      if (/has not been used|is disabled/i.test(msg)) throw new Error('A "Google Sheets API" não está ativada no projeto da conta de serviço.');
-      throw new Error(`Sem permissão. Compartilhe a planilha (como Leitor) com: ${key.client_email}`);
+      if (/has not been used|is disabled/i.test(msg)) throw new Error('A "Google Sheets API" não está ativada no projeto do Google Cloud do app.');
+      throw new Error(`Sem permissão. Peça para compartilharem a planilha com a sua conta (${(await authState()).email || 'conta Google conectada'}).`);
     }
     if (res.status === 404) throw new Error('Planilha não encontrada. Confira o link da planilha.');
     throw new Error('Erro da API do Google: ' + (msg || res.status));
@@ -111,19 +173,17 @@
   async function fetchSheets(wanted, override) {
     const cfg = await getPref('config', {});
     const id = spreadsheetId(override && override.spreadsheetUrl != null ? override.spreadsheetUrl : cfg.spreadsheetUrl);
-    const key = await embeddedKey();
-    if (!key) throw new Error('Este aplicativo foi gerado sem a chave de acesso embutida.');
     if (!id) throw new Error('Informe o link da planilha.');
-    const token = await accessToken(key);
+    const token = await getValidAccessToken();
     const base = `https://sheets.googleapis.com/v4/spreadsheets/${id}`;
-    const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token, key);
+    const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token);
     const existing = (meta.sheets || []).map(s => s.properties.title);
     const names = wanted && wanted.length ? existing.filter(n => wanted.includes(n)) : existing;
     const out = { spreadsheet: meta.properties.title, updatedAt: new Date().toISOString(), sheets: {},
                   missingSheets: (wanted || []).filter(n => !existing.includes(n)) };
     if (!names.length) return out;
     const qs = names.map(n => 'ranges=' + encodeURIComponent(`'${n.replace(/'/g, "''")}'`)).join('&');
-    const data = await sheetsGet(`${base}/values:batchGet?${qs}&valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS`, token, key);
+    const data = await sheetsGet(`${base}/values:batchGet?${qs}&valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS`, token);
     (data.valueRanges || []).forEach((vr, i) => { out.sheets[names[i]] = vr.values || []; });
     return out;
   }
@@ -142,42 +202,37 @@
     if (!/^[a-zA-Z0-9-_]{20,}$/.test(String(id || ''))) throw new Error('Link da planilha-base inválido.');
     return `https://sheets.googleapis.com/v4/spreadsheets/${id}`;
   };
-  async function baseToken() {
-    const key = await embeddedKey();
-    if (!key) throw new Error('App sem chave de acesso.');
-    return { key, token: await accessToken(key) };
-  }
-  async function sheetsSend(method, url, token, body, key) {
+  async function sheetsSend(method, url, token, body) {
     const res = await httpFetch(url, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const out = await res.json().catch(() => ({}));
     if (res.ok) return out;
-    if (res.status === 403) throw new Error(`Sem permissão para gravar. Compartilhe a planilha-base como EDITOR com: ${key.client_email}`);
+    if (res.status === 403) throw new Error(`Sem permissão para gravar. Peça para compartilharem a planilha-base como EDITOR com a sua conta (${(await authState()).email || 'conta Google conectada'}).`);
     if (res.status === 404) throw new Error('Planilha-base não encontrada. Confira BASE_SHEET_URL em js/config.js.');
     throw new Error('Erro ao gravar na planilha-base: ' + ((out.error && out.error.message) || res.status));
   }
   async function baseEnsure(id) {
-    const { key, token } = await baseToken();
+    const token = await getValidAccessToken();
     const base = baseUrl(id);
-    const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token, key);
+    const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token);
     const have = (meta.sheets || []).map(x => x.properties.title);
     const missing = Object.keys(BASE_TABS).filter(t => !have.includes(t));
     if (missing.length) {
-      await sheetsSend('POST', `${base}:batchUpdate`, token, { requests: missing.map(title => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) }, key);
-      for (const t of missing) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] }, key);
+      await sheetsSend('POST', `${base}:batchUpdate`, token, { requests: missing.map(title => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) });
+      for (const t of missing) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] });
     }
     return { title: meta.properties.title, created: missing };
   }
   async function baseRead(id) {
-    const { key, token } = await baseToken();
-    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&valueRenderOption=UNFORMATTED_VALUE`, token, key);
+    const token = await getValidAccessToken();
+    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&valueRenderOption=UNFORMATTED_VALUE`, token);
     const [rep, aud, par] = data.valueRanges || [];
     return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [] };
   }
   async function baseAppend(id, tab, rows) {
     if (!BASE_TABS[tab]) throw new Error('Guia inválida.');
     if (!Array.isArray(rows) || !rows.length) return true;
-    const { key, token } = await baseToken();
-    await sheetsSend('POST', `${baseUrl(id)}/values/${q(tab)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, token, { values: rows }, key);
+    const token = await getValidAccessToken();
+    await sheetsSend('POST', `${baseUrl(id)}/values/${q(tab)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, token, { values: rows });
     return true;
   }
   async function reportsListLocal() {
@@ -247,22 +302,10 @@
       try { await Filesystem.rmdir({ path: 'cache', directory: DATA, recursive: true }); } catch (e) { /* vazio */ }
       return true;
     },
-    pickKey: async () => { throw new Error('No celular é usada apenas a chave embutida no aplicativo.'); },
-    removeKey: publicConfig,
     fetchSheets,
     auditList, auditSave, auditDelete,
     baseEnsure, baseRead, baseAppend, reportsListLocal,
     os: Cap.getPlatform(), // 'android' | 'ios'
-    async driveList(folderId) {
-      if (!/^[a-zA-Z0-9-_]{10,}$/.test(String(folderId || ''))) throw new Error('Pasta do Drive inválida.');
-      const { token } = await baseToken();
-      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-      const res = await httpFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink,modifiedTime,size)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`,
-        { headers: { Authorization: 'Bearer ' + token } });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((body.error && body.error.message) || ('Erro do Drive ' + res.status));
-      return body.files || [];
-    },
     openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),
     async reportGet(date) {
@@ -275,5 +318,6 @@
       return true;
     },
   };
+  window.auth = { getState: authState, signIn, signOut };
   document.documentElement.classList.add('is-mobile-app');
 })();

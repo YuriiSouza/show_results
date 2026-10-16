@@ -1,6 +1,6 @@
 // Monta mobile/www (a pasta que o Capacitor empacota no app Android/iOS) a partir do
-// mesmo código do app desktop. Se a chave estiver em electron/credentials/service-account.json,
-// ela é embutida no app mobile também.
+// mesmo código do app desktop. O client id OAuth Android (google-oauth.local.json, fora do git) vai em
+// js/oauth-config.js; o client secret do desktop nunca entra no app mobile.
 const fs = require('fs');
 const path = require('path');
 
@@ -25,14 +25,14 @@ html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/,
   `connect-src 'self' capacitor: https://localhost https://oauth2.googleapis.com https://sheets.googleapis.com https://www.googleapis.com https://api.github.com; object-src 'none'; base-uri 'none'">`);
 html = html.replace('width=device-width, initial-scale=1', 'width=device-width, initial-scale=1, viewport-fit=cover');
 // A ponte com o Google (window.hubApi) precisa existir ANTES dos módulos que a usam (base, audit, reports, app...).
-html = html.replace('<script src="js/config.js"></script>', '<script src="js/config.js"></script>\n  <script src="js/mobile-api.js"></script>');
+html = html.replace('<script src="js/config.js"></script>', '<script src="js/config.js"></script>\n  <script src="js/oauth-config.js"></script>\n  <script src="js/mobile-api.js"></script>');
 fs.writeFileSync(path.join(out, 'index.html'), html);
 
-const key = path.join(root, 'electron', 'credentials', 'service-account.json');
-if (fs.existsSync(key)) {
-  copy('electron/credentials/service-account.json', 'credentials/service-account.json');
-  console.log('✓ Chave embutida no app mobile.');
-} else {
-  console.warn('⚠ Chave não encontrada em electron/credentials/service-account.json — o app mobile vai abrir só em modo demonstração.');
-}
+let androidClientId = '';
+try { androidClientId = (JSON.parse(fs.readFileSync(path.join(root, 'google-oauth.local.json'), 'utf8')).android || {}).clientId || ''; }
+catch (e) { /* sem arquivo */ }
+fs.writeFileSync(path.join(out, 'js', 'oauth-config.js'),
+  `// Gerado por scripts/build-mobile.js a partir de google-oauth.local.json.\nwindow.GOOGLE_OAUTH = ${JSON.stringify({ androidClientId })};\n`);
+if (androidClientId) console.log('✓ Client OAuth Android: ' + androidClientId);
+else console.warn('⚠ google-oauth.local.json sem android.clientId — o login Google não vai funcionar no app mobile.');
 console.log('✓ mobile/www pronto.');

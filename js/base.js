@@ -26,10 +26,10 @@ window.Base = (() => {
   const status = { state: 'off', msg: '', at: null };
   const listeners = new Set();
 
-  // Ativa só com chave de acesso e com dados reais (no modo demonstração nada é gravado na planilha).
-  let hasKey = false, active = false;
-  const ready = (async () => { try { hasKey = !!(api && api.getConfig && (await api.getConfig()).hasKey); } catch (e) { hasKey = false; } })();
-  const enabled = () => !!(api && api.baseRead && ID && hasKey && active);
+  // Ativa só com login Google e com dados reais (no modo demonstração nada é gravado na planilha).
+  let signedIn = false, active = false;
+  const ready = (async () => { try { signedIn = !!(api && api.getConfig && (await api.getConfig()).signedIn); } catch (e) { signedIn = false; } })();
+  const enabled = () => !!(api && api.baseRead && ID && signedIn && active);
   const setActive = on => { active = !!on; if (!enabled()) setStatus('off', ''); };
   const setStatus = (state, msg = '') => { status.state = state; status.msg = msg; status.at = new Date(); listeners.forEach(fn => fn(status)); };
   const clean = err => String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');

@@ -1,6 +1,8 @@
 node_modules/
 dist/
-# chave da conta de serviço: nunca versionar
+# chave da conta de serviço (obsoleta): nunca versionar
 electron/credentials/*.json
+# clients OAuth do Google (o secret do desktop não pode ir para o git)
+google-oauth.local.json
 # gerado por scripts/build-mobile.js
 mobile/www/

@@ -3,8 +3,8 @@
 Aplicativo para **Windows e Linux** que lê a planilha Google Sheets do HUB e mostra os dados em dashboards (cores Shopee/SPX).
 A planilha continua sendo **só para digitação**; o app apenas lê. Clique em **Atualizar**; o app também atualiza sozinho a cada 30 minutos.
 
-**Privacidade:** não existe site nem link público. O app fala direto com a API do Google usando uma chave que fica
-**só no computador** onde foi configurado. A planilha continua privada: só é lida por quem estiver compartilhado nela.
+**Privacidade:** não existe site nem link público. Cada pessoa entra com a **própria conta Google** e o app fala direto
+com a API do Google em nome dela. A planilha continua privada: só é lida por quem estiver compartilhado nela.
 
 Menu lateral retrátil (☰ no topo ou **Recolher** no rodapé do menu) com as seções:
 **Visão geral · Recebimento · HC & PHD · Inventário · Reversa · Transporte · Audit de gestão · Missing (planilha) · HSE · Report T3**,
@@ -79,21 +79,19 @@ Os instaladores ficam em `dist/`:
 O app não é assinado digitalmente. Por isso, no Windows, o SmartScreen pode avisar "Editor desconhecido":
 clique em **Mais informações → Executar assim mesmo**.
 
-## Chave de acesso embutida
+## Login Google (OAuth)
 
-A chave da conta de serviço vai **dentro do instalador**, então ninguém precisa configurar chave.
-Antes de gerar o instalador, coloque a chave em:
+Cada pessoa clica em **Entrar com Google** (em **Conectar planilhas**) e autoriza no navegador. O acesso é controlado
+pelo **compartilhamento das planilhas** com a conta de cada um — não existe mais chave de conta de serviço no app.
 
-```
-electron/credentials/service-account.json
-```
+Os clients OAuth ficam em `google-oauth.local.json` na raiz do projeto (fora do git; modelo em `google-oauth.example.json`):
 
-Essa pasta está no `.gitignore` (a chave nunca vai para o git). O `npm run dist` se recusa a gerar o
-instalador se o arquivo não estiver lá.
+- `desktop`: client "App para computador" (client id + secret). Vai dentro do instalador; o `npm run dist` se recusa a gerar
+  o instalador sem ele. No GitHub Actions o arquivo vem do secret `GOOGLE_OAUTH_JSON`.
+- `android`: client Android (só o client id). O `npm run mobile:build` grava em `mobile/www/js/oauth-config.js` e o
+  `android/app/build.gradle` registra o esquema reverso (`com.googleusercontent.apps.<id>`) para o retorno do login.
 
-> **Atenção:** quem tiver o instalador consegue extrair a chave de dentro dele. Distribua o instalador só
-> para a equipe. A chave só lê as planilhas compartilhadas com o e-mail dela; se o instalador vazar, remova
-> esse e-mail do compartilhamento da planilha e gere uma chave nova no Google Cloud.
+No computador o refresh token fica cifrado (`safeStorage`) na pasta de dados do usuário; no Android, no Keystore.
 
 ## Conectar as planilhas (uma por mês)
 
@@ -104,12 +102,8 @@ Cada mês tem a sua planilha. A conexão fica sempre disponível no botão **Con
 do menu lateral (bolinha verde = tudo ok, amarela = dados de exemplo, vermelha = algum mês com erro),
 ou pela engrenagem ⚙ no topo.
 
-1. Em **cada** planilha do mês, clique em **Compartilhar** e adicione, como **Leitor**, o e-mail:
-
-   ```
-   sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com
-   ```
-
+1. Entre com a sua conta Google (**Entrar com Google**). Cada planilha do mês precisa estar compartilhada com
+   a sua conta (como **Leitor**, pelo menos).
 2. No app, escolha o **ano** e cole o link de cada planilha no **mês correspondente**
    (deixe em branco os meses que ainda não existem).
 3. Clique em **Testar**: cada mês mostra ✓ com o nome da planilha e quantos dias foram lidos, ou ⚠ com o erro.
@@ -127,7 +121,6 @@ Como o app usa os meses:
 
 O botão **📘 Passo a passo detalhado** mostra essas instruções dentro do app.
 Copiar e colar funciona com **Ctrl+C / Ctrl+V** (⌘ no Mac) e pelo **botão direito**.
-Se você trocar a chave embutida por outra conta de serviço, atualize `SERVICE_ACCOUNT_EMAIL` em `js/config.js`.
 
 Sem link configurado, o app abre em **modo demonstração**, com dados fictícios.
 
@@ -156,9 +149,9 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
 O que é digitado nos reports e os relatórios Audit importados ficam numa **planilha-base** do Google
 (`BASE_SHEET_URL` em `js/config.js`), para qualquer pessoa com o app ver e continuar o trabalho dos outros.
 
-- **Compartilhe a planilha-base como EDITOR** com `sheets-convocation@shopee-convocation-control.iam.gserviceaccount.com`
+- **Compartilhe a planilha-base como EDITOR** com as contas de quem usa o app
   (as planilhas mensais continuam só como Leitor).
-- Na primeira vez que o app abre com a chave, ele cria as guias sozinho:
+- Na primeira vez que o app abre com alguém logado, ele cria as guias sozinho:
   - **Reports**: **uma linha por salvamento** (data, report, usuário, data/hora, aparelho, quantidade de campos e
     as alterações em JSON, ex.: `{"atestado":"2","rotas":"41"}`; `null` = voltou ao valor das guias).
     **Vale a gravação mais recente** de cada campo.
@@ -171,23 +164,22 @@ O que é digitado nos reports e os relatórios Audit importados ficam numa **pla
 - Os dados que já estavam salvos só no aparelho são enviados para a planilha-base na primeira sincronização.
 - No **modo demonstração** nada é gravado na planilha-base.
 
-> Atenção: a chave embutida passou a ter permissão de escrita. Ela só consegue alterar planilhas compartilhadas
-> como Editor com o e-mail acima — no caso, só a planilha-base.
+> O app pede o escopo de planilhas da conta, mas só grava na planilha-base (e só se a conta for Editor dela).
 
 ## App mobile (Android e iOS)
 
 O mesmo painel roda no celular com **Capacitor**: o código das telas é o mesmo do desktop
 (`index.html`, `css/`, `js/`), e `js/mobile-api.js` faz no aparelho o que o Electron faz no computador:
-lê a planilha pela API do Google (com a chave embutida) e guarda os relatórios Audit na área privada do app.
+lê a planilha pela API do Google (com o login Google da pessoa) e guarda os relatórios Audit na área privada do app.
 
-Antes de gerar, coloque a chave em `electron/credentials/service-account.json` (a mesma do desktop).
-Sem ela, o app mobile abre só em modo demonstração.
+Antes de gerar, confira `android.clientId` em `google-oauth.local.json`. O login abre numa aba do navegador (Custom Tab)
+e volta para o app pelo esquema reverso do client id.
 
 ```bash
 npm run mobile:build
 ```
 
-Esse comando monta `mobile/www` (com a chave) e copia para os projetos `ios/` e `android/`.
+Esse comando monta `mobile/www` (com o client id Android) e copia para os projetos `ios/` e `android/`.
 Rode de novo sempre que mudar o código das telas.
 
 ### iOS (precisa de um Mac com Xcode)
@@ -212,8 +204,9 @@ pelo **TestFlight** ou como distribuição interna — a Apple não permite inst
 3. No Android Studio: **Build → Build App Bundle(s) / APK(s) → Build APK(s)**.
    O `.apk` pode ser enviado e instalado direto nos celulares (permitindo "fontes desconhecidas").
 
-> **Não publique na Play Store / App Store abertas:** a chave de acesso vai dentro do app e poderia ser
-> extraída. Distribua só para a equipe (APK interno, TestFlight ou loja privada da empresa).
+> O client OAuth Android precisa do **SHA-1** da chave que assina o APK (debug para testes, release para distribuir) e,
+> em "Configurações avançadas" do client, do **esquema de URI personalizado** ativado. No iOS o login Google ainda
+> não está configurado (não há client iOS).
 
 ## Como o app lê a planilha
 

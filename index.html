@@ -170,18 +170,19 @@
   <dialog id="settings">
     <form method="dialog" class="settings">
       <h2>Conectar planilhas</h2>
-      <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e são usadas só para digitação.</p>
+      <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e cada pessoa acessa só o que foi compartilhado com a própria conta Google.</p>
       <div class="conn-current" id="cfgCurrent" hidden></div>
 
       <div class="conn-step">
         <span class="conn-num">1</span>
-        <div>
-          <div class="key-title">Compartilhe a planilha com este e-mail, como <b>Leitor</b>:</div>
+        <div class="grow">
+          <div class="key-title">Entre com a sua conta Google</div>
           <div class="email-row">
-            <code id="cfgEmail"></code>
-            <button type="button" class="btn-ghost" id="cfgCopy">Copiar e-mail</button>
+            <span id="authInfo" class="muted">Não conectado</span>
+            <button type="button" class="btn-primary" id="authSignIn">Entrar com Google</button>
+            <button type="button" class="btn-ghost" id="authSignOut" hidden>Sair</button>
           </div>
-          <div class="muted small">Em <b>cada</b> planilha do mês: <b>Compartilhar</b> → cole o e-mail → <b>Leitor</b> → desmarque “Notificar pessoas” → <b>Enviar</b>.</div>
+          <div class="muted small">O login abre no navegador. As planilhas de cada mês e a planilha-base precisam estar compartilhadas com a sua conta.</div>
         </div>
       </div>
 
@@ -215,7 +216,7 @@
         <div class="key-row">
           <div>
             <div class="key-title">☁️ Planilha-base compartilhada</div>
-            <div class="muted small">Reports preenchidos e Audits importados de todos os usuários. Compartilhe com o e-mail acima como <b>Editor</b>.</div>
+            <div class="muted small">Reports preenchidos e Audits importados de todos os usuários. Precisa estar compartilhada com a sua conta como <b>Editor</b>.</div>
             <div class="small" id="baseStatus"></div>
           </div>
           <a class="btn-ghost" id="baseOpen" href="#" target="_blank" rel="noopener">Abrir</a>
@@ -231,22 +232,7 @@
         <span class="muted small">Versão do app: <b id="appVersion"></b></span>
       </div>
 
-      <details class="adv">
-        <summary>Avançado: chave de acesso</summary>
-        <div class="key-box">
-          <div class="key-row">
-            <div>
-              <div class="key-title">Chave da conta de serviço</div>
-              <div class="muted" id="cfgKeyInfo">Nenhuma chave selecionada</div>
-            </div>
-            <div class="key-actions">
-              <button type="button" class="btn-ghost" id="cfgPickKey">Selecionar .json</button>
-              <button type="button" class="btn-ghost" id="cfgRemoveKey" hidden>Remover</button>
-            </div>
-          </div>
-        </div>
-        <p class="muted small" id="cfgWhere"></p>
-      </details>
+      <p class="muted small" id="cfgWhere"></p>
     </form>
   </dialog>
 
@@ -263,21 +249,21 @@
       <div class="tut-head">
         <div>
           <h2>Como conectar ou trocar a planilha</h2>
-          <p class="muted">A chave de acesso já vem dentro do aplicativo. Só falta liberar a planilha para o e-mail do app. Se a planilha mudar, repita os passos com a nova.</p>
+          <p class="muted">Cada pessoa entra com a própria conta Google. O app enxerga só as planilhas compartilhadas com essa conta. Se a planilha mudar, repita os passos com a nova.</p>
         </div>
         <button type="button" class="icon-close" id="tutClose" aria-label="Fechar">✕</button>
       </div>
 
       <ol class="steps">
         <li>
-          <b>Copie o e-mail do aplicativo:</b> <code class="tut-email" id="tutEmail"></code>
-          <span class="tip">Também aparece em <b>Conectar planilha</b>, com o botão <b>Copiar e-mail</b>.</span>
+          <b>Entre com a sua conta Google.</b> Em <b>Conectar planilhas</b>, clique em <b>Entrar com Google</b>, escolha a conta da empresa
+          no navegador e autorize. Depois volte ao aplicativo.
+          <span class="tip">O login fica salvo neste aparelho. Use <b>Sair</b> para trocar de conta.</span>
         </li>
         <li>
-          <b>Compartilhe a planilha com esse e-mail.</b> Na planilha, clique em <b>Compartilhar</b>, cole o e-mail
-          (<b>Ctrl+V</b>), escolha <b>Leitor</b>, desmarque “Notificar pessoas” e clique em <b>Enviar</b>.
-          <span class="tip">Leitor é suficiente: o aplicativo só lê as planilhas mensais, nunca as altera.
-            A exceção é a <b>planilha-base</b> do app (reports e Audit), que precisa ser compartilhada como <b>Editor</b>.</span>
+          <b>Confira se a planilha está compartilhada com você.</b> Quem é dono da planilha precisa compartilhá-la com a sua conta
+          (<b>Leitor</b> já basta para as planilhas mensais).
+          <span class="tip">A exceção é a <b>planilha-base</b> do app (reports e Audit), que precisa estar compartilhada com você como <b>Editor</b>.</span>
         </li>
         <li>
           <b>Cole o link no mês certo.</b> Copie o endereço da planilha no navegador (<b>Ctrl+C</b>) e cole (<b>Ctrl+V</b> ou botão direito → Colar)
@@ -289,19 +275,14 @@
       <div class="callout warn">
         <b>⚠ Problemas comuns</b>
         <ul>
-          <li><b>“Sem permissão”</b> → a planilha não foi compartilhada com o e-mail da chave (passo 2).</li>
+          <li><b>“Sem permissão”</b> → a planilha não foi compartilhada com a sua conta Google (passo 2).</li>
+          <li><b>“Entre com sua conta Google”</b> ou <b>“login expirou”</b> → clique em <b>Entrar com Google</b> de novo (passo 1).</li>
           <li><b>“Planilha não encontrada”</b> → confira o link colado no app.</li>
-          <li><b>“Google Sheets API não está ativada”</b> → ative a Google Sheets API no projeto da chave, em
+          <li><b>“Google Sheets API não está ativada”</b> → ative a Google Sheets API no projeto do Google Cloud do app, em
             <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">console.cloud.google.com</a>.</li>
           <li><b>Não consigo compartilhar com o e-mail</b> → a planilha pode estar restrita ao domínio da empresa; fale com o TI.</li>
         </ul>
       </div>
-
-      <details class="callout">
-        <summary><b>Avançado: usar outra chave</b></summary>
-        <p style="margin-top:6px">Se precisar trocar a chave só neste computador, use <b>Usar outra chave</b> na configuração e escolha o arquivo
-        <code>.json</code> de outra conta de serviço. Para voltar à chave do aplicativo, clique em <b>Voltar à chave embutida</b>.</p>
-      </details>
 
       <div class="settings-actions">
         <button type="button" class="btn-primary" id="tutDone">Entendi</button>
