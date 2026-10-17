@@ -723,3 +723,8 @@ b.bad { color: var(--bad); }
 .hse-month { display: inline-flex; align-items: center; gap: 8px; margin-right: 14px; font-weight: 600; color: var(--text-2); }
 .hse-month select { padding: 5px 8px; }
 .chips { align-items: center; flex-wrap: wrap; }
+
+/* Login ao abrir */
+dialog.login-gate { width: min(460px, calc(100vw - 32px)); }
+.login-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.login-actions .btn-primary { flex: 1 1 auto; justify-content: center; }
