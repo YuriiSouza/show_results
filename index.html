@@ -244,6 +244,19 @@
     </div>
   </dialog>
 
+  <!-- Login ao abrir: aparece quando ninguém entrou com a conta Google neste aparelho. -->
+  <dialog id="loginGate" class="login-gate">
+    <div class="settings">
+      <h2>Entre com a sua conta Google</h2>
+      <p class="muted">Para ver os dados do hub, entre com a conta Google que tem acesso às planilhas. O login abre no navegador e fica salvo neste aparelho.</p>
+      <div class="settings-msg" id="loginMsg"></div>
+      <div class="login-actions">
+        <button type="button" class="btn-primary solid" id="loginGo">Entrar com Google</button>
+        <button type="button" class="btn-ghost" id="loginSkip">Agora não (ver dados de exemplo)</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="tutorial" class="tutorial">
     <div class="tut">
       <div class="tut-head">

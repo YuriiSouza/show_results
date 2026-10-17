@@ -328,7 +328,9 @@ window.Parcel = (() => {
     const blank = Array(RESULT_COLS.length - 2).fill('');
     if (!o) return [code, ...blank, st.run ? 'Na fila…' : 'Não consultado'];
     if (!o.ok) return [code, ...blank, 'Erro: ' + o.error];
-    return RESULT_COLS.map(([, get]) => get(o.row) || '');
+    // Pacote de outro XPT: a coluna "AT anterior" leva o XPT (ex.: XPT-CRX-01) no lugar da AT.
+    const xpt = situ(code) === 'xpt' ? xptLabel({ code, row: o.row }) : '';
+    return RESULT_COLS.map(([h, get]) => (xpt && h === 'AT anterior' ? xpt : get(o.row) || ''));
   };
 
   // Situação de um código consultado: avaria · ok (AT do hub no dia) · xpt (pacote de outro XPT) · noat (sem AT no dia) · nomiss · err · wait
