@@ -323,15 +323,16 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - Nomes sugeridos pela guia HSE do mês atual, mas gravados como texto (o histórico não depende do HSE).
   - Grava na guia **MapaPiso** da planilha-base (vale o salvamento mais recente do dia/turno); rascunho fica no aparelho.
 - **Erros de piso**: registro durante a operação, guia **ErrosPiso**.
-  - **Sorting** (gaiola errada): rota certa do pacote (ex.: C-12) → possíveis responsáveis = todos do 2º Sorting da letra,
-    na mudança do mapa que valia no horário.
+  - **Sorting** (gaiola errada): rota certa do pacote (ex.: C-12) → possíveis responsáveis = todos que passaram pelo
+    2º Sorting ou pela Auditoria da letra em qualquer mudança do mapa do turno.
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.
-  - Análise do período (filtro do topo): por pessoa, por dia e por letra.
+  - Análise do período (filtro do topo): por pessoa, por dia e por letra. **Recalcular responsáveis** refaz os registros do período com as regras atuais.
+  - **Buscar responsáveis** (Erros do turno): busca de uma vez o responsável de todos os erros do turno que estão sem responsável.
   - **Modo registro (tela cheia)**: para os colaboradores. Bipa o pacote, escolhe o tipo de erro e, se for sorting, a gaiola
     certa. Os responsáveis **não** aparecem — são calculados e gravados por trás. Sem Sessão SPX, o erro de etiquetagem
-    fica sem responsável e o líder clica em **Buscar responsável** na lista do turno. Sair pede confirmação
-    (não é uma trava de segurança).
+    fica sem responsável e o líder clica em **Buscar responsável** na lista do turno. Sair pede a senha do líder
+    (`KIOSK_PASSWORD` em `js/config.js`; fica no código do app, então evita a saída por engano, mas não é uma trava de segurança).
 
 ## Recebimento por hora (grupo Piso)
 
