@@ -131,6 +131,7 @@ window.Receb = (() => {
         ui.kpi('Previsão de término', etaTxt, [etaSub]),
         ui.kpi('Operadores', H.fmt.int(r.ops.filter(o => o.person).length), [`<span>com recebimento no turno</span>`]),
       ].join('')}</div>
+      ${mesasHtml(r)}
       <div class="grid">
         ${ui.card('rhCh1', 'Recebido por hora', 'Pacotes recebidos em cada hora do turno', { w: 6 })}
         ${ui.card('rhCh2', 'Acumulado e previsão', r.meta != null ? 'Linha tracejada: projeção no ritmo atual até a meta' : 'Informe os pacotes a receber para ver a projeção', { w: 6 })}
@@ -140,6 +141,44 @@ window.Receb = (() => {
             <td><b>${H.fmt.int(o.total)}</b></td><td>${H.fmt.int(o.perHour)}</td><td>${H.fmt.pct(r.recebido ? o.total / r.recebido : null, 0)}</td></tr>`).join('')}
           </tbody></table></div>` })}
       </div>`;
+  }
+
+  // ---------- Bancadas do mapa de piso ----------
+  // Quem está em "Recebe" em cada bancada no início do mapa de piso deste dia/turno, com o recebido no turno,
+  // a última hora completa e a diferença (delta) para a hora anterior.
+  function mesasHtml(r) {
+    const P = window.Piso && window.Piso.helpers;
+    const rec = baseOn() ? B().mapaGet(st.date, st.turno) : null;
+    if (!P || !rec) return `<div class="section-sub pc-sec">Bancadas de recebimento</div>${ui.empty(`Sem mapa de piso salvo para ${brShort(st.date)} · ${st.turno}. Monte o mapa em <b>Mapa de piso</b> para ver aqui quem está recebendo em cada bancada.`)}`;
+    const L = rec.map.layout, v = rec.map.versions[0], slots = P.slotsOf(L);
+    const iFull = r.hours.map((h, i) => (h.ts + 3600 <= r.at ? i : -1)).filter(i => i >= 0).pop();
+    const iNow = r.hours.findIndex(h => h.ts <= r.at && r.at < h.ts + 3600);
+    const opOf = name => (name && !P.isDw(name) ? r.ops.find(o => P.sameName(o.name, name)) : null);
+    const used = new Set();
+    const cell = (mesa, s) => {
+      const recebe = v.slots[`${mesa.id}.rec.${s}.0`] || '', etiqueta = v.slots[`${mesa.id}.rec.${s}.1`] || '';
+      const o = opOf(recebe);
+      if (o) used.add(o.op);
+      const tot = o ? o.total : 0;
+      const last = o && iFull != null ? o.hours[iFull] : null, prev = o && iFull > 0 ? o.hours[iFull - 1] : null;
+      const now = o && iNow >= 0 ? o.hours[iNow] : null;
+      const d = last != null && prev != null ? last - prev : null;
+      const dTxt = d == null ? '' : `<span class="rh-delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '▲' : d < 0 ? '▼' : '='} ${H.fmt.int(Math.abs(d))}${prev ? ` (${d >= 0 ? '+' : '−'}${H.fmt.pct(Math.abs(d) / prev, 0)})` : ''}</span>`;
+      return `<div class="rh-banc ${!recebe ? 'empty' : tot ? 'on' : 'off'}">
+        <div class="rh-banc-top"><span>Bancada ${P.bancadaNo(L, mesa.id, s)}</span>${recebe ? (tot ? '<span class="pill good">✓ recebendo</span>' : '<span class="pill neutral">sem recebimento</span>') : ''}</div>
+        <div class="rh-banc-name" title="${esc(recebe)}">${recebe ? esc(recebe) : '<span class="muted">Ninguém em Recebe</span>'}</div>
+        ${etiqueta ? `<div class="muted small" title="${esc(etiqueta)}">Etiqueta: ${esc(etiqueta)}</div>` : ''}
+        ${recebe && !P.isDw(recebe) ? `<div class="rh-banc-num">${H.fmt.int(tot)}<small> no turno</small></div>
+          <div class="rh-banc-hours">${!o ? '<span class="muted">ainda não aparece no SPX</span>' : last != null ? `<span>${hm(r.hours[iFull].ts)}: <b>${H.fmt.int(last)}</b></span> ${dTxt}` : '<span class="muted">sem hora completa</span>'}</div>
+          ${now != null ? `<div class="muted small">agora (${hm(r.hours[iNow].ts)}): ${H.fmt.int(now)}</div>` : ''}` : recebe ? '<div class="muted small">Diarista: não aparece no painel do SPX pelo nome</div>' : ''}
+      </div>`;
+    };
+    const mesas = L.mesas.filter(m => m.rec > 0).map(m => `<section class="card rh-mesa"><div class="pz-title">${esc(m.nome)}</div>
+      <div class="rh-bancs">${Array.from({ length: m.rec }, (_, s) => cell(m, s)).join('')}</div></section>`).join('');
+    const fora = r.ops.filter(o => o.person && o.total && !used.has(o.op));
+    return `<div class="section-sub pc-sec">Bancadas de recebimento <span class="muted small">· mapa de piso, início do turno${iFull != null ? ` · delta: ${hm(r.hours[iFull].ts)} × ${iFull > 0 ? hm(r.hours[iFull - 1].ts) : '—'}` : ''}</span></div>
+      <div class="rh-mesas">${mesas}</div>
+      ${fora.length ? `<div class="rh-fora"><b>Recebendo fora das bancadas do mapa:</b> ${fora.map(o => `${esc(o.name)} (${H.fmt.int(o.total)})`).join(' · ')}</div>` : ''}`;
   }
 
   function charts(r) {

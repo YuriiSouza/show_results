@@ -839,3 +839,21 @@ body.kiosk-on { overflow: hidden; }
 dialog.ui-confirm { width: min(440px, calc(100vw - 32px)); }
 .ui-confirm-msg { margin: 0; font-size: 15px; line-height: 1.45; white-space: pre-line; }
 .ui-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Recebimento por hora: bancadas do mapa de piso */
+.rh-mesas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px; margin-bottom: 16px; }
+.rh-mesa { grid-column: auto; padding: 14px; display: grid; gap: 10px; align-content: start; }
+.rh-bancs { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.rh-banc { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; align-content: start; min-width: 0; background: var(--surface); }
+.rh-banc.on { border-color: var(--good); box-shadow: inset 4px 0 0 var(--good); }
+.rh-banc.off { border-style: dashed; }
+.rh-banc.empty { opacity: .6; border-style: dashed; }
+.rh-banc-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 6px; white-space: nowrap; font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; }
+.rh-banc-top .pill { font-size: 10px; text-transform: none; }
+.rh-banc-name { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-banc-num { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 4px; }
+.rh-banc-num small { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.rh-banc-hours { font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.rh-delta { font-weight: 700; }
+.rh-delta.up { color: var(--good); } .rh-delta.down { color: var(--bad); }
+.rh-fora { margin: -6px 0 16px; font-size: 13px; color: var(--text-2); }
