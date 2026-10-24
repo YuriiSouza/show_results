@@ -18,6 +18,9 @@ window.Base = (() => {
 
   let reports = new Map(); // "iso|kind|campo" -> { v, user, at, removed }
   let audits = new Map();  // "iso|turno" -> { date, shift, fileName, status, user, importedAt, importId, summary }
+  let mapas = new Map();   // "iso|turno" -> { date, turno, status, user, at, map: { layout, versions } }
+  let erros = new Map();   // id -> { id, date, turno, tipo, code, rota, time, resp, status, user, at, detail }
+  let recebs = new Map();  // "iso|turno" -> { date, turno, status, user, at, inicio, meta, res }
   let parcels = new Map(); // "iso" -> { date, status, user, at, items: [{ c, s, op, mt, at, cage, dn, di, dest, dmg }] }
   let loadedAt = 0;
   let loading = null;
@@ -28,7 +31,10 @@ window.Base = (() => {
 
   // Ativa só com login Google e com dados reais (no modo demonstração nada é gravado na planilha).
   let signedIn = false, active = false;
-  const ready = (async () => { try { signedIn = !!(api && api.getConfig && (await api.getConfig()).signedIn); } catch (e) { signedIn = false; } })();
+  const readAuth = async () => { try { signedIn = !!(api && api.getConfig && (await api.getConfig()).signedIn); } catch (e) { signedIn = false; } };
+  const ready = readAuth();
+  // Relê o login (chamado a cada atualização): entrar com o Google sem reabrir o app também ativa a planilha-base.
+  const recheck = () => readAuth();
   const enabled = () => !!(api && api.baseRead && ID && signedIn && active);
   const setActive = on => { active = !!on; if (!enabled()) setStatus('off', ''); };
   const setStatus = (state, msg = '') => { status.state = state; status.msg = msg; status.at = new Date(); listeners.forEach(fn => fn(status)); };
@@ -85,7 +91,42 @@ window.Base = (() => {
     try { const js = cells.slice(PARCEL_JSON_AT).join(''); items = js ? JSON.parse(js) : []; } catch (e) { return; }
     parcels.set(date, { date, status: st, user: who, at, items: Array.isArray(items) ? items : [] });
   }
-  const APPLY = { Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow };
+  // MapaPiso: Data, Turno, Status, Usuário, Gravado em, Aparelho, Mudanças, Pessoas, Mapa (JSON 1..5).
+  const MAPA_JSON_AT = 8, MAPA_CHUNKS = 5;
+  function applyMapaRow(r) {
+    const cells = r.map(x => (x == null ? '' : String(x)));
+    const [date, turno, st, who, at] = cells;
+    if (!date || !turno) return;
+    const key = `${date}|${turno}`, cur = mapas.get(key);
+    if (cur && at < cur.at) return;
+    let map = null;
+    try { const js = cells.slice(MAPA_JSON_AT).join(''); map = js ? JSON.parse(js) : null; } catch (e) { return; }
+    mapas.set(key, { date, turno, status: st, user: who, at, map });
+  }
+  // ErrosPiso: ID, Data, Turno, Tipo, Código, Rota/letra, Horário, Responsáveis, Status, Usuário, Gravado em, Aparelho, Detalhe (JSON).
+  function applyErroRow(r) {
+    const c = r.map(x => (x == null ? '' : String(x)));
+    const [id, date, turno, tipo, code, rota, time, resp, st, who, at, , json] = c;
+    if (!id || !date) return;
+    const cur = erros.get(id);
+    if (cur && at < cur.at) return;
+    let detail = {};
+    try { detail = json ? JSON.parse(json) : {}; } catch (e) { detail = {}; }
+    erros.set(id, { id, date, turno, tipo, code, rota, time, resp: resp ? resp.split(' | ') : [], status: st, user: who, at, detail });
+  }
+  // RecebimentoHora: Data, Turno, Status, Usuário, Gravado em, Aparelho, Início, A receber, Recebido, Ritmo, Previsão, Operadores, Resultado (JSON 1..2).
+  const RH_JSON_AT = 12, RH_CHUNKS = 2;
+  function applyRecebRow(r) {
+    const c = r.map(x => (x == null ? '' : String(x)));
+    const [date, turno, st, who, at, , inicio, meta] = c;
+    if (!date || !turno) return;
+    const key = `${date}|${turno}`, cur = recebs.get(key);
+    if (cur && at < cur.at) return;
+    let res = null;
+    try { const js = c.slice(RH_JSON_AT).join(''); res = js ? JSON.parse(js) : null; } catch (e) { return; }
+    recebs.set(key, { date, turno, status: st, user: who, at, inicio, meta: meta === '' ? null : Number(meta), res });
+  }
+  const APPLY = { RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
 
   async function load(force = false) {
     await ready;
@@ -98,10 +139,13 @@ window.Base = (() => {
         if (!ensured) { await api.baseEnsure(ID); ensured = true; }
         await flush();
         const data = await api.baseRead(ID);
-        reports = new Map(); audits = new Map(); parcels = new Map();
+        reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapas = new Map(); erros = new Map();
         data.reports.forEach(applyReportRow);
         data.audit.forEach(applyAuditRow);
         (data.parcel || []).forEach(applyParcelRow);
+        (data.mapa || []).forEach(applyMapaRow);
+        (data.erros || []).forEach(applyErroRow);
+        (data.receb || []).forEach(applyRecebRow);
         // O que ainda está na fila (não enviado) vale por cima do que veio da planilha.
         ls.get('basePending', []).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
         loadedAt = Date.now();
@@ -231,6 +275,60 @@ window.Base = (() => {
     queue('Parcel', [row]);
   }
 
+  // ---------- Mapa de piso ----------
+  const mapaList = () => [...mapas.values()].filter(m => m.status !== 'excluido' && m.map).sort((a, b) => (a.date + a.turno).localeCompare(b.date + b.turno));
+  const mapaGet = (iso, turno) => { const m = mapas.get(`${iso}|${turno}`); return m && m.status !== 'excluido' ? m : null; };
+  async function mapaSave(iso, turno, map) {
+    const who = await ensureUser(), at = nowIso();
+    const json = JSON.stringify(map);
+    const chunks = [];
+    for (let k = 0; k < json.length; k += CHUNK) chunks.push(json.slice(k, k + CHUNK));
+    if (chunks.length > MAPA_CHUNKS) throw new Error('Mapa grande demais para a planilha-base.');
+    const people = new Set();
+    (map.versions || []).forEach(v => Object.values(v.slots || {}).forEach(n => { if (n) people.add(n); }));
+    const row = [iso, turno, 'ativo', who, at, device(), (map.versions || []).length, people.size, ...chunks];
+    applyMapaRow(row);
+    queue('MapaPiso', [row]);
+    return mapas.get(`${iso}|${turno}`);
+  }
+
+  // ---------- Erros de piso ----------
+  const erroList = () => [...erros.values()].filter(e => e.status !== 'excluido').sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  async function erroSave(e) {
+    const who = await ensureUser(), at = nowIso();
+    const id = e.id || `${e.date}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    const row = [id, e.date, e.turno, e.tipo, e.code || '', e.rota || '', e.time || '', (e.resp || []).join(' | '), 'ativo', who, at, device(), JSON.stringify(e.detail || {})];
+    applyErroRow(row);
+    queue('ErrosPiso', [row]);
+    return erros.get(id);
+  }
+  async function erroDelete(id) {
+    const cur = erros.get(id);
+    if (!cur) return;
+    const row = [id, cur.date, cur.turno, cur.tipo, cur.code, cur.rota, cur.time, cur.resp.join(' | '), 'excluido', await ensureUser(), nowIso(), device(), JSON.stringify(cur.detail || {})];
+    applyErroRow(row);
+    queue('ErrosPiso', [row]);
+  }
+
+  // ---------- Recebimento por hora ----------
+  const recebList = () => [...recebs.values()].filter(x => x.status !== 'excluido').sort((a, b) => (a.date + a.turno).localeCompare(b.date + b.turno));
+  const recebGet = (iso, turno) => { const x = recebs.get(`${iso}|${turno}`); return x && x.status !== 'excluido' ? x : null; };
+  // rec: { inicio, meta, res: { recebido, ritmo, eta, ops, hours, fetchedAt } | null }
+  async function recebSave(iso, turno, rec) {
+    const who = await ensureUser(), at = nowIso();
+    const res = rec.res || null;
+    const json = res ? JSON.stringify(res) : '';
+    const chunks = [];
+    for (let k = 0; k < json.length; k += CHUNK) chunks.push(json.slice(k, k + CHUNK));
+    if (chunks.length > RH_CHUNKS) throw new Error('Resultado grande demais para a planilha-base.');
+    const row = [iso, turno, 'ativo', who, at, device(), rec.inicio || '', rec.meta == null ? '' : rec.meta,
+      res ? res.recebido : '', res && res.ritmo != null ? Math.round(res.ritmo) : '', res && res.eta ? new Date(res.eta * 1000).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '',
+      res ? (res.ops || []).length : '', ...chunks];
+    applyRecebRow(row);
+    queue('RecebimentoHora', [row]);
+    return recebs.get(`${iso}|${turno}`);
+  }
+
   // ---------- Migração única dos dados que estavam só neste aparelho ----------
   async function migrateOnce() {
     if (ls.get('baseMigrated', false) || !api) return;
@@ -256,11 +354,13 @@ window.Base = (() => {
   }
 
   return {
-    enabled, load, flush, status, onChange: fn => listeners.add(fn), ready, setActive,
+    enabled, load, flush, status, recheck, isSignedIn: () => signedIn, onChange: fn => listeners.add(fn), ready, setActive,
     user, setUser, ensureUser, setAskUser: fn => { askUser = fn; },
     reportDay, setField, saveFields, clearReport, loadedAt: () => loadedAt,
     auditList, auditSave, auditDelete,
     parcelList, parcelGet, parcelSave, parcelDelete,
+    recebList, recebGet, recebSave,
+    mapaList, mapaGet, mapaSave, erroList, erroSave, erroDelete,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();

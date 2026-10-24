@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('hubApi', {
   parcelHasSession: () => ipcRenderer.invoke('parcel:hasSession'),
   parcelTrack: code => ipcRenderer.invoke('parcel:track', code),
   parcelAt: at => ipcRenderer.invoke('parcel:at', at),
+  spxWfm: () => ipcRenderer.invoke('spx:wfm'),
 });
 
 // Login Google de quem usa o app.

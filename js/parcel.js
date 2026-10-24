@@ -159,7 +159,7 @@ window.Parcel = (() => {
     ui = ctx;
     bindOnce();
     draw();
-    if (canTrack()) { st.session = await api().parcelHasSession(); if (ui.isActive()) drawBar(); }
+    if (canTrack()) { st.session = await window.SpxSession.has(); if (ui.isActive()) drawBar(); }
   }
 
   function draw() {
@@ -218,8 +218,6 @@ window.Parcel = (() => {
           <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}</span>
           <button class="tool danger" data-pc="cancel" ${run.cancel ? 'disabled' : ''}>${run.cancel ? 'Cancelando…' : 'Cancelar'}</button>
         </div>` : `<div class="au-bar-right pc-actions">
-          ${canTrack() ? `<button class="btn-ghost pc-session" data-pc="session" title="Sessão do SPX usada na consulta (fica só na memória)">
-            <span class="conn-dot ${st.session ? 'ok' : ''}"></span>Sessão SPX: ${st.session ? 'ativa' : 'não informada'}</button>` : ''}
           <button class="btn-primary solid" data-pc="run" ${n && canTrack() ? '' : 'disabled'}
             title="${canTrack() ? 'Consulta o rastreio dos códigos selecionados ou, sem seleção, de todos os filtrados' : 'A consulta de rastreio só funciona no aplicativo desktop'}">
             Consultar rastreio (${n} ${st.selected.size ? 'selecionado(s)' : 'filtrado(s)'})</button>
@@ -390,8 +388,9 @@ window.Parcel = (() => {
         <section class="card w12">
           <div class="card-head"><div><div class="card-title">Pacotes consultados</div><div class="card-sub" id="pcRCount"></div></div>
             <div class="card-tools"><button class="tool" data-pc="export" ${done ? '' : 'disabled'}>Exportar CSV</button>
-              <button class="btn-primary solid pc-copy" data-pc="save" ${done && !st.run && baseOn() ? '' : 'disabled'}
-                title="${baseOn() ? 'Grava o resultado deste dia na planilha-base, para o histórico por operador' : 'Disponível com a planilha-base conectada (fora do modo de exemplo)'}">Salvar resultado</button></div></div>
+              <button class="btn-primary solid pc-copy" data-pc="save" ${saveBlock(done) ? 'disabled' : ''}
+                title="${esc(saveBlock(done) || 'Grava o resultado deste dia na planilha-base, para o histórico por operador')}">Salvar resultado</button></div></div>
+          ${saveBlock(done) ? `<div class="pc-save-why">💾 ${esc(saveBlock(done))}</div>` : ''}
           <div class="pc-filters" id="pcRFilters"></div>
           <div id="pcRTable"></div>
         </section>
@@ -471,6 +470,16 @@ window.Parcel = (() => {
 
   // ---------- Histórico: resultados salvos na planilha-base, consolidados por operador do missing ----------
   const baseOn = () => !!(window.Base && window.Base.enabled());
+  // Por que o "Salvar resultado" está desativado (vazio = pode salvar).
+  function saveBlock(done) {
+    const B = window.Base;
+    if (!B) return 'Planilha-base indisponível.';
+    if (!B.isSignedIn()) return 'Para salvar, entre com a conta Google (⚙ Conectar planilhas → Entrar com Google).';
+    if (!B.enabled()) return 'Para salvar, o app precisa estar com as planilhas reais (está em dados de exemplo): ⚙ Conectar planilhas.';
+    if (st.run) return 'Aguarde a consulta terminar para salvar.';
+    if (!done) return 'Consulte o rastreio para ter o que salvar.';
+    return '';
+  }
   const brDay = iso => iso.split('-').reverse().slice(0, 2).join('/');
   // Operador que aparece como e-mail @shopee.com não é do time do hub: o pacote é salvo, mas sem operador
   // (não entra na lista de operadores para feedback).
@@ -685,7 +694,7 @@ window.Parcel = (() => {
   // ---------- Consulta (no máx. 3 ao mesmo tempo; um código com erro não derruba os outros) ----------
   async function run() {
     if (st.run || !canTrack()) return;
-    if (!st.session) return openSession(true);
+    if (!st.session) return window.SpxSession.open(() => { st.session = true; run(); });
     const codes = targets();
     if (!codes.length) return;
     if (codes.length > 200 && !confirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`)) return;
@@ -730,33 +739,13 @@ window.Parcel = (() => {
     if (ui.isActive()) draw();
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, worker));
     st.run = null;
-    if (job.auth) { st.session = false; api().parcelClearSession(); ui.toast(job.auth, true); }
+    if (job.auth) { st.session = false; window.SpxSession.clear(); ui.toast(job.auth, true); }
     else ui.toast(job.cancel ? 'Consulta cancelada' : 'Consulta concluída');
     paint();
   }
 
-  // ---------- Sessão do SPX (cURL colado pelo usuário; fica só na memória do app) ----------
-  let runAfterSession = false;
-  const pcMsg = (t, ok) => { $('pcMsg').textContent = t; $('pcMsg').className = 'settings-msg ' + (t ? (ok ? 'ok' : 'err') : ''); };
-  function openSession(thenRun = false) {
-    runAfterSession = thenRun;
-    $('pcCurl').value = '';
-    pcMsg(st.session ? 'Há uma sessão ativa. Cole um cURL novo para trocar.' : '', true);
-    $('pcForget').hidden = !st.session;
-    $('parcelDlg').showModal();
-  }
-  async function saveSession() {
-    const text = $('pcCurl').value;
-    if (!text.trim()) return pcMsg('Cole o cURL copiado do SPX.', false);
-    const r = await api().parcelSetSession(text);
-    $('pcCurl').value = '';
-    if (!r.ok) return pcMsg(r.error, false);
-    st.session = true;
-    $('parcelDlg').close();
-    ui.toast('Sessão do SPX ativa (só na memória)');
-    drawBar();
-    if (runAfterSession) run();
-  }
+  // A Sessão do SPX fica no cabeçalho do app (js/spx-session.js).
+  window.SpxSession.onChange(on => { st.session = on; if (ui && ui.isActive()) drawBar(); });
 
   // ---------- Exemplo (fictício) ----------
   function demoGrid() {
@@ -803,7 +792,6 @@ window.Parcel = (() => {
       if (d.pcNone != null) { delete st.filters[d.pcNone]; persist(); applyFilters(); drawFilters(); drawTable(); drawBar(); drawDash(); }
       else if (d.pc === 'import') { $('pcFile').value = ''; $('pcFile').click(); }
       else if (d.pc === 'demo') setData('exemplo-contagem.tsv', demoGrid(), true);
-      else if (d.pc === 'session') openSession();
       else if (d.pc === 'run') run();
       else if (d.pc === 'cancel') { if (st.run) { st.run.cancel = true; drawBar(); } }
       else if (d.pc === 'export') exportCsv();
@@ -885,14 +873,6 @@ window.Parcel = (() => {
     });
 
     $('pcFile').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
-    $('pcSaveSession').addEventListener('click', saveSession);
-    $('pcForget').addEventListener('click', async () => {
-      await api().parcelClearSession();
-      st.session = false;
-      $('parcelDlg').close();
-      ui.toast('Sessão do SPX esquecida');
-      drawBar();
-    });
   }
 
   return { render };
