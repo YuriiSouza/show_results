@@ -375,3 +375,13 @@ test('mapa de piso: função XPT e descrição das vagas', () => {
   assert.equal(P.slotDesc('xpt.1', L), 'XPT');
   assert.equal(P.slotDesc('int.0', L), 'Intervalo');
 });
+
+test('janela de recebimento: dentro = etiquetagem, antes = backlog, depois = não recebido', () => {
+  const W = { inicio: '22:00', fim: '05:30' };
+  const mk = when => ({ tracking_list: [ev(when, 10, 'Pedido chegou ao Last Mile Hub para entrega', '[Ops1]FULANA DE TAL')] });
+  assert.equal(Core.receiverInWindow(mk('2026-10-15T23:10:00'), '2026-10-16', W).classe, 'etiq');
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T05:30:00'), '2026-10-16', W).name, 'FULANA DE TAL');
+  assert.equal(Core.receiverInWindow(mk('2026-10-15T21:59:00'), '2026-10-16', W).classe, 'backlog');
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T05:31:00'), '2026-10-16', W).classe, 'naorec');
+  assert.equal(Core.receiverInWindow({ tracking_list: [] }, '2026-10-16', W).classe, 'naorec');
+});
