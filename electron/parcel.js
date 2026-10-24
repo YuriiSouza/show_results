@@ -5,6 +5,8 @@
 const HOST = 'https://spx.shopee.com.br';
 const PATH = '/api/fleet_order/order/detail/tracking_info';
 const AT_PATH = '/spx_delivery/admin/assignment/assignment_task/detail';
+// Painel de produtividade (WFM): pacotes recebidos por operador e por hora.
+const WFM_PATH = '/api/wfm/admin/dashboard/list';
 // Só estes cabeçalhos do cURL são reaproveitados. Os x-sap-* (assinaturas por requisição geradas
 // pelo site) ficam de fora de propósito: se o SPX exigir, a saída é uma exportação oficial em lote.
 const ALLOWED = ['cookie', 'x-csrftoken', 'device-id', 'app', 'referer', 'user-agent', 'accept', 'accept-language'];
@@ -42,15 +44,17 @@ function parseCurl(text) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const AUTH_MSG = 'O SPX recusou a sessão. Entre de novo no SPX, copie um cURL novo e cole em "Sessão SPX".';
 
-// Uma chamada GET ao SPX. Tenta de novo (com espera crescente) em 429/5xx, tempo esgotado e falha de rede.
-async function request(url, fetchImpl) {
+// Uma chamada ao SPX (GET, ou POST com JSON quando há body). Tenta de novo (com espera crescente) em 429/5xx,
+// tempo esgotado e falha de rede.
+async function request(url, fetchImpl, payload) {
   if (!session) return { ok: false, auth: true, error: 'Informe a sessão do SPX.' };
   let last = 'Falha na consulta', wait = 0;
   for (let i = 0; i <= RETRIES; i++) {
     if (i) await sleep(wait);
     wait = 1000 * 2 ** i + Math.random() * 300;
     let res;
-    try { res = await fetchImpl(url, { headers: session, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }); }
+    const init = payload == null ? { headers: session } : { method: 'POST', headers: { ...session, 'content-type': 'application/json;charset=UTF-8', origin: HOST }, body: JSON.stringify(payload) };
+    try { res = await fetchImpl(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }); }
     catch (e) { last = e && e.name === 'TimeoutError' ? 'Tempo esgotado (15 s)' : 'Sem conexão com o SPX'; continue; }
     if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400))
       return { ok: false, auth: true, status: res.status, error: `${AUTH_MSG} (HTTP ${res.status})` };
@@ -86,6 +90,22 @@ function atDetail(at, fetchImpl = fetch) {
   return request(`${HOST}${AT_PATH}?assignment_task_id=${encodeURIComponent(at)}`, fetchImpl);
 }
 
+// Recebimento por operador e por hora (a mesma chamada do painel de produtividade do SPX). Busca todas as páginas.
+async function wfm(fetchImpl = fetch) {
+  const list = [];
+  let times = null;
+  for (let page = 1; page <= 10; page++) {
+    const r = await request(`${HOST}${WFM_PATH}`, fetchImpl, { unit_type: 1, process_type: 1, period_type: 1, operator_email: '',
+      pageno: page, count: 24, productivity: 1, order_by_total: 100, event_id_list: [] });
+    if (!r.ok) return r;
+    const d = r.data || {};
+    list.push(...(d.efficiency_list || []));
+    if (!times) times = d.time_list || [];
+    if (!(d.efficiency_list || []).length || list.length >= (Number(d.total) || 0)) break;
+  }
+  return { ok: true, data: { efficiency_list: list, time_list: times || [] } };
+}
+
 function register(ipcMain) {
   ipcMain.handle('parcel:setSession', (_e, curl) => {
     const h = parseCurl(curl);
@@ -97,6 +117,7 @@ function register(ipcMain) {
   ipcMain.handle('parcel:hasSession', () => !!session);
   ipcMain.handle('parcel:track', (_e, code) => track(code));
   ipcMain.handle('parcel:at', (_e, at) => atDetail(at));
+  ipcMain.handle('spx:wfm', () => wfm());
 }
 
-module.exports = { register, parseCurl, track, atDetail, ALLOWED, _setSession: h => { session = h; } };
+module.exports = { register, parseCurl, track, atDetail, wfm, ALLOWED, _setSession: h => { session = h; } };

@@ -28,6 +28,9 @@
     parcel: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
     qualidade: '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/>',
     hse: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+    mapa: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M15 9v12"/>',
+    rechora: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M3 20l4-4"/>',
+    erros: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
     rpP1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="12" cy="15" r="3"/><path d="M12 13.5V15l1 .8"/>',
     rpF1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 15l2 2 4-4"/>',
     rpAll: '<path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10M15 10v10"/>',
@@ -43,6 +46,9 @@
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
     { id: 'qualidade', group: 'Qualidade', label: 'Missing (planilha)', daily: false, render: renderQualidade },
     { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: true, render: () => window.Parcel.render(pcCtx) },
+    { id: 'mapa', group: 'Piso', label: 'Mapa de piso', daily: false, render: () => window.Piso.renderMapa(pisoCtx) },
+    { id: 'rechora', group: 'Piso', label: 'Recebimento por hora', daily: true, render: () => window.Receb.render(rhCtx) },
+    { id: 'erros', group: 'Piso', label: 'Erros de piso', daily: true, render: () => window.Piso.renderErros(pisoCtx) },
     { id: 'hse', group: 'Segurança', label: 'HSE', daily: false, render: renderHSE },
     { id: 'rpP1', group: 'Reports', label: 'Parcial T1', daily: true, report: true, render: () => window.Reports.render('rpP1', rpCtx) },
     { id: 'rpF1', group: 'Reports', label: 'Fechamento T1', daily: true, report: true, render: () => window.Reports.render('rpF1', rpCtx) },
@@ -130,7 +136,7 @@
     $('btnRefresh').classList.add('loading');
     try {
       const { model, demo, sources } = await fetchData({ full });
-      if (window.Base) { await window.Base.ready; window.Base.setActive(!demo); await window.Base.load(true); }
+      if (window.Base) { await window.Base.ready; await window.Base.recheck(); window.Base.setActive(!demo); await window.Base.load(true); }
       state.model = model;
       state.demo = demo;
       state.sources = sources;
@@ -347,6 +353,13 @@
   };
 
   // Contexto usado pela aba Parcel (js/parcel.js).
+  // Contexto usado pelas telas Mapa de piso e Erros de piso (js/piso.js).
+  const pisoCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: id => state.tab === id,
+    range: () => uiCtx.range(), model: () => state.model, ym: d => ym(d) };
+
+  // Contexto da tela Recebimento por hora (js/receb.js).
+  const rhCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'rechora', range: () => uiCtx.range() };
+
   const pcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel', range: () => uiCtx.range() };
 
   function renderAll() {
@@ -362,7 +375,7 @@
     tab.render();
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'erros' && tab.id !== 'rechora' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);

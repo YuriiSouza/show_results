@@ -24,6 +24,10 @@
     </div>
     <div class="top-actions">
       <div class="status" id="status"><span class="dot"></span><span id="statusText">Carregando…</span></div>
+      <button class="icon-btn spx-btn" id="btnSpx" hidden aria-label="Sessão do SPX">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>
+        <span class="spx-label">SPX</span><span class="spx-dot" id="spxDot"></span>
+      </button>
       <button class="icon-btn" id="btnTheme" title="Tema claro/escuro" aria-label="Alternar tema">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
@@ -153,7 +157,7 @@
       <h2>Sessão do SPX</h2>
       <p class="muted">O rastreio é consultado com a <b>sua</b> sessão do SPX. No navegador, com o SPX aberto e logado:
         <b>F12 → Rede (Network) → Fetch/XHR</b>, abra o rastreio de um pedido, clique com o botão direito na requisição
-        <code>tracking_info</code> → <b>Copiar → Copiar como cURL</b> e cole abaixo.</p>
+        <code>tracking_info</code> (ou outra requisição do SPX) → <b>Copiar → Copiar como cURL</b> e cole abaixo. A mesma sessão vale para o Parcel, os Erros de piso e o Recebimento por hora.</p>
       <textarea id="pcCurl" rows="7" spellcheck="false" autocomplete="off" aria-label="cURL copiado do SPX"
         placeholder="curl 'https://spx.shopee.com.br/api/fleet_order/order/detail/tracking_info?shipment_id=…' -H '…' -b '…'"></textarea>
       <p class="muted small">🔒 A sessão fica só na memória do app, até ele ser fechado: não é gravada em arquivo nem enviada a nenhum
@@ -169,7 +173,7 @@
 
   <dialog id="settings">
     <form method="dialog" class="settings">
-      <h2>Conectar planilhas</h2>
+      <div class="dlg-head"><h2>Conectar planilhas</h2><button type="submit" class="dlg-x" value="cancel" formnovalidate title="Fechar" aria-label="Fechar">×</button></div>
       <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e cada pessoa acessa só o que foi compartilhado com a própria conta Google.</p>
       <div class="conn-current" id="cfgCurrent" hidden></div>
 
@@ -208,7 +212,6 @@
         <button type="button" class="btn-ghost" id="cfgDemo">Usar dados de exemplo</button>
         <button type="button" class="btn-ghost" id="cfgReloadAll" title="Baixa de novo todos os meses, ignorando as cópias salvas">Recarregar todos os meses</button>
         <button type="button" class="btn-ghost" id="cfgTest">Testar</button>
-        <button type="submit" class="btn-ghost" value="cancel" formnovalidate>Fechar</button>
         <button type="button" class="btn-primary" id="cfgSave">Salvar e atualizar</button>
       </div>
 
@@ -314,9 +317,12 @@
   <script src="js/charts.js"></script>
   <script src="js/base.js"></script>
   <script src="js/audit.js"></script>
+  <script src="js/spx-session.js"></script>
   <script src="js/parcel-core.js"></script>
   <script src="js/parcel.js"></script>
   <script src="js/reports.js"></script>
+  <script src="js/piso.js"></script>
+  <script src="js/receb.js"></script>
   <script src="js/updater.js"></script>
   <script src="js/app.js"></script>
 </body>

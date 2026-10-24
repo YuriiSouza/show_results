@@ -207,7 +207,17 @@ const ParcelCore = (() => {
     return parts.length > 1 ? parts[parts.length - 1] : '';
   }
 
-  return { DEFAULTS, CODE_RE, parseTable, flatten, extract, rowOf, stripId, destOf };
+  // Quem recebeu o pacote no hub: último evento "Pedido chegou ao Last Mile Hub" (LMHub_Recebido) na estação do hub
+  // com operador de pessoa ("[Ops177146]NOME"). E-mails (sistema) não contam. Usado na tela Erros de piso.
+  function receiver(resp, opts) {
+    const o = { ...DEFAULTS, ...(opts || {}) };
+    const atHub = e => e.station === o.stationName || e.stationId === o.stationId;
+    const r = flatten(resp).filter(e => atHub(e) && (e.status === 10 || /chegou ao last mile hub|lmhub_recebido/i.test(e.message))
+      && e.operator && !/@/.test(e.operator) && !/^system$/i.test(e.operator)).pop();
+    return r ? { name: stripId(r.operator), ts: r.ts, operator: r.operator } : null;
+  }
+
+  return { DEFAULTS, CODE_RE, parseTable, receiver, flatten, extract, rowOf, stripId, destOf };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = ParcelCore;
 else window.ParcelCore = ParcelCore;

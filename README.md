@@ -304,3 +304,35 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   "- Anápolis (Aguardando retorno do Driver)"; os de outro XPT saem com o nome da estação (ou a sigla definida em
   `PARCEL.xptLabels`, ex.: `{ 'XPT_GO_Crixás': 'XPT-CRX-01' }`); os do hub sem AT saem como "Sem AT no dia".
 - O identificador entre colchetes dos operadores (`[ops123]`) não é mostrado, e colunas só com Y/N ficam ocultas.
+
+## Mapa de piso e Erros de piso (grupo Piso)
+
+- **Mapa de piso**: quem está em cada função por **dia e turno (AM / PM1 / PM2)** — mesas (indução, postos de
+  recebimento/etiquetagem com 2 pessoas, sorting), 2º sorting e auditoria por letra, descarga e 5S.
+  - **Mudanças no turno**: "+ Mudança" copia o mapa com um horário ("a partir das 09:30"); cada mudança é um retrato completo.
+  - **Rodízio** (últimos 10 dias): com o mapa vazio, preenche com quem trabalhou no turno nos últimos 10 dias, cada um
+    numa função diferente das que fez; com o mapa preenchido, redistribui as mesmas pessoas. 🔒 fixa uma vaga; **Desfazer** volta.
+  - Colocar numa vaga alguém que já está em outra função abre um aviso: **Retirar de lá**, **Manter nas duas** ou **Cancelar**.
+  - **Intervalo**: informa quantos estão em função, você diz quantos vão, e o app sugere quem (1ª leva: volumoso, descarga
+    e 1º sorting; 2ª leva: recebimento/etiquetagem; uma vez por dia por pessoa). Vira uma mudança "☕ Intervalo HH:MM",
+    com a volta criada automaticamente.
+  - Função **XPT** no layout (padrão 2 vagas).
+  - **Layout** editável pelo líder (mesas, postos, letras, vagas); o mapa novo usa o layout do último salvo.
+  - Nomes sugeridos pela guia HSE do mês atual, mas gravados como texto (o histórico não depende do HSE).
+  - Grava na guia **MapaPiso** da planilha-base (vale o salvamento mais recente do dia/turno); rascunho fica no aparelho.
+- **Erros de piso**: registro durante a operação, guia **ErrosPiso**.
+  - **Sorting** (gaiola errada): rota certa do pacote (ex.: C-12) → possíveis responsáveis = todos do 2º Sorting da letra,
+    na mudança do mapa que valia no horário.
+  - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
+    → responsável = quem etiquetava no mesmo posto, no horário do recebimento.
+  - Análise do período (filtro do topo): por pessoa, por dia e por letra.
+
+## Recebimento por hora (grupo Piso)
+
+- **Atualizar do SPX** (só no PC, com a Sessão SPX da tela Parcel) chama o painel de produtividade do SPX
+  (`POST /api/wfm/admin/dashboard/list`, todas as páginas): pacotes recebidos por operador em cada hora (últimas 12 h).
+- **Pacotes a receber** (meta do turno) e **Início** do turno: o app calcula recebido no turno, falta, ritmo
+  (média das 2 últimas horas completas) e **previsão de término**. Turno da noite consultado de madrugada usa o dia em que começou.
+- A meta é gravada assim que é digitada; o resultado, ao **Salvar**, ao atualizar à mão e, na atualização automática
+  (a cada 10 min com a tela aberta), no máximo 1 vez por hora — guia **RecebimentoHora** da planilha-base.
+- Histórico do período (filtro do topo): recebido × a receber por turno.

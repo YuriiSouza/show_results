@@ -283,3 +283,92 @@ test('destOf: destino do pacote é o último trecho do Sort Code', () => {
   assert.equal(Core.destOf('SOC-GO2'), '');
   assert.equal(Core.destOf(''), '');
 });
+
+test('receiver: quem recebeu no hub é o operador (pessoa) do evento "Pedido chegou ao Last Mile Hub"', () => {
+  const info = Core.receiver({ tracking_list: [
+    ev('2026-10-16T05:00:00', 880, 'Pedido em transferência para o Last Mile Hub', 'ops.anapolis@shopee.com'),
+    ev('2026-10-16T05:10:00', 10, 'Pedido chegou ao Last Mile Hub', 'ops.anapolis@shopee.com'),
+    ev('2026-10-16T05:12:00', 10, 'Pedido chegou ao Last Mile Hub para entrega', '[Ops177146]KARLA APARECIDA RODRIGUES DA SILVA'),
+    ev('2026-10-16T09:00:00', 581, 'Parcel marked as missing', 'op@shopee.com'),
+  ] });
+  assert.equal(info.name, 'KARLA APARECIDA RODRIGUES DA SILVA');
+  assert.equal(info.ts, sp('2026-10-16T05:12:00'));
+  // Só e-mail (sistema): sem recebedor.
+  assert.equal(Core.receiver({ tracking_list: [ev('2026-10-16T05:10:00', 10, 'Pedido chegou ao Last Mile Hub', 'ops.anapolis@shopee.com')] }), null);
+});
+
+test('mapa de piso: nomes, vagas, letras e mudança que vale no horário', () => {
+  global.window = { Charts: { esc: x => x }, ParcelCore: Core };
+  require('../js/piso.js');
+  const P = global.window.Piso._;
+  assert.ok(P.sameName('[Ops177146]KARLA APARECIDA RODRIGUES DA SILVA', 'Karla Aparecida Rodrigues da Silva SPXBR32329'));
+  assert.ok(P.sameName('ANTÔNIA MARIA DE MOURA', 'ANTONIA MARIA DE MOURA GN44539'));
+  assert.ok(!P.sameName('ANA CLARA DA SILVA', 'ANA PAULA CUNHA ALVES'));
+  assert.deepEqual(P.parseLetras('a-e'), ['A', 'B', 'C', 'D', 'E']);
+  assert.deepEqual(P.parseLetras('A, B, M'), ['A', 'B', 'M']);
+  const slots = P.slotsOf(P.DEFAULT_LAYOUT);
+  assert.equal(slots.filter(s => s.func === 'rec').length, 4 * 2 * 2);       // 4 mesas × 2 postos × 2 pessoas
+  assert.equal(slots.filter(s => s.func === 's2' && s.letra === 'C').length, 2);
+  const map = { versions: [{ from: '', slots: {} }, { from: '09:30', slots: {} }, { from: '07:00', slots: {} }] };
+  assert.equal(P.versionAt(map, '06:10').from, '');
+  assert.equal(P.versionAt(map, '08:00').from, '07:00');
+  assert.equal(P.versionAt(map, '10:00').from, '09:30');
+});
+
+test('recebimento por hora: horas, operadores e previsão de término', () => {
+  global.window = { Charts: { esc: x => x } };
+  require('../js/receb.js');
+  const R = global.window.Receb._;
+  const T = 1792818000; // 24/10/2026 02:00 (Brasília)
+  const data = { time_list: [{ timestamp: T, total: 911 }, { timestamp: T - 3600, total: 6217 }, { timestamp: T - 7200, total: 3851 }, { timestamp: T - 10800, total: 0 }],
+    efficiency_list: [
+      { operator: '[ops177146]KARLA APARECIDA RODRIGUES DA SILVA', efficiency: [227, 1489, 976, 0] },
+      { operator: 'pablo.silva@shopee.com', efficiency: [0, 0, 0, 0] },
+    ] };
+  const p = R.parse(data);
+  assert.deepEqual(p.hours.map(h => h.total), [0, 3851, 6217, 911]);                // hora mais antiga primeiro
+  assert.deepEqual(p.ops[0].hours, [0, 976, 1489, 227]);
+  assert.equal(p.ops[0].name, 'KARLA APARECIDA RODRIGUES DA SILVA');
+  assert.equal(p.ops[1].person, false);
+  // Turno desde 23/10 22:00; agora 02:30; meta 15.000.
+  const from = R.startTs('2026-10-23', '22:00'), now = T + 1800;
+  assert.equal(from, T - 4 * 3600);
+  const f = R.forecast(p, from, 15000, now);
+  assert.equal(f.recebido, 911 + 6217 + 3851);
+  assert.equal(f.ritmo, (3851 + 6217) / 2);                                          // 2 últimas horas completas
+  assert.equal(f.falta, 15000 - 10979);
+  assert.equal(f.eta, now + Math.round(4021 / 5034 * 3600));
+  assert.equal(f.ops.length, 1);                                                     // quem não recebeu nada sai da lista
+  assert.equal(R.forecast(p, from, 10000, now).done, true);
+});
+
+test('wfm: POST com JSON no painel de produtividade e junta as páginas', async () => {
+  const { wfm } = require('../electron/parcel.js');
+  _setSession({ cookie: 'a=1' });
+  const bodies = [];
+  const r = await wfm(async (url, opts) => {
+    assert.equal(url, 'https://spx.shopee.com.br/api/wfm/admin/dashboard/list');
+    assert.equal(opts.method, 'POST');
+    assert.equal(opts.headers.cookie, 'a=1');
+    const b = JSON.parse(opts.body); bodies.push(b.pageno);
+    const page = b.pageno === 1 ? [{ operator: 'A' }, { operator: 'B' }] : [{ operator: 'C' }];
+    return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ retcode: 0, data: { total: 3, efficiency_list: page, time_list: [{ timestamp: 1, total: 1 }] } }) };
+  });
+  assert.deepEqual(bodies, [1, 2]);
+  assert.deepEqual(r.data.efficiency_list.map(x => x.operator), ['A', 'B', 'C']);
+});
+
+test('mapa de piso: função XPT e descrição das vagas', () => {
+  global.window = { Charts: { esc: x => x }, ParcelCore: Core };
+  delete require.cache[require.resolve('../js/piso.js')];
+  require('../js/piso.js');
+  const P = global.window.Piso._;
+  const slots = P.slotsOf(P.DEFAULT_LAYOUT);
+  assert.equal(slots.filter(s => s.func === 'xpt').length, 2);
+  const L = P.DEFAULT_LAYOUT;
+  assert.equal(P.slotDesc('m4.ind.0', L), 'Mesa 4 (Volumoso) · Indução');
+  assert.equal(P.slotDesc('m1.rec.1.1', L), 'Mesa 1 · Receb./Etiq. posto 2 (etiqueta)');
+  assert.equal(P.slotDesc('s2.C.0', L), '2º Sorting letra C');
+  assert.equal(P.slotDesc('xpt.1', L), 'XPT');
+  assert.equal(P.slotDesc('int.0', L), 'Intervalo');
+});
