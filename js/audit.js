@@ -525,7 +525,7 @@ window.Audit = (() => {
       else if (d.auOpen) { const [date, shift] = d.auOpen.split('_'); st.shift = shift; if (ui.setDayIso) ui.setDayIso(date); else ui.rerender(); document.querySelector('.content').scrollTo({ top: 0, behavior: 'smooth' }); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (d.auDel) {
         const [date, shift] = d.auDel.split('_');
-        if (!confirm(`Excluir o relatório de ${fmtDay(date)} turno ${shift} deste computador?`)) return;
+        if (!(await uiConfirm(`Excluir o relatório de ${fmtDay(date)} turno ${shift} deste computador?`, { ok: 'Excluir' }))) return;
         await store.del(date, shift); savedCache = null; await load(); ui.rerender(); ui.toast('Relatório excluído');
       }
     });

@@ -585,7 +585,7 @@ window.Reports = (() => {
         return;
       }
       if (e.target.closest('[data-rp-clear]') && current) {
-        if (!confirm('Voltar todos os campos deste report aos valores das guias? (as alterações só valem depois de Salvar)')) return;
+        if (!(await uiConfirm('Voltar todos os campos deste report aos valores das guias? (as alterações só valem depois de Salvar)', { ok: 'Voltar' }))) return;
         const key = `${current.day.iso}|${current.kind}`;
         const draft = {};
         Object.keys(current.day.saved[current.kind] || {}).forEach(f => { draft[f] = null; });
