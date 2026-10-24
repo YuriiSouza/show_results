@@ -367,7 +367,10 @@ test('mapa de piso: função XPT e descrição das vagas', () => {
   assert.equal(slots.filter(s => s.func === 'xpt').length, 2);
   const L = P.DEFAULT_LAYOUT;
   assert.equal(P.slotDesc('m4.ind.0', L), 'Mesa 4 (Volumoso) · Indução');
-  assert.equal(P.slotDesc('m1.rec.1.1', L), 'Mesa 1 · Receb./Etiq. posto 2 (etiqueta)');
+  assert.equal(P.slotDesc('m1.rec.1.1', L), 'Mesa 1 · Bancada 2 (etiqueta)');
+  assert.equal(P.slotDesc('m2.rec.0.0', L), 'Mesa 2 · Bancada 3 (recebe)');            // bancadas numeradas em sequência
+  assert.equal(P.bancadaNo(L, 'm4', 1), 8);
+  assert.ok(P.isDw('diarista') && !P.isDw('DIANA SILVA'));
   assert.equal(P.slotDesc('s2.C.0', L), '2º Sorting letra C');
   assert.equal(P.slotDesc('xpt.1', L), 'XPT');
   assert.equal(P.slotDesc('int.0', L), 'Intervalo');

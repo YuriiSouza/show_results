@@ -815,3 +815,27 @@ dialog.pz-modal { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh 
 dialog.pz-layout-dlg { width: min(860px, calc(100vw - 32px)); }
 .pz-layout-dlg input[type="number"] { width: 64px; }
 .pc-save-why { margin: -2px 0 10px; font-size: 12px; color: var(--warn, #A15C00); }
+/* Modo registro (tela cheia, para os colaboradores) */
+body.kiosk-on { overflow: hidden; }
+.kiosk { position: fixed; inset: 0; z-index: 1000; background: var(--bg, #f5f5f5); display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr) 320px; gap: 0 24px; padding: 20px 28px; overflow: auto; }
+.kiosk-top { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; font-size: 18px; }
+.kiosk-exit { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 10px; padding: 8px 16px; font-weight: 600; }
+.kiosk-body { display: grid; gap: 12px; align-content: start; max-width: 760px; width: 100%; justify-self: center; }
+.kiosk-lbl { font-size: 15px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; margin-top: 8px; }
+.kiosk-input { font-size: 32px; font-weight: 700; padding: 16px 20px; border-radius: 14px; letter-spacing: .04em; }
+.kiosk-types { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.kiosk-types button { display: grid; gap: 6px; padding: 26px 18px; border-radius: 16px; border: 2px solid var(--border); background: var(--surface); color: var(--text); font-size: 24px; font-weight: 800; cursor: pointer; }
+.kiosk-types button small { font-size: 14px; font-weight: 500; color: var(--text-2); }
+.kiosk-types button.on { border-color: var(--shopee); background: var(--shopee-soft); color: var(--shopee); }
+.kiosk-save { margin-top: 10px; padding: 22px; border: 0; border-radius: 16px; background: var(--shopee); color: #fff; font-size: 26px; font-weight: 800; cursor: pointer; }
+.kiosk-save:disabled { opacity: .4; cursor: not-allowed; }
+.kiosk-msg { min-height: 40px; font-size: 22px; font-weight: 700; text-align: center; }
+.kiosk-msg.ok { color: var(--good); } .kiosk-msg.err { color: var(--bad); }
+.kiosk-last { align-self: start; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.kiosk-last ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+@media (max-width: 900px) { .kiosk { grid-template-columns: 1fr; padding: 16px; } .kiosk-input { font-size: 24px; } .kiosk-types button { font-size: 19px; padding: 18px 12px; } }
+
+/* Confirmação do app (no lugar do confirm() do sistema) */
+dialog.ui-confirm { width: min(440px, calc(100vw - 32px)); }
+.ui-confirm-msg { margin: 0; font-size: 15px; line-height: 1.45; white-space: pre-line; }
+.ui-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }

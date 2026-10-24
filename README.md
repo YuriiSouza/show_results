@@ -317,6 +317,8 @@ Meta **457** (`METAS.phd` em `js/config.js`):
     e 1º sorting; 2ª leva: recebimento/etiquetagem; uma vez por dia por pessoa). Vira uma mudança "☕ Intervalo HH:MM",
     com a volta criada automaticamente.
   - Função **XPT** no layout (padrão 2 vagas).
+  - Recebimento/etiquetagem por **bancada**, numeradas em sequência entre as mesas (Bancada 1 a 8 no layout padrão).
+  - **DIARISTA** pode ser escolhido em quantas vagas forem precisas (não conta como "em duas funções" nem entra no rodízio).
   - **Layout** editável pelo líder (mesas, postos, letras, vagas); o mapa novo usa o layout do último salvo.
   - Nomes sugeridos pela guia HSE do mês atual, mas gravados como texto (o histórico não depende do HSE).
   - Grava na guia **MapaPiso** da planilha-base (vale o salvamento mais recente do dia/turno); rascunho fica no aparelho.
@@ -326,6 +328,10 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem etiquetava no mesmo posto, no horário do recebimento.
   - Análise do período (filtro do topo): por pessoa, por dia e por letra.
+  - **Modo registro (tela cheia)**: para os colaboradores. Bipa o pacote, escolhe o tipo de erro e, se for sorting, a gaiola
+    certa. Os responsáveis **não** aparecem — são calculados e gravados por trás. Sem Sessão SPX, o erro de etiquetagem
+    fica sem responsável e o líder clica em **Buscar responsável** na lista do turno. Sair pede confirmação
+    (não é uma trava de segurança).
 
 ## Recebimento por hora (grupo Piso)
 

@@ -495,7 +495,7 @@ window.Parcel = (() => {
     });
     if (!items.length) return ui.toast('Não há pacotes consultados para salvar.', true);
     const cur = B.parcelGet(iso);
-    if (cur && !confirm(`Já existe um resultado salvo para ${brDay(iso)} (${cur.items.length} pacotes, por ${cur.user}). Substituir pelo resultado atual (${items.length} pacotes)?`)) return;
+    if (cur && !(await uiConfirm(`Já existe um resultado salvo para ${brDay(iso)} (${cur.items.length} pacotes, por ${cur.user}). Substituir pelo resultado atual (${items.length} pacotes)?`, { ok: 'Substituir' }))) return;
     try {
       await B.parcelSave(iso, items);
       const ign = rowsDone().filter(x => x.row && x.s !== 'err' && skipOp(x.row.missingOperator)).length;
@@ -697,7 +697,7 @@ window.Parcel = (() => {
     if (!st.session) return window.SpxSession.open(() => { st.session = true; run(); });
     const codes = targets();
     if (!codes.length) return;
-    if (codes.length > 200 && !confirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`)) return;
+    if (codes.length > 200 && !(await uiConfirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`, { ok: 'Consultar' }))) return;
     const job = st.run = { total: codes.length, done: 0, cancel: false, auth: '' };
     st.results = codes;
     const queue = codes.slice();

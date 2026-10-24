@@ -58,7 +58,10 @@ window.Piso = (() => {
       .sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }
   // Nome digitado -> nome da lista, quando bate; senão, o texto como foi digitado.
-  const canon = v => { v = String(v || '').trim().replace(/\s+/g, ' '); if (!v) return ''; const p = people().find(n => nk(n) === nk(v)); return p || v.toUpperCase(); };
+  // Diarista: pode ocupar quantas vagas forem precisas (não é uma pessoa só; não conta como "em duas funções").
+  const DIARISTA = 'DIARISTA';
+  const isDw = n => nk(n).startsWith(DIARISTA);
+  const canon = v => { v = String(v || '').trim().replace(/\s+/g, ' '); if (!v) return ''; if (isDw(v)) return DIARISTA; const p = people().find(n => nk(n) === nk(v)); return p || v.toUpperCase(); };
 
   // ---------- Layout e vagas ----------
   function slotsOf(L) {
@@ -91,6 +94,12 @@ window.Piso = (() => {
   const verChip = v => (v.tipo === 'intervalo' ? `☕ Intervalo ${v.from}` : v.tipo === 'volta' ? `Volta ${v.from}` : v.from ? 'Às ' + v.from : 'Início');
   // Vagas de intervalo da mudança (int.0, int.1…): ficam fora do layout.
   const intKeys = v => Object.keys(v.slots).filter(k => k.startsWith('int.') && v.slots[k]).sort((a, b) => +a.split('.')[1] - +b.split('.')[1]);
+  // Bancadas de recebimento/etiquetagem numeradas em sequência entre as mesas (Mesa 1: 1 e 2, Mesa 2: 3 e 4…).
+  function bancadaNo(L, mesaId, s) {
+    let n = 0;
+    for (const m of L.mesas || []) { if (m.id === mesaId) return n + s + 1; n += m.rec || 0; }
+    return s + 1;
+  }
   // Onde fica uma vaga, em texto: "Mesa 1 · Indução", "2º Sorting letra C", "Descarga"…
   function slotDesc(key, L) {
     const p = key.split('.');
@@ -98,7 +107,7 @@ window.Piso = (() => {
     if (p[0] === 's2' || p[0] === 'aud') return `${FUNCS[p[0]]} letra ${p[1]}`;
     if (FUNCS[p[0]]) return FUNCS[p[0]];
     const ms = (L.mesas || []).find(m => m.id === p[0]);
-    return `${ms ? ms.nome : 'Mesa'} · ${p[1] === 'rec' ? `Receb./Etiq. posto ${+p[2] + 1} (${p[3] === '0' ? 'recebe' : 'etiqueta'})` : FUNCS[p[1]]}`;
+    return `${ms ? ms.nome : 'Mesa'} · ${p[1] === 'rec' ? `Bancada ${bancadaNo(L, p[0], +p[2])} (${p[3] === '0' ? 'recebe' : 'etiqueta'})` : FUNCS[p[1]]}`;
   }
 
   // ================= Mapa de piso =================
@@ -166,7 +175,7 @@ window.Piso = (() => {
       </div>
       ${v.tipo === 'intervalo' ? `<div class="pz-int-hint">☕ <b>Mudança de intervalo (${esc(v.from)})</b>: ${vacMap.size} vaga(s) ficaram livres (em destaque). Você pode mudar a função de quem não foi para o intervalo para cobrir essas vagas — vale a partir das ${esc(v.from)}.
         ${st.map.versions.some(x => x.tipo === 'volta') ? 'Na <b>Volta</b>, todos retornam às funções de antes do intervalo; se alguma troca deve continuar, ajuste também a Volta.' : ''}</div>` : ''}
-      <datalist id="pzPeople">${people().map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <datalist id="pzPeople"><option value="${DIARISTA}">${people().map(n => `<option value="${esc(n)}">`).join('')}</datalist>
       <div class="pz-grid ${ls.sideOff ? 'side-off' : ''}" id="pzGrid">
         <div class="pz-main">
           <div class="pz-mesas">${L.mesas.map(mesaCard).join('')}</div>
@@ -200,7 +209,7 @@ window.Piso = (() => {
   function mesaCard(ms) {
     return `<section class="card pz-card"><div class="pz-title">${esc(ms.nome)}</div>
       ${ms.ind ? `<div class="pz-sub">Indução</div>${range(ms.ind).map(k => slotInput(`${ms.id}.ind.${k}`)).join('')}` : ''}
-      ${ms.rec ? `<div class="pz-sub">Recebimento / Etiquetagem</div>${range(ms.rec).map(s => `<div class="pz-posto"><span class="muted small">Posto ${s + 1}</span>
+      ${ms.rec ? `<div class="pz-sub">Recebimento / Etiquetagem</div>${range(ms.rec).map(s => `<div class="pz-posto"><span class="muted small">Bancada ${bancadaNo(st.map.layout, ms.id, s)}</span>
         ${range(REC_SIZE).map(k => slotInput(`${ms.id}.rec.${s}.${k}`, k === 0 ? 'Recebe' : 'Etiqueta')).join('')}</div>`).join('')}` : ''}
       ${ms.sort ? `<div class="pz-sub">Sorting</div>${range(ms.sort).map(k => slotInput(`${ms.id}.sort.${k}`)).join('')}` : ''}
     </section>`;
@@ -221,7 +230,7 @@ window.Piso = (() => {
     const L = st.map.layout;
     const num = (name, v, extra = '') => `<input type="number" min="0" max="20" data-lay="${name}" value="${v}" ${extra}>`;
     return `<p class="muted small">Vale para este mapa e para os próximos (o mapa novo usa o layout do último salvo).</p>
-      <div class="table-wrap"><table><thead><tr><th class="left">Mesa</th><th>Indução</th><th>Postos receb./etiq. (2 pessoas)</th><th>Sorting</th><th></th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th class="left">Mesa</th><th>Indução</th><th>Bancadas receb./etiq. (2 pessoas)</th><th>Sorting</th><th></th></tr></thead><tbody>
         ${L.mesas.map((ms, i) => `<tr><td class="left"><input type="text" data-lay="mesa.${i}.nome" value="${esc(ms.nome)}"></td>
           <td>${num(`mesa.${i}.ind`, ms.ind)}</td><td>${num(`mesa.${i}.rec`, ms.rec)}</td><td>${num(`mesa.${i}.sort`, ms.sort)}</td>
           <td><button class="tool danger" data-pz-delmesa="${i}" title="Remover mesa">Remover</button></td></tr>`).join('')}
@@ -248,13 +257,13 @@ window.Piso = (() => {
     const redraw = () => { touch(); $('pzLayBody').innerHTML = layoutEditor(); drawMapa(); };
     const close = () => { dlg.close(); dlg.remove(); };
     dlg.addEventListener('cancel', e => { e.preventDefault(); close(); });
-    dlg.addEventListener('click', e => {
+    dlg.addEventListener('click', async e => {
       const t = e.target.closest('[data-pzl],[data-pz],[data-pz-delmesa]');
       if (!t) return;
       const d = t.dataset, L = st.map.layout;
       if (d.pzl === 'close') close();
-      else if (d.pzl === 'reset') { if (confirm('Voltar ao layout padrão (4 mesas, letras A-L)?')) { st.map.layout = clone(DEFAULT_LAYOUT); redraw(); } }
-      else if (d.pzDelmesa != null) { if (confirm(`Remover ${L.mesas[+d.pzDelmesa].nome}?`)) { L.mesas.splice(+d.pzDelmesa, 1); redraw(); } }
+      else if (d.pzl === 'reset') { if (await uiConfirm('Voltar ao layout padrão (4 mesas, letras A-L)?')) { st.map.layout = clone(DEFAULT_LAYOUT); redraw(); } }
+      else if (d.pzDelmesa != null) { if (await uiConfirm(`Remover ${L.mesas[+d.pzDelmesa].nome}?`)) { L.mesas.splice(+d.pzDelmesa, 1); redraw(); } }
       else if (d.pz === 'add-mesa') {
         const n = Math.max(0, ...L.mesas.map(m => +String(m.id).slice(1) || 0)) + 1;
         L.mesas.push({ id: 'm' + n, nome: `Mesa ${L.mesas.length + 1}`, ind: 2, rec: 2, sort: 2 }); redraw();
@@ -280,14 +289,15 @@ window.Piso = (() => {
     const slots = slotsOf(st.map.layout), v = cur();
     const filled = slots.filter(s => v.slots[s.key]);
     const byName = new Map();
-    filled.forEach(s => { const k = nk(v.slots[s.key]); byName.set(k, [...(byName.get(k) || []), s]); });
+    const nDw = filled.filter(s => isDw(v.slots[s.key])).length;
+    filled.filter(s => !isDw(v.slots[s.key])).forEach(s => { const k = nk(v.slots[s.key]); byName.set(k, [...(byName.get(k) || []), s]); });
     const dup = [...byName.entries()].filter(([, a]) => a.length > 1);
     const inInt = new Set(intKeys(v).map(k => nk(v.slots[k])));
     const free = people().filter(n => !byName.has(nk(n)) && !inInt.has(nk(n)));
     const perFunc = Object.keys(FUNCS).map(f => [f, filled.filter(s => s.func === f).length, slots.filter(s => s.func === f).length]).filter(x => x[2]);
     document.querySelectorAll('.pz-slot input').forEach(i => {
       const k = nk(i.value);
-      i.classList.toggle('dup', !!k && (byName.get(k) || []).length > 1);
+      i.classList.toggle('dup', !!k && !isDw(i.value) && (byName.get(k) || []).length > 1);
     });
     // Painel recolhido: só uma faixa com o botão para abrir (a escolha fica salva no aparelho).
     if (ls.sideOff) {
@@ -298,6 +308,7 @@ window.Piso = (() => {
       <section class="card pz-card"><div class="pz-side-head"><div class="pz-title">Resumo · ${esc(verLabel(v))}</div>
         <button class="tool" data-pz="side" title="Recolher o painel">Recolher ▸</button></div>
         <div class="pz-kv"><span>Pessoas em função</span><b>${byName.size}</b></div>
+        ${nDw ? `<div class="pz-kv"><span>Diaristas</span><b>${nDw}</b></div>` : ''}
         ${inInt.size ? `<div class="pz-kv"><span>Em intervalo</span><b>${inInt.size}</b></div>` : ''}
         ${perFunc.map(([f, n, t]) => `<div class="pz-kv"><span>${FUNCS[f]}</span><b>${n}/${t}</b></div>`).join('')}
       </section>
@@ -321,7 +332,7 @@ window.Piso = (() => {
       const did = new Map();
       r.map.versions.forEach(v => Object.entries(v.slots || {}).forEach(([key, name]) => {
         const f = funcOf(key);
-        if (!name || f === 'int') return;
+        if (!name || f === 'int' || isDw(name)) return;
         const k = nk(name);
         if (!did.has(k)) did.set(k, new Set());
         did.get(k).add(f);
@@ -344,7 +355,7 @@ window.Piso = (() => {
     const { cnt, last, pool: hPool, useSlot } = history();
     const locked = new Set(slots.filter(s => st.locks.has(s.key) && v.slots[s.key]).map(s => nk(v.slots[s.key])));
     intKeys(v).forEach(k => locked.add(nk(v.slots[k])));
-    let target = slots.filter(s => v.slots[s.key] && !st.locks.has(s.key));
+    let target = slots.filter(s => v.slots[s.key] && !st.locks.has(s.key) && !isDw(v.slots[s.key]));
     let pool, mode;
     if (target.length) {
       pool = [...new Map(target.map(s => [nk(v.slots[s.key]), v.slots[s.key]])).values()];
@@ -396,7 +407,7 @@ window.Piso = (() => {
       if (leva === 1) return volum.has(s.mesa) || s.func === 'desc' ? 0 : s.func === 'sort' ? 1 : s.func === 'rec' ? 5 : 3;
       return s.func === 'rec' ? 0 : 2;
     };
-    const cands = slots.filter(s => v.slots[s.key]).map(s => ({ key: s.key, name: v.slots[s.key], func: s.func, where: slotDesc(s.key, L), prio: prio(s), done: done.has(nk(v.slots[s.key])) }));
+    const cands = slots.filter(s => v.slots[s.key] && !isDw(v.slots[s.key])).map(s => ({ key: s.key, name: v.slots[s.key], func: s.func, where: slotDesc(s.key, L), prio: prio(s), done: done.has(nk(v.slots[s.key])) }));
     // Uma linha por pessoa (a primeira vaga dela).
     const uniq = [...new Map(cands.map(c => [nk(c.name), c])).values()];
     const avail = uniq.filter(c => !c.done);
@@ -412,7 +423,7 @@ window.Piso = (() => {
   }
   async function intervalo() {
     const v = cur(), slots = slotsOf(st.map.layout);
-    const alocados = new Set(slots.filter(s => v.slots[s.key]).map(s => nk(v.slots[s.key]))).size;
+    const alocados = new Set(slots.filter(s => v.slots[s.key] && !isDw(v.slots[s.key])).map(s => nk(v.slots[s.key]))).size;
     if (!alocados) return ui.toast('O mapa desta mudança está vazio.', true);
     let n = Math.min(alocados, Math.max(1, Math.round(alocados / 2)));
     let sug = intervaloSugestao(n);
@@ -481,7 +492,7 @@ window.Piso = (() => {
     L.mesas.forEach(ms => {
       lines.push(ms.nome.toUpperCase());
       if (ms.ind) lines.push(`Indução: ${list(range(ms.ind).map(k => `${ms.id}.ind.${k}`))}`);
-      range(ms.rec).forEach(s => lines.push(`Receb./Etiq. posto ${s + 1}: ${get(`${ms.id}.rec.${s}.0`)} (recebe) + ${get(`${ms.id}.rec.${s}.1`)} (etiqueta)`));
+      range(ms.rec).forEach(s => lines.push(`Bancada ${bancadaNo(L, ms.id, s)}: ${get(`${ms.id}.rec.${s}.0`)} (recebe) + ${get(`${ms.id}.rec.${s}.1`)} (etiqueta)`));
       if (ms.sort) lines.push(`Sorting: ${list(range(ms.sort).map(k => `${ms.id}.sort.${k}`))}`);
       lines.push('');
     });
@@ -515,7 +526,7 @@ window.Piso = (() => {
     } catch (e) { ui.toast(String(e.message || e), true); }
   }
 
-  function onMapaClick(e) {
+  async function onMapaClick(e) {
     const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock]');
     if (!t) return;
     const d = t.dataset;
@@ -531,11 +542,11 @@ window.Piso = (() => {
       ui.toast('Mudança criada com o horário de agora: ajuste o horário e quem mudou de função.');
     } else if (a === 'del-ver') {
       if (st.ver === 0) return;   // o início do turno não pode ser excluído
-      if (!confirm(`Excluir a mudança "${verLabel(cur())}"?`)) return;
+      if (!(await uiConfirm(`Excluir a mudança "${verLabel(cur())}"?`))) return;
       st.map.versions.splice(st.ver, 1); st.ver = 0; touch(); drawMapa();
     } else if (a === 'rodizio') {
       const vazio = !slotsOf(st.map.layout).some(s => cur().slots[s.key] && !st.locks.has(s.key));
-      if (confirm(vazio
+      if (await uiConfirm(vazio
         ? `Preencher o mapa com o rodízio? Entram as pessoas que trabalharam no turno ${st.turno} nos últimos ${HIST_DAYS} dias, cada uma numa função diferente das que fez. Depois confira quem veio hoje.`
         : `Fazer o rodízio desta mudança? As pessoas do mapa vão para funções diferentes das que fizeram nos últimos ${HIST_DAYS} dias. Vagas com 🔒 ficam como estão.`)) rodizio();
     } else if (a === 'intervalo') { intervalo();
@@ -548,10 +559,10 @@ window.Piso = (() => {
       ui.toast(`Copiado o mapa de ${brShort(last.date)} (última mudança). Ajuste e salve.`);
     }
   }
-  function onMapaChange(e) {
+  async function onMapaChange(e) {
     const t = e.target, d = t.dataset;
     if (t.id === 'pzDate' || t.id === 'pzTurno') {
-      if (st.dirty && !confirm('Há alterações não salvas neste mapa. Elas ficam guardadas neste aparelho como rascunho. Trocar mesmo assim?')) { t.value = t.id === 'pzDate' ? st.date : st.turno; return; }
+      if (st.dirty && !(await uiConfirm('Há alterações não salvas neste mapa. Elas ficam guardadas neste aparelho como rascunho. Trocar mesmo assim?'))) { t.value = t.id === 'pzDate' ? st.date : st.turno; return; }
       if (t.id === 'pzDate' && t.value) st.date = t.value;
       if (t.id === 'pzTurno') { st.turno = t.value; ls.turno = t.value; lsSave(); }
       st.ver = 0; loadMap(); st.loadedKey = `${st.date}|${st.turno}`; drawMapa(); return;
@@ -562,7 +573,7 @@ window.Piso = (() => {
   // Colocar alguém numa vaga. Se a pessoa já está em outra vaga desta mudança, pergunta se é para tirar de lá.
   async function setSlot(input, key) {
     const v = cur(), name = canon(input.value), prev = v.slots[key] || '';
-    if (name) {
+    if (name && !isDw(name)) {
       const other = Object.keys(v.slots).filter(k => k !== key && v.slots[k] && nk(v.slots[k]) === nk(name));
       if (other.length) {
         const where = other.map(k => slotDesc(k, st.map.layout)).join(', ');
@@ -589,24 +600,39 @@ window.Piso = (() => {
   const mapOfDay = (iso, turno) => (baseOn() ? B().mapaGet(iso, turno) : null);
 
   // Responsáveis pelo erro, a partir do mapa que valia no horário.
-  function responsaveis() {
-    const rec = mapOfDay(se.date, se.turno);
-    if (!rec) return { resp: [], note: `Sem mapa de piso salvo para ${brShort(se.date)} · ${se.turno}.` };
-    const v = versionAt(rec.map, se.time), slots = slotsOf(rec.map.layout);
+  // e: { date, turno, tipo: 'sort' | 'etiq', rota, time, recv }
+  function respFor(e) {
+    const rec = mapOfDay(e.date, e.turno);
+    if (!rec) return { resp: [], note: `Sem mapa de piso salvo para ${brShort(e.date)} · ${e.turno}.` };
+    const v = versionAt(rec.map, e.time), slots = slotsOf(rec.map.layout);
     const at = `mapa ${verLabel(v)}`;
-    if (se.tipo === 'sort') {
-      const l = rotaLetra(se.rota);
+    if (e.tipo === 'sort') {
+      const l = rotaLetra(e.rota);
       if (!l) return { resp: [], note: 'Informe a rota do pacote (ex.: C-12).' };
       const resp = slots.filter(s => s.func === 's2' && s.letra === l).map(s => v.slots[s.key]).filter(Boolean);
       return { resp, letra: l, verFrom: v.from || '', note: resp.length ? `Possíveis responsáveis: 2º Sorting letra ${l} (${at}).` : `Ninguém no 2º Sorting da letra ${l} (${at}).` };
     }
-    if (!se.recv) return { resp: [], note: 'Informe quem recebeu o pacote (ou busque no SPX).' };
-    const mine = slots.find(s => s.func === 'rec' && sameName(v.slots[s.key], se.recv));
-    if (!mine) return { resp: [], verFrom: v.from || '', note: `${se.recv} não está em nenhum posto de recebimento/etiquetagem (${at}).` };
+    if (!e.recv) return { resp: [], note: 'Informe quem recebeu o pacote (ou busque no SPX).' };
+    const mine = slots.find(s => s.func === 'rec' && sameName(v.slots[s.key], e.recv));
+    if (!mine) return { resp: [], verFrom: v.from || '', note: `${e.recv} não está em nenhuma bancada de recebimento/etiquetagem (${at}).` };
     const resp = slots.filter(s => s.posto === mine.posto && s.key !== mine.key).map(s => v.slots[s.key]).filter(Boolean);
     const mesa = rec.map.layout.mesas.find(ms => ms.id === mine.mesa);
-    return { resp, verFrom: v.from || '', posto: `${mesa ? mesa.nome : ''} · posto ${+mine.posto.split('.')[2] + 1}`,
-      note: resp.length ? `${v.slots[mine.key]} recebeu; quem etiquetava no mesmo posto (${mesa ? mesa.nome : ''}, ${at}).` : `Posto de ${v.slots[mine.key]} sem par de etiquetagem (${at}).` };
+    const banc = `Bancada ${bancadaNo(rec.map.layout, mine.mesa, +mine.posto.split('.')[2])}`;
+    return { resp, verFrom: v.from || '', posto: `${mesa ? mesa.nome : ''} · ${banc}`,
+      note: resp.length ? `${v.slots[mine.key]} recebeu; quem etiquetava na mesma bancada (${banc}, ${at}).` : `${banc} de ${v.slots[mine.key]} sem par de etiquetagem (${at}).` };
+  }
+  const responsaveis = () => respFor(se);
+  // Quem recebeu o pacote no hub, pelo rastreio do SPX (só no PC, com a Sessão SPX ativa).
+  async function lookupReceiver(code) {
+    if (!(api() && api().parcelTrack)) return { error: 'A busca no SPX só funciona no app do computador.' };
+    if (!(await window.SpxSession.has())) return { error: 'Sem Sessão SPX.', noSession: true };
+    try {
+      const r = await api().parcelTrack(code);
+      if (!r.ok) return { error: r.error || 'Falha na consulta.' };
+      const who = PC.receiver(r.data, (window.APP_CONFIG && window.APP_CONFIG.PARCEL) || {});
+      if (!who) return { error: 'O rastreio não mostra quem recebeu no hub.' };
+      return { name: canon(who.name), raw: who.name, time: hmOf(who.ts), day: new Date(who.ts * 1000).toLocaleDateString('sv-SE', { timeZone: TZ }) };
+    } catch (e) { return { error: 'Falha na consulta.' }; }
   }
 
   function renderErros(ctx) {
@@ -627,6 +653,7 @@ window.Piso = (() => {
         <label>Dia <input type="date" id="peDate" value="${se.date}"></label>
         <label>Turno <select id="peTurno">${TURNOS.map(t => `<option ${t === se.turno ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <span class="muted small">${recMap ? `Mapa de piso: ${recMap.map.versions.length} mudança(s)` : '⚠ Sem mapa de piso salvo para este dia e turno'}</span>
+        <div class="au-bar-right"><button class="btn-primary solid" data-pe="kiosk" ${baseOn() ? '' : 'disabled'} title="Tela cheia para os colaboradores registrarem os erros (sem mostrar responsáveis)">🖥 Modo registro (tela cheia)</button></div>
       </div>
       <div class="grid">
         <section class="card"><div class="card-head"><div><div class="card-title">Registrar erro</div><div class="card-sub">Durante a operação, quando o erro aparece</div></div></div>
@@ -644,7 +671,7 @@ window.Piso = (() => {
               <label>Quem recebeu <input id="peRecv" list="peRecvList" value="${esc(se.recv)}" placeholder="Nome do operador" autocomplete="off"></label>
               <datalist id="peRecvList">${recNames.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
               <label>Horário do recebimento <input id="peTime" type="time" value="${esc(se.time)}"></label>
-              <div class="muted small">O responsável é quem etiquetava no mesmo posto de quem recebeu, no horário do recebimento.</div>`}
+              <div class="muted small">O responsável é quem etiquetava na mesma bancada de quem recebeu, no horário do recebimento.</div>`}
             <div class="pe-resp ${r.resp.length ? 'ok' : ''}"><b>${r.resp.length ? r.resp.map(esc).join(', ') : 'Sem responsável definido'}</b><div class="muted small">${esc(r.note)}</div></div>
             <button class="btn-primary solid" data-pe="save" ${baseOn() && se.code.trim() ? '' : 'disabled'}>Salvar erro</button>
           </div></section>
@@ -652,7 +679,7 @@ window.Piso = (() => {
           ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Rota / quem recebeu</th><th class="left">Responsáveis</th><th></th></tr></thead><tbody>
             ${today.map(x => `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${x.tipo === 'sort' ? 'warn' : 'info'}">${x.tipo === 'sort' ? 'Sorting' : 'Etiquetagem'}</span></td>
               <td class="left pc-code">${esc(x.code)}</td><td class="left">${esc(x.tipo === 'sort' ? x.rota : (x.detail.recebeu || ''))}</td>
-              <td class="left">${x.resp.length ? x.resp.map(esc).join(', ') : '<span class="muted">—</span>'}</td>
+              <td class="left">${x.resp.length ? x.resp.map(esc).join(', ') : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca quem recebeu no SPX e quem estava no mapa">Buscar responsável</button>`}${x.detail.origem === 'quiosque' ? ' <span class="muted small">· registro</span>' : ''}</td>
               <td><button class="tool danger" data-pe-del="${esc(x.id)}" title="Excluir este registro">Excluir</button></td></tr>`).join('')}
           </tbody></table></div>` : ui.empty('Nenhum erro registrado neste turno.')}</section>
       </div>
@@ -687,7 +714,7 @@ window.Piso = (() => {
       <div class="grid">
         ${ui.card('peCh1', 'Erros por dia', 'Por tipo', { w: 8 })}
         ${ui.card('peCh2', 'Sorting por letra', 'Letra da rota do pacote', { w: 4 })}
-        ${ui.card('', 'Pessoas', 'Sorting: todos do 2º Sorting da letra contam como possíveis responsáveis · Etiquetagem: quem etiquetava no posto', { w: 12,
+        ${ui.card('', 'Pessoas', 'Sorting: todos do 2º Sorting da letra contam como possíveis responsáveis · Etiquetagem: quem etiquetava na bancada', { w: 12,
           tools: '<button class="tool" data-pe="copy">Copiar lista</button>',
           body: `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>Total</th><th>Dias</th></tr></thead><tbody>
             ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td><b>${o.sort + o.etiq}</b></td><td>${o.days.size}</td></tr>`).join('')}
@@ -706,26 +733,33 @@ window.Piso = (() => {
     if (!PC.CODE_RE.test(code)) { se.spxMsg = 'Código inválido.'; return drawErros(); }
     if (!(await window.SpxSession.has())) { se.spxMsg = ''; return window.SpxSession.open(() => spxReceiver()); }
     se.busy = true; se.spxMsg = ''; drawErros();
-    try {
-      const r = await api().parcelTrack(code);
-      if (!r.ok) se.spxMsg = r.error || 'Falha na consulta.';
-      else {
-        const who = PC.receiver(r.data, (window.APP_CONFIG && window.APP_CONFIG.PARCEL) || {});
-        if (!who) se.spxMsg = 'O rastreio não mostra quem recebeu no hub.';
-        else {
-          se.recv = canon(who.name); se.time = hmOf(who.ts);
-          const day = new Date(who.ts * 1000).toLocaleDateString('sv-SE', { timeZone: TZ });
-          se.spxMsg = `Recebido por ${who.name} em ${brShort(day)} às ${se.time}.` + (day !== se.date ? ' (dia diferente do selecionado)' : '');
-        }
-      }
-    } catch (e) { se.spxMsg = 'Falha na consulta.'; }
+    const w = await lookupReceiver(code);
+    if (w.error) se.spxMsg = w.error;
+    else { se.recv = w.name; se.time = w.time; se.spxMsg = `Recebido por ${w.raw} em ${brShort(w.day)} às ${w.time}.` + (w.day !== se.date ? ' (dia diferente do selecionado)' : ''); }
     se.busy = false; drawErros();
+  }
+  // Registro feito no modo tela cheia sem responsável (sem Sessão SPX ou sem mapa): o líder completa depois.
+  async function completeErro(id) {
+    const x = B().erroList().find(e => e.id === id);
+    if (!x) return;
+    let recv = x.detail.recebeu || '', time = x.time;
+    if (x.tipo === 'etiq' && !recv) {
+      const w = await lookupReceiver(x.code);
+      if (w.noSession) return window.SpxSession.open(() => completeErro(id));
+      if (w.error) return ui.toast(w.error, true);
+      recv = w.name; time = w.time;
+    }
+    const r = respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time, recv });
+    if (!r.resp.length) return ui.toast(r.note, true);
+    await B().erroSave({ ...x, time, resp: r.resp, detail: { ...x.detail, letra: r.letra || x.detail.letra || '', recebeu: recv, mapa: r.verFrom || '', posto: r.posto || '', pendente: false } });
+    ui.toast(`Responsável encontrado: ${r.resp.join(', ')}`);
+    drawErros();
   }
   async function saveErro() {
     const code = se.code.trim().toUpperCase();
     if (!code || !baseOn()) return;
     const r = responsaveis();
-    if (!r.resp.length && !confirm(`Nenhum responsável foi encontrado (${r.note}) Salvar mesmo assim?`)) return;
+    if (!r.resp.length && !(await uiConfirm(`Nenhum responsável foi encontrado (${r.note}) Salvar mesmo assim?`))) return;
     try {
       await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo === 'sort' ? se.rota.trim().toUpperCase() : '', time: se.time,
         resp: r.resp, detail: { letra: r.letra || '', recebeu: se.tipo === 'etiq' ? se.recv : '', mapa: r.verFrom || '', posto: r.posto || '' } });
@@ -735,13 +769,15 @@ window.Piso = (() => {
       const c = $('peCode'); if (c) c.focus();
     } catch (e) { ui.toast(String(e.message || e), true); }
   }
-  function onErrosClick(e) {
-    const t = e.target.closest('[data-pe],[data-pe-tipo],[data-pe-del]');
+  async function onErrosClick(e) {
+    const t = e.target.closest('[data-pe],[data-pe-tipo],[data-pe-del],[data-pe-fix]');
     if (!t) return;
     const d = t.dataset;
     if (d.peTipo) { se.tipo = d.peTipo; ls.tipo = se.tipo; lsSave(); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); drawErros(); return; }
-    if (d.peDel) { if (confirm('Excluir este registro de erro?')) B().erroDelete(d.peDel).then(drawErros); return; }
-    if (d.pe === 'spx') spxReceiver();
+    if (d.peFix) { completeErro(d.peFix); return; }
+    if (d.peDel) { if (await uiConfirm('Excluir este registro de erro?')) B().erroDelete(d.peDel).then(drawErros); return; }
+    if (d.pe === 'kiosk') openKiosk();
+    else if (d.pe === 'spx') spxReceiver();
     else if (d.pe === 'save') saveErro();
     else if (d.pe === 'copy') copyText([`Erros de piso por pessoa — ${st.copyPer}`, '', ...(st.copyRows || []).map(o => `${o.nome}\tsorting ${o.sort}\tetiquetagem ${o.etiq}`)].join('\n'), 'Lista copiada');
   }
@@ -759,6 +795,82 @@ window.Piso = (() => {
     if (t.id === 'peCode') { se.code = t.value; const b = document.querySelector('[data-pe="save"]'); if (b) b.disabled = !(baseOn() && se.code.trim()); }
   }
 
+  // ================= Modo registro (tela cheia) =================
+  // Para os colaboradores: bipar o pacote, escolher o tipo de erro e (sorting) a gaiola certa. Não mostra responsáveis.
+  // Os responsáveis são calculados e gravados por trás; sem Sessão SPX (etiquetagem), o líder completa depois.
+  async function openKiosk() {
+    if (!baseOn()) return ui.toast('Entre com a conta Google para registrar erros.', true);
+    const r = await modal('🖥 Modo registro', `<p class="muted">Tela cheia para os colaboradores registrarem os erros. Eles só bipam o pacote e escolhem o tipo de erro — os responsáveis <b>não</b> aparecem.</p>
+      <div class="pz-int-form"><label>Turno <select id="kTurno">${TURNOS.map(t => `<option ${t === se.turno ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+      ${api() && api().parcelTrack ? `<p class="muted small">${window.SpxSession.isActive() ? '✓ Sessão SPX ativa: o responsável pela etiquetagem é buscado na hora.' : '⚠ Sem Sessão SPX: os erros de etiquetagem ficam para você completar depois (botão "Buscar responsável").'}</p>` : ''}`,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Abrir em tela cheia', 'btn-primary solid']], null, dlg => ({ turno: dlg.querySelector('#kTurno').value }));
+    if (!r || r.btn !== 'ok') return;
+    const K = { turno: r.data.turno, date: todayIso(), tipo: '', busy: false, last: [] };
+    const el = document.createElement('div');
+    el.className = 'kiosk';
+    el.innerHTML = `<div class="kiosk-top"><div><b>Registro de erros</b> · ${brShort(K.date)} · ${K.turno}</div><button class="kiosk-exit" data-k="exit">Sair</button></div>
+      <div class="kiosk-body">
+        <div class="kiosk-lbl">1. Bipe o pacote</div>
+        <input id="kCode" class="kiosk-input" placeholder="BR…" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <div class="kiosk-lbl">2. Tipo de erro</div>
+        <div class="kiosk-types">
+          <button data-k="sort">Erro de sorting<small>pacote na gaiola errada</small></button>
+          <button data-k="etiq">Erro de etiquetagem<small>etiqueta errada</small></button>
+        </div>
+        <div id="kSortBox" hidden><div class="kiosk-lbl">3. Gaiola certa do pacote</div>
+          <input id="kRota" class="kiosk-input" placeholder="C-12" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+        <button class="kiosk-save" data-k="save" disabled>Registrar</button>
+        <div class="kiosk-msg" id="kMsg"></div>
+      </div>
+      <div class="kiosk-last"><div class="kiosk-lbl">Últimos registros</div><ul id="kLast"><li class="muted">Nenhum ainda</li></ul></div>`;
+    document.body.appendChild(el);
+    document.body.classList.add('kiosk-on');
+    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    const q = id => el.querySelector('#' + id);
+    const code = () => q('kCode').value.trim().toUpperCase();
+    const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || rotaLetra(q('kRota').value));
+    const sync = () => {
+      el.querySelectorAll('.kiosk-types button').forEach(b => b.classList.toggle('on', b.dataset.k === K.tipo));
+      q('kSortBox').hidden = K.tipo !== 'sort';
+      el.querySelector('[data-k="save"]').disabled = !ready() || K.busy;
+    };
+    const say = (t, ok) => { q('kMsg').textContent = t; q('kMsg').className = 'kiosk-msg ' + (ok ? 'ok' : t ? 'err' : ''); };
+    const reset = () => { q('kCode').value = ''; q('kRota').value = ''; K.tipo = ''; sync(); q('kCode').focus(); };
+    async function save() {
+      if (!ready() || K.busy) return;
+      K.busy = true; sync(); say('Registrando…', true);
+      const c = code(), tipo = K.tipo, rota = tipo === 'sort' ? q('kRota').value.trim().toUpperCase() : '';
+      let time = nowHm(), recv = '';
+      if (tipo === 'etiq') { const w = await lookupReceiver(c); if (!w.error) { recv = w.name; time = w.time; } }
+      const rr = respFor({ date: K.date, turno: K.turno, tipo, rota, time, recv });
+      try {
+        await B().erroSave({ date: K.date, turno: K.turno, tipo, code: c, rota, time, resp: rr.resp,
+          detail: { letra: rr.letra || '', recebeu: recv, mapa: rr.verFrom || '', posto: rr.posto || '', pendente: !rr.resp.length, origem: 'quiosque' } });
+        K.last.unshift(`${nowHm()} · ${c} · ${tipo === 'sort' ? `sorting · ${rota}` : 'etiquetagem'}`);
+        q('kLast').innerHTML = K.last.slice(0, 8).map(t => `<li>${esc(t)}</li>`).join('');
+        say(`✓ Registrado: ${c}`, true);
+        K.busy = false; reset();
+      } catch (e) { K.busy = false; sync(); say('Não foi possível registrar. Tente de novo.', false); }
+    }
+    el.addEventListener('click', async e => {
+      const b = e.target.closest('[data-k]');
+      if (!b) return;
+      const k = b.dataset.k;
+      if (k === 'exit') {
+        if (!(await uiConfirm('Sair do modo registro?', { ok: 'Sair' }))) return;
+        el.remove(); document.body.classList.remove('kiosk-on');
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        if (ui.isActive('erros')) drawErros();
+      } else if (k === 'save') save();
+      else { K.tipo = k; say(''); sync(); if (k === 'sort') q('kRota').focus(); }
+    });
+    el.addEventListener('input', () => { say(''); sync(); });
+    // Leitor de código: o código chega seguido de Enter.
+    q('kCode').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); if (!PC.CODE_RE.test(code())) say('Código inválido. Bipe de novo.', false); else if (ready()) save(); } });
+    q('kRota').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+    sync(); q('kCode').focus();
+  }
+
   // Um conjunto de eventos no <main>, ligado uma vez; cada tela só reage quando está ativa.
   let bound = false;
   function bind(ctx) {
@@ -774,6 +886,6 @@ window.Piso = (() => {
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.
-    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, DEFAULT_LAYOUT },
+    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT },
   };
 })();
