@@ -5,6 +5,10 @@ window.APP_CONFIG = {
   HUB_NAME: 'HUB LGO 03',
   HUB_CITY: 'Anápolis',
 
+  // Senha para sair do modo registro (tela cheia dos Erros de piso). Fica no código do app: serve para os
+  // colaboradores não saírem da tela por engano, não é uma proteção de segurança.
+  KIOSK_PASSWORD: 'admin123',
+
   // Atualização automática (minutos), fixa para todos os aparelhos. 0 = desligada.
   AUTO_REFRESH_MIN: 30,
   // Tempo de cada aba no Modo TV (segundos).

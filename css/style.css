@@ -857,3 +857,4 @@ dialog.ui-confirm { width: min(440px, calc(100vw - 32px)); }
 .rh-delta { font-weight: 700; }
 .rh-delta.up { color: var(--good); } .rh-delta.down { color: var(--bad); }
 .rh-fora { margin: -6px 0 16px; font-size: 13px; color: var(--text-2); }
+.kiosk-pass { width: 100%; font-size: 18px; padding: 10px 12px; }

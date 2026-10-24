@@ -609,8 +609,12 @@ window.Piso = (() => {
     if (e.tipo === 'sort') {
       const l = rotaLetra(e.rota);
       if (!l) return { resp: [], note: 'Informe a rota do pacote (ex.: C-12).' };
-      const resp = slots.filter(s => s.func === 's2' && s.letra === l).map(s => v.slots[s.key]).filter(Boolean);
-      return { resp, letra: l, verFrom: v.from || '', note: resp.length ? `Possíveis responsáveis: 2º Sorting letra ${l} (${at}).` : `Ninguém no 2º Sorting da letra ${l} (${at}).` };
+      // Todos que passaram pelo 2º Sorting ou pela Auditoria da letra em qualquer mudança do turno.
+      const keys = new Set(slots.filter(s => (s.func === 's2' || s.func === 'aud') && s.letra === l).map(s => s.key));
+      const seen = new Map();
+      rec.map.versions.forEach(x => keys.forEach(k => { const n = x.slots[k]; if (n && !seen.has(nk(n))) seen.set(nk(n), n); }));
+      const resp = [...seen.values()];
+      return { resp, letra: l, verFrom: '', note: resp.length ? `Possíveis responsáveis: todos que passaram pelo 2º Sorting ou pela Auditoria da letra ${l} no turno (${rec.map.versions.length} mudança(s)).` : `Ninguém no 2º Sorting nem na Auditoria da letra ${l} no turno.` };
     }
     if (!e.recv) return { resp: [], note: 'Informe o operador que bipou o pacote (ou busque no SPX).' };
     // Responsável = quem está na vaga "Etiqueta" da bancada onde aparece o operador do SPX. Se o próprio operador
@@ -665,7 +669,7 @@ window.Piso = (() => {
             ${se.tipo === 'sort' ? `
               <label>Rota certa do pacote <input id="peRota" type="text" value="${esc(se.rota)}" placeholder="C-12" autocomplete="off"></label>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
-              <div class="muted small">O pacote foi para a gaiola errada: os possíveis responsáveis são todos do 2º Sorting da letra da rota.</div>` : `
+              <div class="muted small">O pacote foi para a gaiola errada: os possíveis responsáveis são todos que passaram pelo 2º Sorting ou pela Auditoria da letra da rota no turno (em qualquer mudança do mapa).</div>` : `
               <div class="pe-row">
                 <button class="tool" data-pe="spx" ${canSpx && !se.busy ? '' : 'disabled'} title="${canSpx ? 'Busca no rastreio do SPX quem recebeu o pacote no hub' : 'A busca no SPX só funciona no app do computador'}">${se.busy ? 'Buscando…' : 'Buscar operador no SPX'}</button>
                 ${se.spxMsg ? `<span class="muted small">${esc(se.spxMsg)}</span>` : ''}
@@ -677,7 +681,8 @@ window.Piso = (() => {
             <div class="pe-resp ${r.resp.length ? 'ok' : ''}"><b>${r.resp.length ? r.resp.map(esc).join(', ') : 'Sem responsável definido'}</b><div class="muted small">${esc(r.note)}</div></div>
             <button class="btn-primary solid" data-pe="save" ${baseOn() && se.code.trim() ? '' : 'disabled'}>Salvar erro</button>
           </div></section>
-        <section class="card"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div></div>
+        <section class="card"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div>
+          ${today.some(x => !x.resp.length) ? `<div class="card-tools"><button class="tool" data-pe="fixall" ${se.fixing ? 'disabled' : ''} title="Busca o responsável de todos os erros do turno que estão sem responsável">${se.fixing ? `Buscando… ${se.fixing.done}/${se.fixing.total}` : `🔎 Buscar responsáveis (${today.filter(x => !x.resp.length).length})`}</button></div>` : ''}</div>
           ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Rota / operador SPX</th><th class="left">Responsáveis</th><th></th></tr></thead><tbody>
             ${today.map(x => `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${x.tipo === 'sort' ? 'warn' : 'info'}">${x.tipo === 'sort' ? 'Sorting' : 'Etiquetagem'}</span></td>
               <td class="left pc-code">${esc(x.code)}</td><td class="left">${esc(x.tipo === 'sort' ? x.rota : (x.detail.recebeu || ''))}</td>
@@ -716,8 +721,8 @@ window.Piso = (() => {
       <div class="grid">
         ${ui.card('peCh1', 'Erros por dia', 'Por tipo', { w: 8 })}
         ${ui.card('peCh2', 'Sorting por letra', 'Letra da rota do pacote', { w: 4 })}
-        ${ui.card('', 'Pessoas', 'Sorting: todos do 2º Sorting da letra contam como possíveis responsáveis · Etiquetagem: quem etiquetava na bancada', { w: 12,
-          tools: '<button class="tool" data-pe="recalc" title="Refaz os responsáveis de etiquetagem do período com a regra atual (quem está na vaga Etiqueta)">Recalcular etiquetagem</button><button class="tool" data-pe="copy">Copiar lista</button>',
+        ${ui.card('', 'Pessoas', 'Sorting: todos que passaram pelo 2º Sorting ou pela Auditoria da letra no turno · Etiquetagem: quem estava na vaga Etiqueta da bancada', { w: 12,
+          tools: '<button class="tool" data-pe="recalc" title="Refaz os responsáveis do período com as regras atuais">Recalcular responsáveis</button><button class="tool" data-pe="copy">Copiar lista</button>',
           body: `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>Total</th><th>Dias</th></tr></thead><tbody>
             ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td><b>${o.sort + o.etiq}</b></td><td>${o.days.size}</td></tr>`).join('')}
           </tbody></table></div>` })}
@@ -741,33 +746,61 @@ window.Piso = (() => {
     se.busy = false; drawErros();
   }
   // Refaz os responsáveis de etiquetagem do período (para os registros gravados antes da regra atual).
-  async function recalcEtiq() {
+  // Refaz os responsáveis do período com as regras atuais (sorting: 2º sorting + auditoria da letra em todo o turno;
+  // etiquetagem: vaga Etiqueta da bancada do operador do SPX).
+  async function recalcAll() {
     const rg = ui.range();
-    const list = B().erroList().filter(x => x.tipo === 'etiq' && x.date >= rg.from && x.date <= rg.to && x.detail.recebeu);
-    const changes = list.map(x => ({ x, r: respFor({ date: x.date, turno: x.turno, tipo: 'etiq', rota: '', time: x.time, recv: x.detail.recebeu }) }))
-      .filter(({ x, r }) => r.resp.length && r.resp.map(nk).join('|') !== x.resp.map(nk).join('|'));
-    if (!changes.length) return ui.toast('Nenhum erro de etiquetagem do período mudou de responsável.');
-    if (!(await uiConfirm(`${changes.length} erro(s) de etiquetagem do período mudam de responsável com a regra atual (quem está na vaga Etiqueta). Atualizar?`, { ok: 'Atualizar' }))) return;
-    for (const { x, r } of changes) await B().erroSave({ ...x, resp: r.resp, detail: { ...x.detail, posto: r.posto || x.detail.posto || '' } });
+    const list = B().erroList().filter(x => x.date >= rg.from && x.date <= rg.to && (x.tipo === 'sort' ? x.rota : x.detail.recebeu));
+    const changes = list.map(x => ({ x, r: respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time: x.time, recv: x.detail.recebeu }) }))
+      .filter(({ x, r }) => r.resp.length && r.resp.map(nk).sort().join('|') !== x.resp.map(nk).sort().join('|'));
+    if (!changes.length) return ui.toast('Nenhum erro do período mudou de responsável.');
+    const nS = changes.filter(c => c.x.tipo === 'sort').length;
+    if (!(await uiConfirm(`${changes.length} erro(s) do período mudam de responsável com as regras atuais (${nS} de sorting, ${changes.length - nS} de etiquetagem). Atualizar?`, { ok: 'Atualizar' }))) return;
+    for (const { x, r } of changes) await B().erroSave({ ...x, resp: r.resp, detail: { ...x.detail, letra: r.letra || x.detail.letra || '', posto: r.posto || x.detail.posto || '' } });
     ui.toast(`${changes.length} erro(s) atualizados`);
     drawErros();
   }
   // Registro feito no modo tela cheia sem responsável (sem Sessão SPX ou sem mapa): o líder completa depois.
-  async function completeErro(id) {
+  // Retorna { ok, msg, noSession }. quiet: não mostra aviso nem redesenha (usado no "buscar todos").
+  async function completeErro(id, quiet = false) {
     const x = B().erroList().find(e => e.id === id);
-    if (!x) return;
+    if (!x) return { ok: false, msg: 'Registro não encontrado.' };
     let recv = x.detail.recebeu || '', time = x.time;
     if (x.tipo === 'etiq' && !recv) {
       const w = await lookupReceiver(x.code);
-      if (w.noSession) return window.SpxSession.open(() => completeErro(id));
-      if (w.error) return ui.toast(w.error, true);
+      if (w.noSession) { if (!quiet) window.SpxSession.open(() => completeErro(id)); return { ok: false, noSession: true, msg: w.error }; }
+      if (w.error) { if (!quiet) ui.toast(w.error, true); return { ok: false, msg: w.error }; }
       recv = w.name; time = w.time;
     }
     const r = respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time, recv });
-    if (!r.resp.length) return ui.toast(r.note, true);
+    if (!r.resp.length) {
+      if (recv !== (x.detail.recebeu || '')) await B().erroSave({ ...x, time, detail: { ...x.detail, recebeu: recv } });   // guarda o operador achado
+      if (!quiet) ui.toast(r.note, true);
+      return { ok: false, msg: r.note };
+    }
     await B().erroSave({ ...x, time, resp: r.resp, detail: { ...x.detail, letra: r.letra || x.detail.letra || '', recebeu: recv, mapa: r.verFrom || '', posto: r.posto || '', pendente: false } });
-    ui.toast(`Responsável encontrado: ${r.resp.join(', ')}`);
+    if (!quiet) { ui.toast(`Responsável encontrado: ${r.resp.join(', ')}`); drawErros(); }
+    return { ok: true };
+  }
+  // Busca o responsável de todos os erros do turno que ainda estão sem responsável.
+  async function completeAll() {
+    const pend = B().erroList().filter(x => x.date === se.date && x.turno === se.turno && !x.resp.length);
+    if (!pend.length) return ui.toast('Todos os erros do turno já têm responsável.');
+    if (pend.some(x => x.tipo === 'etiq' && !x.detail.recebeu) && api() && api().parcelTrack && !(await window.SpxSession.has()))
+      return window.SpxSession.open(() => completeAll());
+    se.fixing = { done: 0, total: pend.length }; drawErros();
+    let ok = 0;
+    const fail = [];
+    for (const x of pend) {
+      const r = await completeErro(x.id, true);
+      if (r.ok) ok++; else fail.push(`${x.code}: ${r.msg}`);
+      se.fixing.done++;
+      const b = document.querySelector('[data-pe="fixall"]'); if (b) b.textContent = `Buscando… ${se.fixing.done}/${se.fixing.total}`;
+    }
+    se.fixing = null;
     drawErros();
+    ui.toast(`${ok} de ${pend.length} erro(s) com responsável encontrado${fail.length ? ` · ${fail.length} sem (veja na lista)` : ''}`, !!fail.length && !ok);
+    if (fail.length) console.info('Sem responsável:', fail);
   }
   async function saveErro() {
     const code = se.code.trim().toUpperCase();
@@ -791,7 +824,8 @@ window.Piso = (() => {
     if (d.peFix) { completeErro(d.peFix); return; }
     if (d.peDel) { if (await uiConfirm('Excluir este registro de erro?')) B().erroDelete(d.peDel).then(drawErros); return; }
     if (d.pe === 'kiosk') openKiosk();
-    else if (d.pe === 'recalc') recalcEtiq();
+    else if (d.pe === 'recalc') recalcAll();
+    else if (d.pe === 'fixall') completeAll();
     else if (d.pe === 'spx') spxReceiver();
     else if (d.pe === 'save') saveErro();
     else if (d.pe === 'copy') copyText([`Erros de piso por pessoa — ${st.copyPer}`, '', ...(st.copyRows || []).map(o => `${o.nome}\tsorting ${o.sort}\tetiquetagem ${o.etiq}`)].join('\n'), 'Lista copiada');
@@ -813,6 +847,23 @@ window.Piso = (() => {
   // ================= Modo registro (tela cheia) =================
   // Para os colaboradores: bipar o pacote, escolher o tipo de erro e (sorting) a gaiola certa. Não mostra responsáveis.
   // Os responsáveis são calculados e gravados por trás; sem Sessão SPX (etiquetagem), o líder completa depois.
+  // Senha do líder para sair do modo registro (APP_CONFIG.KIOSK_PASSWORD).
+  async function askKioskPassword() {
+    const pass = String((window.APP_CONFIG && window.APP_CONFIG.KIOSK_PASSWORD) || '');
+    if (!pass) return uiConfirm('Sair do modo registro?', { ok: 'Sair' });
+    let erro = '';
+    for (;;) {
+      const r = await modal('Sair do modo registro', `<p class="muted">Digite a senha do líder para sair da tela cheia.</p>
+        <input type="password" id="kPass" autocomplete="off" class="kiosk-pass" aria-label="Senha">
+        <div class="settings-msg ${erro ? 'err' : ''}">${erro}</div>`,
+        [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Sair', 'btn-primary solid']],
+        dlg => { const i = dlg.querySelector('#kPass'); i.focus(); i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); dlg.querySelector('[data-modal="ok"]').click(); } }); },
+        dlg => dlg.querySelector('#kPass').value);
+      if (!r || r.btn !== 'ok') return false;
+      if (r.data === pass) return true;
+      erro = 'Senha incorreta.';
+    }
+  }
   async function openKiosk() {
     if (!baseOn()) return ui.toast('Entre com a conta Google para registrar erros.', true);
     const r = await modal('🖥 Modo registro', `<p class="muted">Tela cheia para os colaboradores registrarem os erros. Eles só bipam o pacote e escolhem o tipo de erro — os responsáveis <b>não</b> aparecem.</p>
@@ -872,7 +923,7 @@ window.Piso = (() => {
       if (!b) return;
       const k = b.dataset.k;
       if (k === 'exit') {
-        if (!(await uiConfirm('Sair do modo registro?', { ok: 'Sair' }))) return;
+        if (!(await askKioskPassword())) { q('kCode').focus(); return; }
         el.remove(); document.body.classList.remove('kiosk-on');
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         if (ui.isActive('erros')) drawErros();
