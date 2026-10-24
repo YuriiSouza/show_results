@@ -326,7 +326,7 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - **Sorting** (gaiola errada): rota certa do pacote (ex.: C-12) → possíveis responsáveis = todos do 2º Sorting da letra,
     na mudança do mapa que valia no horário.
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
-    → responsável = quem etiquetava no mesmo posto, no horário do recebimento.
+    → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.
   - Análise do período (filtro do topo): por pessoa, por dia e por letra.
   - **Modo registro (tela cheia)**: para os colaboradores. Bipa o pacote, escolhe o tipo de erro e, se for sorting, a gaiola
     certa. Os responsáveis **não** aparecem — são calculados e gravados por trás. Sem Sessão SPX, o erro de etiquetagem

@@ -612,14 +612,16 @@ window.Piso = (() => {
       const resp = slots.filter(s => s.func === 's2' && s.letra === l).map(s => v.slots[s.key]).filter(Boolean);
       return { resp, letra: l, verFrom: v.from || '', note: resp.length ? `Possíveis responsáveis: 2º Sorting letra ${l} (${at}).` : `Ninguém no 2º Sorting da letra ${l} (${at}).` };
     }
-    if (!e.recv) return { resp: [], note: 'Informe quem recebeu o pacote (ou busque no SPX).' };
+    if (!e.recv) return { resp: [], note: 'Informe o operador que bipou o pacote (ou busque no SPX).' };
+    // Responsável = quem está na vaga "Etiqueta" da bancada onde aparece o operador do SPX. Se o próprio operador
+    // está na vaga "Etiqueta", ele é o responsável; se está em "Recebe", é o par dele que etiquetava.
     const mine = slots.find(s => s.func === 'rec' && sameName(v.slots[s.key], e.recv));
     if (!mine) return { resp: [], verFrom: v.from || '', note: `${e.recv} não está em nenhuma bancada de recebimento/etiquetagem (${at}).` };
-    const resp = slots.filter(s => s.posto === mine.posto && s.key !== mine.key).map(s => v.slots[s.key]).filter(Boolean);
+    const resp = slots.filter(s => s.posto === mine.posto && s.key.endsWith(`.${REC_SIZE - 1}`)).map(s => v.slots[s.key]).filter(Boolean);
     const mesa = rec.map.layout.mesas.find(ms => ms.id === mine.mesa);
     const banc = `Bancada ${bancadaNo(rec.map.layout, mine.mesa, +mine.posto.split('.')[2])}`;
     return { resp, verFrom: v.from || '', posto: `${mesa ? mesa.nome : ''} · ${banc}`,
-      note: resp.length ? `${v.slots[mine.key]} recebeu; quem etiquetava na mesma bancada (${banc}, ${at}).` : `${banc} de ${v.slots[mine.key]} sem par de etiquetagem (${at}).` };
+      note: resp.length ? `Quem etiquetava na ${banc} de ${v.slots[mine.key]} (${at}).` : `${banc} de ${v.slots[mine.key]} sem ninguém na etiquetagem (${at}).` };
   }
   const responsaveis = () => respFor(se);
   // Quem recebeu o pacote no hub, pelo rastreio do SPX (só no PC, com a Sessão SPX ativa).
@@ -665,18 +667,18 @@ window.Piso = (() => {
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
               <div class="muted small">O pacote foi para a gaiola errada: os possíveis responsáveis são todos do 2º Sorting da letra da rota.</div>` : `
               <div class="pe-row">
-                <button class="tool" data-pe="spx" ${canSpx && !se.busy ? '' : 'disabled'} title="${canSpx ? 'Busca no rastreio do SPX quem recebeu o pacote no hub' : 'A busca no SPX só funciona no app do computador'}">${se.busy ? 'Buscando…' : 'Buscar quem recebeu (SPX)'}</button>
+                <button class="tool" data-pe="spx" ${canSpx && !se.busy ? '' : 'disabled'} title="${canSpx ? 'Busca no rastreio do SPX quem recebeu o pacote no hub' : 'A busca no SPX só funciona no app do computador'}">${se.busy ? 'Buscando…' : 'Buscar operador no SPX'}</button>
                 ${se.spxMsg ? `<span class="muted small">${esc(se.spxMsg)}</span>` : ''}
               </div>
-              <label>Quem recebeu <input id="peRecv" list="peRecvList" value="${esc(se.recv)}" placeholder="Nome do operador" autocomplete="off"></label>
+              <label>Operador que bipou (SPX) <input id="peRecv" list="peRecvList" value="${esc(se.recv)}" placeholder="Nome do operador" autocomplete="off"></label>
               <datalist id="peRecvList">${recNames.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
               <label>Horário do recebimento <input id="peTime" type="time" value="${esc(se.time)}"></label>
-              <div class="muted small">O responsável é quem etiquetava na mesma bancada de quem recebeu, no horário do recebimento.</div>`}
+              <div class="muted small">O responsável é quem está na vaga <b>Etiqueta</b> da bancada desse operador, no horário em que o pacote foi bipado.</div>`}
             <div class="pe-resp ${r.resp.length ? 'ok' : ''}"><b>${r.resp.length ? r.resp.map(esc).join(', ') : 'Sem responsável definido'}</b><div class="muted small">${esc(r.note)}</div></div>
             <button class="btn-primary solid" data-pe="save" ${baseOn() && se.code.trim() ? '' : 'disabled'}>Salvar erro</button>
           </div></section>
         <section class="card"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div></div>
-          ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Rota / quem recebeu</th><th class="left">Responsáveis</th><th></th></tr></thead><tbody>
+          ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Rota / operador SPX</th><th class="left">Responsáveis</th><th></th></tr></thead><tbody>
             ${today.map(x => `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${x.tipo === 'sort' ? 'warn' : 'info'}">${x.tipo === 'sort' ? 'Sorting' : 'Etiquetagem'}</span></td>
               <td class="left pc-code">${esc(x.code)}</td><td class="left">${esc(x.tipo === 'sort' ? x.rota : (x.detail.recebeu || ''))}</td>
               <td class="left">${x.resp.length ? x.resp.map(esc).join(', ') : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca quem recebeu no SPX e quem estava no mapa">Buscar responsável</button>`}${x.detail.origem === 'quiosque' ? ' <span class="muted small">· registro</span>' : ''}</td>
@@ -715,7 +717,7 @@ window.Piso = (() => {
         ${ui.card('peCh1', 'Erros por dia', 'Por tipo', { w: 8 })}
         ${ui.card('peCh2', 'Sorting por letra', 'Letra da rota do pacote', { w: 4 })}
         ${ui.card('', 'Pessoas', 'Sorting: todos do 2º Sorting da letra contam como possíveis responsáveis · Etiquetagem: quem etiquetava na bancada', { w: 12,
-          tools: '<button class="tool" data-pe="copy">Copiar lista</button>',
+          tools: '<button class="tool" data-pe="recalc" title="Refaz os responsáveis de etiquetagem do período com a regra atual (quem está na vaga Etiqueta)">Recalcular etiquetagem</button><button class="tool" data-pe="copy">Copiar lista</button>',
           body: `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>Total</th><th>Dias</th></tr></thead><tbody>
             ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td><b>${o.sort + o.etiq}</b></td><td>${o.days.size}</td></tr>`).join('')}
           </tbody></table></div>` })}
@@ -735,8 +737,20 @@ window.Piso = (() => {
     se.busy = true; se.spxMsg = ''; drawErros();
     const w = await lookupReceiver(code);
     if (w.error) se.spxMsg = w.error;
-    else { se.recv = w.name; se.time = w.time; se.spxMsg = `Recebido por ${w.raw} em ${brShort(w.day)} às ${w.time}.` + (w.day !== se.date ? ' (dia diferente do selecionado)' : ''); }
+    else { se.recv = w.name; se.time = w.time; se.spxMsg = `Bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}.` + (w.day !== se.date ? ' (dia diferente do selecionado)' : ''); }
     se.busy = false; drawErros();
+  }
+  // Refaz os responsáveis de etiquetagem do período (para os registros gravados antes da regra atual).
+  async function recalcEtiq() {
+    const rg = ui.range();
+    const list = B().erroList().filter(x => x.tipo === 'etiq' && x.date >= rg.from && x.date <= rg.to && x.detail.recebeu);
+    const changes = list.map(x => ({ x, r: respFor({ date: x.date, turno: x.turno, tipo: 'etiq', rota: '', time: x.time, recv: x.detail.recebeu }) }))
+      .filter(({ x, r }) => r.resp.length && r.resp.map(nk).join('|') !== x.resp.map(nk).join('|'));
+    if (!changes.length) return ui.toast('Nenhum erro de etiquetagem do período mudou de responsável.');
+    if (!(await uiConfirm(`${changes.length} erro(s) de etiquetagem do período mudam de responsável com a regra atual (quem está na vaga Etiqueta). Atualizar?`, { ok: 'Atualizar' }))) return;
+    for (const { x, r } of changes) await B().erroSave({ ...x, resp: r.resp, detail: { ...x.detail, posto: r.posto || x.detail.posto || '' } });
+    ui.toast(`${changes.length} erro(s) atualizados`);
+    drawErros();
   }
   // Registro feito no modo tela cheia sem responsável (sem Sessão SPX ou sem mapa): o líder completa depois.
   async function completeErro(id) {
@@ -777,6 +791,7 @@ window.Piso = (() => {
     if (d.peFix) { completeErro(d.peFix); return; }
     if (d.peDel) { if (await uiConfirm('Excluir este registro de erro?')) B().erroDelete(d.peDel).then(drawErros); return; }
     if (d.pe === 'kiosk') openKiosk();
+    else if (d.pe === 'recalc') recalcEtiq();
     else if (d.pe === 'spx') spxReceiver();
     else if (d.pe === 'save') saveErro();
     else if (d.pe === 'copy') copyText([`Erros de piso por pessoa — ${st.copyPer}`, '', ...(st.copyRows || []).map(o => `${o.nome}\tsorting ${o.sort}\tetiquetagem ${o.etiq}`)].join('\n'), 'Lista copiada');
@@ -883,6 +898,8 @@ window.Piso = (() => {
   }
 
   return {
+    // Usado pela tela Recebimento por hora para desenhar as bancadas do mapa.
+    helpers: { slotsOf, bancadaNo, sameName, sortedVers, isDw },
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.
