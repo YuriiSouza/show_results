@@ -9,6 +9,10 @@ window.APP_CONFIG = {
   // colaboradores não saírem da tela por engano, não é uma proteção de segurança.
   KIOSK_PASSWORD: 'admin123',
 
+  // Erros de etiquetagem: o operador que bipou o pacote no SPX só vale dentro desta janela (das 22:00 da véspera às
+  // 05:30 do dia do erro). Antes = backlog; depois (ou sem recebimento) = não recebido.
+  RECEB_JANELA: { inicio: '22:00', fim: '05:30' },
+
   // Atualização automática (minutos), fixa para todos os aparelhos. 0 = desligada.
   AUTO_REFRESH_MIN: 30,
   // Tempo de cada aba no Modo TV (segundos).

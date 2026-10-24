@@ -317,6 +317,7 @@ Meta **457** (`METAS.phd` em `js/config.js`):
     e 1º sorting; 2ª leva: recebimento/etiquetagem; uma vez por dia por pessoa). Vira uma mudança "☕ Intervalo HH:MM",
     com a volta criada automaticamente.
   - Função **XPT** no layout (padrão 2 vagas).
+  - **2º Sorting e Auditoria** de cada letra são listas (0 a 50 pessoas): **+ Selecionar** abre a lista com busca, marcar várias e o número de diaristas; × tira da lista.
   - Recebimento/etiquetagem por **bancada**, numeradas em sequência entre as mesas (Bancada 1 a 8 no layout padrão).
   - **DIARISTA** pode ser escolhido em quantas vagas forem precisas (não conta como "em duas funções" nem entra no rodízio).
   - **Layout** editável pelo líder (mesas, postos, letras, vagas); o mapa novo usa o layout do último salvo.
@@ -328,6 +329,10 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.
   - Análise do período (filtro do topo): por pessoa, por dia e por letra. **Recalcular responsáveis** refaz os registros do período com as regras atuais.
+  - **Janela do recebimento** (etiquetagem): só vale o operador que bipou o pacote entre **22:00 da véspera e 05:30** do dia do erro
+    (`RECEB_JANELA` em `js/config.js`). Bipado antes = **Backlog**; depois ou nunca = **Não recebido** (sem etiquetador).
+  - Tabela do turno: Hora, Tipo, Pacote, **Gaiola**, **Operador SPX**, **Etiquetador**. A análise tem filtros por tipo
+    (Sorting, Etiquetagem, Backlog, Não recebido).
   - **Buscar responsáveis** (Erros do turno): busca de uma vez o responsável de todos os erros do turno que estão sem responsável.
   - **Modo registro (tela cheia)**: para os colaboradores. Bipa o pacote, escolhe o tipo de erro e, se for sorting, a gaiola
     certa. Os responsáveis **não** aparecem — são calculados e gravados por trás. Sem Sessão SPX, o erro de etiquetagem

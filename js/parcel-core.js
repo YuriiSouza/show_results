@@ -209,15 +209,30 @@ const ParcelCore = (() => {
 
   // Quem recebeu o pacote no hub: último evento "Pedido chegou ao Last Mile Hub" (LMHub_Recebido) na estação do hub
   // com operador de pessoa ("[Ops177146]NOME"). E-mails (sistema) não contam. Usado na tela Erros de piso.
-  function receiver(resp, opts) {
+  function receivers(resp, opts) {
     const o = { ...DEFAULTS, ...(opts || {}) };
     const atHub = e => e.station === o.stationName || e.stationId === o.stationId;
-    const r = flatten(resp).filter(e => atHub(e) && (e.status === 10 || /chegou ao last mile hub|lmhub_recebido/i.test(e.message))
-      && e.operator && !/@/.test(e.operator) && !/^system$/i.test(e.operator)).pop();
-    return r ? { name: stripId(r.operator), ts: r.ts, operator: r.operator } : null;
+    return flatten(resp).filter(e => atHub(e) && (e.status === 10 || /chegou ao last mile hub|lmhub_recebido/i.test(e.message))
+      && e.operator && !/@/.test(e.operator) && !/^system$/i.test(e.operator))
+      .map(r => ({ name: stripId(r.operator), ts: r.ts, operator: r.operator }));
+  }
+  const receiver = (resp, opts) => receivers(resp, opts).pop() || null;
+  // Janela de recebimento do turno da noite: de "inicio" (HH:MM) da véspera até "fim" (HH:MM) do dia do erro (fuso do hub).
+  // Recebido antes da janela = backlog; só depois da janela (ou nunca) = não recebido; dentro = operador do recebimento.
+  function receiverInWindow(resp, dayIso, win, opts) {
+    const o = { ...DEFAULTS, ...(opts || {}) };
+    const off = o.tzOffsetMin * 60;
+    const at = (iso, hhmm, plusDays = 0) => { const [y, m, d] = iso.split('-').map(Number), [h, mi] = hhmm.split(':').map(Number); return Date.UTC(y, m - 1, d + plusDays, h, mi) / 1000 - off; };
+    const from = at(dayIso, win.inicio, -1), to = at(dayIso, win.fim);
+    const all = receivers(resp, opts);
+    const inside = all.filter(r => r.ts >= from && r.ts <= to).pop();
+    if (inside) return { classe: 'etiq', ...inside, from, to };
+    const before = all.filter(r => r.ts < from).pop();
+    if (before) return { classe: 'backlog', ...before, from, to };
+    return { classe: 'naorec', ...(all.filter(r => r.ts > to).pop() || {}), from, to };
   }
 
-  return { DEFAULTS, CODE_RE, parseTable, receiver, flatten, extract, rowOf, stripId, destOf };
+  return { DEFAULTS, CODE_RE, parseTable, receiver, receivers, receiverInWindow, flatten, extract, rowOf, stripId, destOf };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = ParcelCore;
 else window.ParcelCore = ParcelCore;
