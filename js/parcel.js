@@ -10,7 +10,7 @@ window.Parcel = (() => {
   const canTrack = () => !!(api() && api().parcelTrack);
   const MAX_ROWS = 300;       // linhas desenhadas na tabela (o filtro e a consulta valem para todas)
   const MAX_DISTINCT = 300;   // colunas com mais valores distintos que isso não ganham filtro
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 2;     // consultas ao mesmo tempo (o SPX recusa quando são muitas seguidas)
   const TZ = 'America/Sao_Paulo';
 
   const st = { file: '', demo: false, headers: [], rows: [], codeCol: 0, distinct: [], hidden: new Set(), filters: {}, search: '', view: [],
@@ -215,7 +215,7 @@ window.Parcel = (() => {
       <button class="tool" data-pc="import" ${run ? 'disabled' : ''}>Trocar arquivo</button>
       ${run ? `<div class="pc-progress">
           <div class="progress"><span style="width:${Math.round(100 * run.done / run.total)}%"></span></div>
-          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}</span>
+          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${Date.now() - run.lastAt > 7000 ? ' · <span class="pc-wait">SPX segurando as consultas, tentando de novo…</span>' : ''}</span>
           <button class="tool danger" data-pc="cancel" ${run.cancel ? 'disabled' : ''}>${run.cancel ? 'Cancelando…' : 'Cancelar'}</button>
         </div>` : `<div class="au-bar-right pc-actions">
           <button class="btn-primary solid" data-pc="run" ${n && canTrack() ? '' : 'disabled'}
@@ -698,7 +698,7 @@ window.Parcel = (() => {
     const codes = targets();
     if (!codes.length) return;
     if (codes.length > 200 && !(await uiConfirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`, { ok: 'Consultar' }))) return;
-    const job = st.run = { total: codes.length, done: 0, cancel: false, auth: '' };
+    const job = st.run = { total: codes.length, done: 0, cancel: false, auth: '', lastAt: Date.now() };
     st.results = codes;
     const queue = codes.slice();
     const opts = { ...cfg() };
@@ -731,13 +731,16 @@ window.Parcel = (() => {
           } else if (r.auth) { job.cancel = true; job.auth = r.error; }   // sessão recusada: não adianta continuar
           else st.out.set(code, { ok: false, error: r.error || 'Falha na consulta' });
         }
-        job.done++;
+        job.done++; job.lastAt = Date.now();
         tick();
       }
     };
     st.tab = 'req'; persist();
     if (ui.isActive()) draw();
+    // Sem avanço por um tempo: o SPX está segurando as consultas e o app espera para tentar de novo (avisa na barra).
+    const watch = setInterval(() => { if (ui.isActive()) drawBar(); }, 3000);
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, worker));
+    clearInterval(watch);
     st.run = null;
     if (job.auth) { st.session = false; window.SpxSession.clear(); ui.toast(job.auth, true); }
     else ui.toast(job.cancel ? 'Consulta cancelada' : 'Consulta concluída');

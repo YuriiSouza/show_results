@@ -176,7 +176,7 @@ window.Piso = (() => {
         <span class="pz-sep"></span>
         <button class="btn-ghost" data-pz="intervalo" title="Sugere quem vai para o intervalo e cria a mudança">☕ Intervalo</button>
         <button class="btn-ghost" data-pz="rodizio" title="Coloca as pessoas em funções diferentes das que fizeram nos últimos ${HIST_DAYS} dias">🔄 Rodízio</button>
-        ${st.undo ? '<button class="tool" data-pz="undo">Desfazer rodízio</button>' : ''}
+        ${st.undo ? '<button class="tool" data-pz="undo">Desfazer</button>' : ''}
       </div>
       ${v.tipo === 'intervalo' ? `<div class="pz-int-hint">☕ <b>Mudança de intervalo (${esc(v.from)})</b>: ${vacMap.size} vaga(s) ficaram livres (em destaque). Você pode mudar a função de quem não foi para o intervalo para cobrir essas vagas — vale a partir das ${esc(v.from)}.
         ${st.map.versions.some(x => x.tipo === 'volta') ? 'Na <b>Volta</b>, todos retornam às funções de antes do intervalo; se alguma troca deve continuar, ajuste também a Volta.' : ''}</div>` : ''}
@@ -211,8 +211,11 @@ window.Piso = (() => {
       <button class="pz-lock ${st.locks.has(key) ? 'on' : ''}" data-lock="${key}" title="${st.locks.has(key) ? 'Fixo no rodízio (clique para soltar)' : 'Fixar esta vaga no rodízio'}">${st.locks.has(key) ? '🔒' : '🔓'}</button></div>`;
   };
   const range = n => Array.from({ length: n }, (_, i) => i);
+  // Cabeçalho de quadro com o atalho "Limpar" (apaga todas as vagas da área nesta mudança).
+  const cardHead = (title, area) => `<div class="pz-card-head"><div class="pz-title">${title}</div>
+    <button class="tool pz-clear" data-pz-clear="${area}" title="Limpar todas as vagas desta área nesta mudança">Limpar</button></div>`;
   function mesaCard(ms) {
-    return `<section class="card pz-card"><div class="pz-title">${esc(ms.nome)}</div>
+    return `<section class="card pz-card">${cardHead(esc(ms.nome), `mesa:${ms.id}`)}
       ${ms.ind ? `<div class="pz-sub">Indução</div>${range(ms.ind).map(k => slotInput(`${ms.id}.ind.${k}`)).join('')}` : ''}
       ${ms.rec ? `<div class="pz-sub">Recebimento / Etiquetagem</div>${range(ms.rec).map(s => `<div class="pz-posto"><span class="muted small">Bancada ${bancadaNo(st.map.layout, ms.id, s)}</span>
         ${range(REC_SIZE).map(k => slotInput(`${ms.id}.rec.${s}.${k}`, k === 0 ? 'Recebe' : 'Etiqueta')).join('')}</div>`).join('')}` : ''}
@@ -229,10 +232,25 @@ window.Piso = (() => {
         ${vac.map(([, n]) => `<span class="pz-chip vac" title="Saiu para o intervalo">☕ ${esc(n)}</span>`).join('')}
         <button class="tool pz-add" data-pz-pick="${f}.${l}" title="Selecionar as pessoas da lista">${ks.length ? '+ / editar' : '+ Selecionar'}</button></div>`;
     };
-    return `<section class="card pz-card"><div class="pz-title">2º Sorting e Auditoria por letra</div>
+    return `<section class="card pz-card">${cardHead('2º Sorting e Auditoria por letra', 'letras')}
       <div class="table-wrap"><table class="pz-letters"><thead><tr><th>Letra</th><th class="left">2º Sorting</th><th class="left">Auditoria</th></tr></thead><tbody>
-      ${L.letras.map(l => `<tr><td><b>${esc(l)}</b></td><td class="left">${cell('s2', l)}</td><td class="left">${cell('aud', l)}</td></tr>`).join('')}
+      ${L.letras.map(l => `<tr><td><b>${esc(l)}</b>${listKeys(v, 's2', l).length || listKeys(v, 'aud', l).length ? `<button class="pz-clear-l" data-pz-clear="letra:${l}" title="Limpar a letra ${esc(l)}">×</button>` : ''}</td><td class="left">${cell('s2', l)}</td><td class="left">${cell('aud', l)}</td></tr>`).join('')}
       </tbody></table></div></section>`;
+  }
+  // Limpa uma área inteira da mudança atual: mesa:m1 · letras · letra:C · func:desc|xpt|s5|int.
+  async function clearArea(area) {
+    const v = cur(), [kind, id] = area.split(':'), L = st.map.layout;
+    const match = k => kind === 'mesa' ? k.startsWith(`${id}.`) : kind === 'letras' ? /^(s2|aud)\./.test(k)
+      : kind === 'letra' ? k.startsWith(`s2.${id}.`) || k.startsWith(`aud.${id}.`) : k.startsWith(`${id}.`);
+    const keys = Object.keys(v.slots).filter(k => v.slots[k] && match(k));
+    if (!keys.length) return ui.toast('Essa área já está vazia.');
+    const nome = kind === 'mesa' ? (L.mesas.find(m => m.id === id) || {}).nome : kind === 'letras' ? '2º Sorting e Auditoria (todas as letras)'
+      : kind === 'letra' ? `letra ${id} (2º Sorting e Auditoria)` : FUNCS[id];
+    if (!(await uiConfirm(`Limpar ${nome}? Sai(em) ${keys.length} pessoa(s) desta mudança (${verLabel(v)}).`, { ok: 'Limpar' }))) return;
+    st.undo = clone(v.slots);
+    keys.forEach(k => delete v.slots[k]);
+    touch(); drawMapa();
+    ui.toast(`${nome}: ${keys.length} vaga(s) limpa(s). Use "Desfazer" se foi sem querer.`);
   }
   // Grava a lista de uma letra (s2.C.0, s2.C.1…) na mudança atual.
   function setList(f, l, names) {
@@ -289,8 +307,8 @@ window.Piso = (() => {
     setList(f, l, [...keep, ...added, ...Array(r.data.dw).fill(DIARISTA)]);
     touch(); drawMapa();
   }
-  const intCard = () => { const ks = intKeys(cur()); return ks.length ? `<section class="card pz-card pz-int"><div class="pz-title">☕ Intervalo</div>${ks.map(k => slotInput(k)).join('')}</section>` : ''; };
-  const simpleCard = (f, title, n) => (n ? `<section class="card pz-card"><div class="pz-title">${title}</div>${range(n).map(k => slotInput(`${f}.${k}`)).join('')}</section>` : '');
+  const intCard = () => { const ks = intKeys(cur()); return ks.length ? `<section class="card pz-card pz-int">${cardHead('☕ Intervalo', 'func:int')}${ks.map(k => slotInput(k)).join('')}</section>` : ''; };
+  const simpleCard = (f, title, n) => (n ? `<section class="card pz-card">${cardHead(title, `func:${f}`)}${range(n).map(k => slotInput(`${f}.${k}`)).join('')}</section>` : '');
 
   function layoutEditor() {
     const L = st.map.layout;
@@ -593,10 +611,11 @@ window.Piso = (() => {
   }
 
   async function onMapaClick(e) {
-    const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock],[data-pz-pick],[data-pz-rm]');
+    const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear]');
     if (!t) return;
     const d = t.dataset;
     if (d.lock) { if (!st.locks.delete(d.lock)) st.locks.add(d.lock); t.classList.toggle('on', st.locks.has(d.lock)); t.textContent = st.locks.has(d.lock) ? '🔒' : '🔓'; return; }
+    if (d.pzClear) { clearArea(d.pzClear); return; }
     if (d.pzPick) { const [f, l] = d.pzPick.split('.'); openPicker(f, l); return; }
     if (d.pzRm) {
       const [f, l] = d.pzRm.split('.'), v = cur();
@@ -672,6 +691,14 @@ window.Piso = (() => {
   // Categoria do erro: sorting, etiquetagem, backlog (bipado antes da janela) ou não recebido (depois da janela / nunca).
   const CATS = { sort: ['Sorting', 'warn'], etiq: ['Etiquetagem', 'info'], backlog: ['Backlog', 'neutral'], naorec: ['Não recebido', 'bad'] };
   const catOf = x => (x.tipo === 'sort' ? 'sort' : x.detail && (x.detail.classe === 'backlog' || x.detail.classe === 'naorec') ? x.detail.classe : 'etiq');
+  // Observação do erro: a gravada (busca no SPX, motivo de não ter responsável) ou, nos registros antigos, o motivo
+  // calculado agora a partir do mapa.
+  const obsOf = x => {
+    if (x.detail && x.detail.obs) return x.detail.obs;
+    if (x.resp.length) return '';
+    if (x.tipo === 'etiq' && !(x.detail && x.detail.recebeu) && !['backlog', 'naorec'].includes(x.detail && x.detail.classe)) return 'Operador do SPX ainda não buscado (sem Sessão SPX no registro).';
+    return respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time: x.time, recv: x.detail.recebeu, classe: x.detail.classe }).note || '';
+  };
   const janela = () => (window.APP_CONFIG && window.APP_CONFIG.RECEB_JANELA) || { inicio: '22:00', fim: '05:30' };
   const rotaLetra = r => { const m = String(r || '').toUpperCase().trim().match(/^([A-Z]{1,2})\s*-?\s*\d*/); return m ? m[1] : ''; };
   const mapOfDay = (iso, turno) => (baseOn() ? B().mapaGet(iso, turno) : null);
@@ -679,6 +706,9 @@ window.Piso = (() => {
   // Responsáveis pelo erro, a partir do mapa que valia no horário.
   // e: { date, turno, tipo: 'sort' | 'etiq', rota, time, recv }
   function respFor(e) {
+    // Backlog / não recebido não dependem do mapa: não há etiquetador do turno.
+    if (e.tipo !== 'sort' && e.classe === 'backlog') return { resp: [], classe: 'backlog', note: `Backlog: o pacote foi bipado antes das ${janela().inicio} da véspera — sem etiquetador do turno.` };
+    if (e.tipo !== 'sort' && e.classe === 'naorec') return { resp: [], classe: 'naorec', note: `Não recebido: o pacote não foi bipado entre ${janela().inicio} da véspera e ${janela().fim}.` };
     const rec = mapOfDay(e.date, e.turno);
     if (!rec) return { resp: [], note: `Sem mapa de piso salvo para ${brShort(e.date)} · ${e.turno}.` };
     const v = versionAt(rec.map, e.time), slots = slotsOf(rec.map.layout, v);
@@ -692,8 +722,6 @@ window.Piso = (() => {
       const resp = [...seen.values()];
       return { resp, letra: l, verFrom: '', note: resp.length ? `Possíveis responsáveis: todos que passaram pelo 2º Sorting ou pela Auditoria da letra ${l} no turno (${rec.map.versions.length} mudança(s)).` : `Ninguém no 2º Sorting nem na Auditoria da letra ${l} no turno.` };
     }
-    if (e.classe === 'backlog') return { resp: [], classe: 'backlog', note: `Backlog: o pacote foi bipado antes das ${janela().inicio} da véspera — sem etiquetador do turno.` };
-    if (e.classe === 'naorec') return { resp: [], classe: 'naorec', note: `Não recebido: o pacote não foi bipado entre ${janela().inicio} da véspera e ${janela().fim}.` };
     if (!e.recv) return { resp: [], note: 'Informe o operador que bipou o pacote (ou busque no SPX).' };
     // Responsável = quem está na vaga "Etiqueta" da bancada onde aparece o operador do SPX. Se o próprio operador
     // está na vaga "Etiqueta", ele é o responsável; se está em "Recebe", é o par dele que etiquetava.
@@ -763,11 +791,12 @@ window.Piso = (() => {
           </div></section>
         <section class="card"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div>
           ${today.some(x => !x.resp.length && catOf(x) !== 'backlog' && catOf(x) !== 'naorec') ? `<div class="card-tools"><button class="tool" data-pe="fixall" ${se.fixing ? 'disabled' : ''} title="Busca o responsável de todos os erros do turno que estão sem responsável">${se.fixing ? `Buscando… ${se.fixing.done}/${se.fixing.total}` : `🔎 Buscar responsáveis (${today.filter(x => !x.resp.length && catOf(x) !== 'backlog' && catOf(x) !== 'naorec').length})`}</button></div>` : ''}</div>
-          ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Gaiola</th><th class="left">Operador SPX</th><th class="left">Etiquetador</th><th></th></tr></thead><tbody>
+          ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Gaiola</th><th class="left">Operador SPX</th><th class="left">Etiquetador</th><th class="left">Observação</th><th></th></tr></thead><tbody>
             ${today.map(x => { const c = catOf(x), dash = '<span class="muted">—</span>'; return `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${CATS[c][1]}">${CATS[c][0]}</span>${x.detail.origem === 'quiosque' ? ' <span class="muted small">· registro</span>' : ''}</td>
               <td class="left pc-code">${esc(x.code)}</td><td class="left">${x.tipo === 'sort' ? `<b>${esc(x.rota)}</b>` : dash}</td>
-              <td class="left">${x.tipo === 'sort' ? dash : esc(x.detail.recebeu || '') || dash}</td>
+              <td class="left">${x.tipo === 'sort' ? dash : esc(x.detail.recebeu || x.detail.operadorSpx || '') || dash}</td>
               <td class="left">${c === 'backlog' || c === 'naorec' ? dash : x.resp.length ? (x.tipo === 'sort' ? `<span class="muted small">sorting/auditoria:</span> ${x.resp.map(esc).join(', ')}` : x.resp.map(esc).join(', ')) : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca o operador no SPX e quem estava no mapa">Buscar responsável</button>`}</td>
+              <td class="left pc-obs pe-obs">${esc(obsOf(x)) || dash}</td>
               <td><button class="tool danger" data-pe-del="${esc(x.id)}" title="Excluir este registro">Excluir</button></td></tr>`; }).join('')}
           </tbody></table></div>` : ui.empty('Nenhum erro registrado neste turno.')}</section>
       </div>
@@ -822,19 +851,19 @@ window.Piso = (() => {
     st.copyRows = rows; st.copyPer = per;
   }
 
+  // Texto da busca no SPX (vai para a observação do erro).
+  const spxDesc = w => w.error ? `SPX: ${w.error}`
+    : w.classe === 'etiq' ? `Bipado no SPX por ${w.raw} em ${brShort(w.day)} às ${w.time}.`
+    : w.classe === 'backlog' ? `Backlog: bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}, antes das ${janela().inicio} da véspera.`
+    : w.raw ? `Não recebido na janela: bipado só em ${brShort(w.day)} às ${w.time}.` : 'Não recebido: o rastreio do SPX não mostra o recebimento no hub.';
   async function spxReceiver() {
     const code = se.code.trim().toUpperCase();
     if (!PC.CODE_RE.test(code)) { se.spxMsg = 'Código inválido.'; return drawErros(); }
     if (!(await window.SpxSession.has())) { se.spxMsg = ''; return window.SpxSession.open(() => spxReceiver()); }
     se.busy = true; se.spxMsg = ''; drawErros();
     const w = await lookupReceiver(code, se.date);
-    if (w.error) se.spxMsg = w.error;
-    else {
-      se.classe = w.classe; se.recv = w.name; if (w.time) se.time = w.time;
-      se.spxMsg = w.classe === 'etiq' ? `Bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}.`
-        : w.classe === 'backlog' ? `Backlog: bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}, antes da janela.`
-        : w.raw ? `Não recebido na janela (bipado só em ${brShort(w.day)} às ${w.time}).` : 'Não recebido: o rastreio não mostra o recebimento no hub.';
-    }
+    se.spxMsg = spxDesc(w);
+    if (!w.error) { se.classe = w.classe; se.recv = w.name; se.opSpx = w.raw || ''; if (w.time) se.time = w.time; }
     se.busy = false; drawErros();
   }
   // Refaz os responsáveis de etiquetagem do período (para os registros gravados antes da regra atual).
@@ -861,21 +890,26 @@ window.Piso = (() => {
     if (x.tipo === 'etiq' && !recv && !['backlog', 'naorec'].includes(classe)) {
       const w = await lookupReceiver(x.code, x.date);
       if (w.noSession) { if (!quiet) window.SpxSession.open(() => completeErro(id)); return { ok: false, noSession: true, msg: w.error }; }
-      if (w.error) { if (!quiet) ui.toast(w.error, true); return { ok: false, msg: w.error }; }
+      if (w.error) {
+        await B().erroSave({ ...x, detail: { ...x.detail, obs: spxDesc(w) } });
+        if (!quiet) { ui.toast(w.error, true); drawErros(); }
+        return { ok: false, msg: w.error };
+      }
       recv = w.name; classe = w.classe; if (w.time) time = w.time;
+      x.detail = { ...x.detail, spx: spxDesc(w), operadorSpx: w.raw || '' };
     }
     const r = respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time, recv, classe });
     if (r.classe) {   // backlog / não recebido: classificado, sem etiquetador
-      await B().erroSave({ ...x, time, resp: [], detail: { ...x.detail, classe: r.classe, recebeu: '', operadorSpx: '', pendente: false } });
+      await B().erroSave({ ...x, time, resp: [], detail: { ...x.detail, classe: r.classe, recebeu: '', pendente: false, obs: x.detail.spx || r.note } });
       if (!quiet) { ui.toast(r.note); drawErros(); }
       return { ok: true };
     }
     if (!r.resp.length) {
-      if (recv !== (x.detail.recebeu || '')) await B().erroSave({ ...x, time, detail: { ...x.detail, recebeu: recv } });   // guarda o operador achado
+      await B().erroSave({ ...x, time, detail: { ...x.detail, recebeu: recv, obs: [x.detail.spx, r.note].filter(Boolean).join(' ') } });   // guarda o operador achado e o motivo
       if (!quiet) ui.toast(r.note, true);
       return { ok: false, msg: r.note };
     }
-    await B().erroSave({ ...x, time, resp: r.resp, detail: { ...x.detail, letra: r.letra || x.detail.letra || '', recebeu: recv, classe: x.tipo === 'etiq' ? 'etiq' : '', mapa: r.verFrom || '', posto: r.posto || '', pendente: false } });
+    await B().erroSave({ ...x, time, resp: r.resp, detail: { ...x.detail, letra: r.letra || x.detail.letra || '', recebeu: recv, classe: x.tipo === 'etiq' ? 'etiq' : '', mapa: r.verFrom || '', posto: r.posto || '', pendente: false, obs: [x.detail.spx, r.note].filter(Boolean).join(' ') } });
     if (!quiet) { ui.toast(`Responsável encontrado: ${r.resp.join(', ')}`); drawErros(); }
     return { ok: true };
   }
@@ -906,9 +940,10 @@ window.Piso = (() => {
     if (!r.resp.length && !r.classe && !(await uiConfirm(`Nenhum responsável foi encontrado (${r.note}) Salvar mesmo assim?`))) return;
     try {
       await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo === 'sort' ? se.rota.trim().toUpperCase() : '', time: se.time,
-        resp: r.resp, detail: { letra: r.letra || '', recebeu: se.tipo === 'etiq' ? se.recv : '', mapa: r.verFrom || '', posto: r.posto || '', classe: se.tipo === 'etiq' ? (se.classe || 'etiq') : '' } });
+        resp: r.resp, detail: { letra: r.letra || '', recebeu: se.tipo === 'etiq' ? se.recv : '', operadorSpx: se.tipo === 'etiq' ? (se.opSpx || se.recv) : '', mapa: r.verFrom || '', posto: r.posto || '', classe: se.tipo === 'etiq' ? (se.classe || 'etiq') : '',
+          obs: r.classe ? (se.spxMsg || r.note) : [se.tipo === 'etiq' && se.spxMsg ? se.spxMsg : '', r.note].filter((t, i, a) => t && a.indexOf(t) === i).join(' ') } });
       ui.toast(`Erro de ${se.tipo === 'sort' ? 'sorting' : 'etiquetagem'} salvo · ${code}`);
-      se.code = ''; se.rota = ''; se.recv = ''; se.classe = ''; se.time = se.tipo === 'sort' ? nowHm() : ''; se.spxMsg = '';
+      se.code = ''; se.rota = ''; se.recv = ''; se.classe = ''; se.opSpx = ''; se.time = se.tipo === 'sort' ? nowHm() : ''; se.spxMsg = '';
       drawErros();
       const c = $('peCode'); if (c) c.focus();
     } catch (e) { ui.toast(String(e.message || e), true); }
@@ -936,7 +971,7 @@ window.Piso = (() => {
     if (t.id === 'peDate' && t.value) { se.date = t.value; drawErros(); }
     else if (t.id === 'peTurno') { se.turno = t.value; drawErros(); }
     else if (t.id === 'peTime') { se.time = t.value; drawErros(); }
-    else if (t.id === 'peRecv') { se.recv = canon(t.value); se.classe = se.recv ? 'etiq' : ''; drawErros(); }
+    else if (t.id === 'peRecv') { se.recv = canon(t.value); se.opSpx = se.recv; se.classe = se.recv ? 'etiq' : ''; drawErros(); }
     else if (t.id === 'peRota') { se.rota = t.value.toUpperCase(); drawErros(); }
   }
   function onErrosInput(e) {
@@ -1009,11 +1044,14 @@ window.Piso = (() => {
       const c = code(), tipo = K.tipo, rota = tipo === 'sort' ? q('kRota').value.trim().toUpperCase() : '';
       let time = nowHm(), recv = '';
       let classe = '';
-      if (tipo === 'etiq') { const w = await lookupReceiver(c, K.date); if (!w.error) { recv = w.name; classe = w.classe; if (w.time) time = w.time; } }
+      let spx = '';
+      let opSpx = '';
+      if (tipo === 'etiq') { const w = await lookupReceiver(c, K.date); spx = spxDesc(w); if (!w.error) { recv = w.name; opSpx = w.raw || ''; classe = w.classe; if (w.time) time = w.time; } }
       const rr = respFor({ date: K.date, turno: K.turno, tipo, rota, time, recv, classe });
       try {
         await B().erroSave({ date: K.date, turno: K.turno, tipo, code: c, rota, time, resp: rr.resp,
-          detail: { letra: rr.letra || '', recebeu: recv, classe: rr.classe || (tipo === 'etiq' && recv ? 'etiq' : ''), mapa: rr.verFrom || '', posto: rr.posto || '', pendente: !rr.resp.length && !rr.classe, origem: 'quiosque' } });
+          detail: { letra: rr.letra || '', recebeu: recv, operadorSpx: opSpx, classe: rr.classe || (tipo === 'etiq' && recv ? 'etiq' : ''), mapa: rr.verFrom || '', posto: rr.posto || '', pendente: !rr.resp.length && !rr.classe, origem: 'quiosque',
+            obs: rr.classe ? (spx || rr.note) : [spx, rr.note].filter((t, i, a) => t && a.indexOf(t) === i).join(' ') } });
         K.last.unshift(`${nowHm()} · ${c} · ${tipo === 'sort' ? `sorting · ${rota}` : 'etiquetagem'}`);
         q('kLast').innerHTML = K.last.slice(0, 8).map(t => `<li>${esc(t)}</li>`).join('');
         say(`✓ Registrado: ${c}`, true);

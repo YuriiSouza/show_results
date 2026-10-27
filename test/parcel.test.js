@@ -3,7 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../js/parcel-core.js');
-const { parseCurl, track, atDetail, _setSession } = require('../electron/parcel.js');
+const { parseCurl, track, atDetail, _setSession, _setTiming } = require('../electron/parcel.js');
+_setTiming({ authWaits: [0, 0, 0], gapMs: 0 });   // nos testes, sem esperar
 const fixture = require('./fixtures/tracking-BR2698263380980.json');
 
 // Horário de Brasília -> segundos Unix.
@@ -185,9 +186,21 @@ test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => 
   assert.equal(calls, 2);
   assert.deepEqual(ok, { ok: true, data: { tracking_list: [] } });
 
-  const denied = await track('BR2698263380980', async () => res(403));
+  // 403: tenta de novo (3 esperas) antes de dar a sessão como expirada.
+  let n403 = 0;
+  const denied = await track('BR2698263380980', async () => { n403++; return res(403); });
+  assert.equal(n403, 4);
   assert.equal(denied.ok, false);
   assert.equal(denied.auth, true);
+  // Recusa passageira (403 e depois resposta normal): a consulta continua, sem pedir sessão nova.
+  let nT = 0;
+  const back = await track('BR2698263380980', async () => (++nT < 3 ? res(403) : res(200, { retcode: 0, data: { tracking_list: [1] } })));
+  assert.equal(nT, 3);
+  assert.deepEqual(back, { ok: true, data: { tracking_list: [1] } });
+  // Resposta que não é JSON (página de login/bloqueio) também é repetida.
+  let nH = 0;
+  const html = await track('BR2698263380980', async () => (++nH < 2 ? { status: 200, ok: true, headers: { get: () => null }, json: async () => { throw new Error('html'); } } : res(200, { retcode: 0, data: {} })));
+  assert.equal(html.ok, true);
 
   assert.deepEqual(await track('../etc', async () => { throw new Error('não deveria chamar'); }), { ok: false, error: 'Código inválido' });
   const at = await atDetail('at20260929afov4', async url => {

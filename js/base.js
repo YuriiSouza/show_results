@@ -294,10 +294,16 @@ window.Base = (() => {
 
   // ---------- Erros de piso ----------
   const erroList = () => [...erros.values()].filter(e => e.status !== 'excluido').sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  // Colunas legíveis depois do JSON: Categoria, Operador SPX (recebedor), Etiquetador, Observação.
+  function readable(e) {
+    const d = e.detail || {};
+    const cat = e.tipo === 'sort' ? 'Sorting' : d.classe === 'backlog' ? 'Backlog' : d.classe === 'naorec' ? 'Não recebido' : 'Etiquetagem';
+    return [cat, e.tipo === 'sort' ? '' : d.recebeu || d.operadorSpx || '', e.tipo === 'sort' ? '' : (e.resp || []).join(' | '), d.obs || ''];
+  }
   async function erroSave(e) {
     const who = await ensureUser(), at = nowIso();
     const id = e.id || `${e.date}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-    const row = [id, e.date, e.turno, e.tipo, e.code || '', e.rota || '', e.time || '', (e.resp || []).join(' | '), 'ativo', who, at, device(), JSON.stringify(e.detail || {})];
+    const row = [id, e.date, e.turno, e.tipo, e.code || '', e.rota || '', e.time || '', (e.resp || []).join(' | '), 'ativo', who, at, device(), JSON.stringify(e.detail || {}), ...readable(e)];
     applyErroRow(row);
     queue('ErrosPiso', [row]);
     return erros.get(id);
@@ -305,7 +311,7 @@ window.Base = (() => {
   async function erroDelete(id) {
     const cur = erros.get(id);
     if (!cur) return;
-    const row = [id, cur.date, cur.turno, cur.tipo, cur.code, cur.rota, cur.time, cur.resp.join(' | '), 'excluido', await ensureUser(), nowIso(), device(), JSON.stringify(cur.detail || {})];
+    const row = [id, cur.date, cur.turno, cur.tipo, cur.code, cur.rota, cur.time, cur.resp.join(' | '), 'excluido', await ensureUser(), nowIso(), device(), JSON.stringify(cur.detail || {}), ...readable(cur)];
     applyErroRow(row);
     queue('ErrosPiso', [row]);
   }
