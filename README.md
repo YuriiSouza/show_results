@@ -43,7 +43,9 @@ ficam salvos no aparelho, para continuarem lá quando você voltar à tela.
    O contador mostra "X de Y linhas". Marque linhas específicas ou deixe sem seleção para usar todas as filtradas.
 3. **Consultar rastreio** (só no app desktop). Na primeira vez o app pede a **Sessão SPX**: no navegador, com o SPX logado,
    F12 → Rede → Fetch/XHR → requisição `tracking_info` → *Copiar como cURL* → colar no app.
-   A consulta roda com no máximo 3 códigos ao mesmo tempo, tenta de novo em 429/5xx, tem limite de 15 s por tentativa,
+   A consulta roda com no máximo 2 códigos ao mesmo tempo (com um intervalo mínimo entre as chamadas), tenta de novo em 429/5xx,
+   e quando o SPX recusa com cara de sessão expirada (403, redirecionamento, resposta que não é JSON) espera 8 s, 20 s e 45 s e tenta
+   de novo antes de pedir uma sessão nova. Limite de 15 s por tentativa,
    pode ser cancelada, e um código com erro não derruba os outros. Código já consultado não é consultado de novo na mesma sessão.
 4. **Resultado** (exportável em CSV): operador do missing, AT anterior ao missing, gaiola, ID e nome do motorista e observações.
 

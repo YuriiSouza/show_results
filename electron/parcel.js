@@ -44,36 +44,64 @@ function parseCurl(text) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const AUTH_MSG = 'O SPX recusou a sessão. Entre de novo no SPX, copie um cURL novo e cole em "Sessão SPX".';
 
+// Recusa que parece "sessão expirada" (401/403, redirecionamento para o login, resposta que não é JSON, retcode de
+// login/permissão) muitas vezes é só o SPX segurando requisições demais: o mesmo cURL volta a funcionar logo depois.
+// Por isso espera mais e tenta de novo antes de dar a sessão como expirada.
+const timing = { authWaits: [8000, 20000, 45000], gapMs: 400 };
+// Intervalo mínimo entre duas chamadas ao SPX (todas as consultas passam por aqui, mesmo em paralelo).
+let gapChain = Promise.resolve(), lastAt = 0;
+function pace() {
+  const p = gapChain.then(async () => { const w = lastAt + timing.gapMs - Date.now(); if (w > 0) await sleep(w); lastAt = Date.now(); });
+  gapChain = p.catch(() => {});
+  return p;
+}
+
 // Uma chamada ao SPX (GET, ou POST com JSON quando há body). Tenta de novo (com espera crescente) em 429/5xx,
-// tempo esgotado e falha de rede.
+// tempo esgotado e falha de rede; recusas com cara de sessão expirada são repetidas com esperas maiores.
 async function request(url, fetchImpl, payload) {
   if (!session) return { ok: false, auth: true, error: 'Informe a sessão do SPX.' };
-  let last = 'Falha na consulta', wait = 0;
-  for (let i = 0; i <= RETRIES; i++) {
-    if (i) await sleep(wait);
-    wait = 1000 * 2 ** i + Math.random() * 300;
+  let last = 'Falha na consulta', wait = 0, tries = 0, authTries = 0, lastAuth = null;
+  const init = payload == null ? { headers: session } : { method: 'POST', headers: { ...session, 'content-type': 'application/json;charset=UTF-8', origin: HOST }, body: JSON.stringify(payload) };
+  // Recusa: tenta de novo depois de uma espera maior; esgotadas as esperas, aí sim é sessão expirada.
+  const refused = r => {
+    if (authTries < timing.authWaits.length) { wait = timing.authWaits[authTries++]; lastAuth = r; return null; }
+    return r;
+  };
+  for (;;) {
+    if (wait) await sleep(wait);
+    wait = 0;
+    await pace();
     let res;
-    const init = payload == null ? { headers: session } : { method: 'POST', headers: { ...session, 'content-type': 'application/json;charset=UTF-8', origin: HOST }, body: JSON.stringify(payload) };
     try { res = await fetchImpl(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }); }
-    catch (e) { last = e && e.name === 'TimeoutError' ? 'Tempo esgotado (15 s)' : 'Sem conexão com o SPX'; continue; }
-    if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400))
-      return { ok: false, auth: true, status: res.status, error: `${AUTH_MSG} (HTTP ${res.status})` };
+    catch (e) {
+      last = e && e.name === 'TimeoutError' ? 'Tempo esgotado (15 s)' : 'Sem conexão com o SPX';
+      if (++tries > RETRIES) break;
+      wait = 1000 * 2 ** tries + Math.random() * 300; continue;
+    }
+    if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) {
+      const r = refused({ ok: false, auth: true, status: res.status, error: `${AUTH_MSG} (HTTP ${res.status})` });
+      if (r) return r; continue;
+    }
     if (res.status === 429 || res.status >= 500) {
-      const ra = Number(res.headers.get('retry-after'));
-      if (ra > 0) wait = Math.min(ra, 15) * 1000;
       last = `SPX respondeu HTTP ${res.status}`;
+      if (++tries > RETRIES) break;
+      const ra = Number(res.headers.get('retry-after'));
+      wait = ra > 0 ? Math.min(ra, 30) * 1000 : 2000 * 2 ** tries + Math.random() * 500;
       continue;
     }
     if (!res.ok) return { ok: false, status: res.status, error: `SPX respondeu HTTP ${res.status}` };
     const body = await res.json().catch(() => null);
-    if (!body || typeof body !== 'object') return { ok: false, auth: true, error: AUTH_MSG };
+    if (!body || typeof body !== 'object') { const r = refused({ ok: false, auth: true, error: AUTH_MSG }); if (r) return r; continue; }
     if (body.retcode != null && body.retcode !== 0) {
       const msg = String(body.message || body.msg || '').slice(0, 120);
-      return { ok: false, auth: /login|auth|token|session|permission/i.test(msg), error: `SPX: ${msg || 'erro'} (retcode ${body.retcode})` };
+      const isAuth = /login|auth|token|session|permission/i.test(msg);
+      const out = { ok: false, auth: isAuth, error: `SPX: ${msg || 'erro'} (retcode ${body.retcode})` };
+      if (!isAuth) return out;
+      const r = refused(out); if (r) return r; continue;
     }
     return { ok: true, data: body.data || body };
   }
-  return { ok: false, error: `${last} — ${RETRIES + 1} tentativas` };
+  return lastAuth || { ok: false, error: `${last} — ${tries} tentativas` };
 }
 
 // Rastreio de um pedido.
@@ -120,4 +148,4 @@ function register(ipcMain) {
   ipcMain.handle('spx:wfm', () => wfm());
 }
 
-module.exports = { register, parseCurl, track, atDetail, wfm, ALLOWED, _setSession: h => { session = h; } };
+module.exports = { register, parseCurl, track, atDetail, wfm, _setTiming: t => Object.assign(timing, t), ALLOWED, _setSession: h => { session = h; } };

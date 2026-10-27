@@ -117,7 +117,7 @@ const BASE_TABS = {
   // Mapa de piso: quem está em cada função, por dia e turno (com as mudanças durante o turno). Vale o salvamento mais recente.
   MapaPiso: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Mudanças', 'Pessoas', 'Mapa (JSON 1)', 'Mapa (JSON 2)', 'Mapa (JSON 3)', 'Mapa (JSON 4)', 'Mapa (JSON 5)'],
   // Erros de piso (sorting / etiquetagem) registrados durante a operação, com os responsáveis. Vale a linha mais recente de cada ID.
-  ErrosPiso: ['ID', 'Data', 'Turno', 'Tipo', 'Código', 'Rota / letra', 'Horário', 'Responsáveis', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Detalhe (JSON)'],
+  ErrosPiso: ['ID', 'Data', 'Turno', 'Tipo', 'Código', 'Rota / letra', 'Horário', 'Responsáveis', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Detalhe (JSON)', 'Categoria', 'Operador SPX (recebedor)', 'Etiquetador', 'Observação'],
   // Recebimento por hora (painel de produtividade do SPX) e a meta do turno. Vale o salvamento mais recente do dia/turno.
   RecebimentoHora: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Início', 'A receber', 'Recebido', 'Ritmo (pac/h)', 'Previsão de término', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)'],
 };
@@ -144,6 +144,15 @@ ipcMain.handle('base:ensure', async (_e, id) => {
   if (missing.length) {
     await sheetsSend('POST', `${base}:batchUpdate`, token, { requests: missing.map(title => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) });
     for (const t of missing) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] });
+  }
+  // Guias que já existiam: atualiza o cabeçalho quando o app ganhou colunas novas (ex.: ErrosPiso).
+  const old = Object.keys(BASE_TABS).filter(t => have.includes(t));
+  if (old.length) {
+    const heads = await sheetsGet(`${base}/values:batchGet?${old.map(t => `ranges=${q(t)}!1:1`).join('&')}`, token);
+    for (const [k, t] of old.entries()) {
+      const cur = ((((heads.valueRanges || [])[k] || {}).values || [])[0] || []).map(String);
+      if (cur.join('|') !== BASE_TABS[t].join('|')) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] });
+    }
   }
   return { title: meta.properties.title, created: missing };
 });
