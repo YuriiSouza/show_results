@@ -339,8 +339,11 @@ Meta **457** (`METAS.phd` em `js/config.js`):
     Erros de piso tem o tipo **Erro de XPT** (responsáveis = todos que fizeram aquele XPT no turno), também no modo tela cheia; no Parcel,
     pacote de outro XPT mostra "🗺 Mapa de piso DD/MM: NOME" — quem estava na vaga daquele XPT no **dia do relatório**
     (a data mais antiga da coluna Scanned Time do relatório de contagem) — e isso sai no CSV.
-  - **Descartar alterações** volta ao mapa salvo na planilha; **Versões salvas** lista todos os salvamentos do dia/turno e
-    restaura qualquer um (vira o mapa em edição; confirme com Salvar mapa).
+  - **Descartar alterações** volta ao mapa salvo na planilha; **Versões salvas** lista todos os salvamentos do dia/turno:
+    **Restaurar** volta a um deles e **Juntar com o mapa em edição** completa o mapa com o que só existe naquele salvamento
+    (vagas vazias e mudanças que faltam). Confirme com Salvar mapa.
+  - **Duas pessoas no mesmo mapa**: ao salvar, o app busca o que outra pessoa salvou nesse meio-tempo e junta vaga a vaga
+    (o que você mudou fica; o resto vem do outro salvamento) em vez de apagar. Se os dois mudaram a mesma vaga, fica a de quem salvou por último.
   - **Rodízio e sexo**: Descarga, Indução e a mesa de volumoso só recebem homens. O app presume o sexo pelo primeiro nome e,
     ao clicar em Rodízio, mostra a lista para revisar (Homem / Mulher / Não sei). Correções ficam lembradas no aparelho;
     "Não sei" não entra nessas vagas.

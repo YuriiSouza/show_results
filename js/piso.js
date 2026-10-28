@@ -131,15 +131,16 @@ window.Piso = (() => {
     const key = `${st.date}|${st.turno}`;
     const draft = (ls.drafts || {})[key];
     const saved = baseOn() ? B().mapaGet(st.date, st.turno) : null;
-    if (draft && (!saved || draft.at > saved.at)) { st.map = clone(draft.map); st.dirty = true; }
-    else if (saved) { st.map = clone(saved.map); st.dirty = false; }
+    // baseAt: salvamento da planilha em que a edição se baseia (para juntar com o que outra pessoa salvar depois).
+    if (draft && (!saved || draft.at > saved.at)) { st.map = clone(draft.map); st.dirty = true; st.baseAt = draft.baseAt || null; }
+    else if (saved) { st.map = clone(saved.map); st.dirty = false; st.baseAt = saved.at; }
     else {
       // Mapa novo: layout do último mapa salvo (o líder ajusta o layout uma vez e ele segue valendo).
       const last = baseOn() ? B().mapaList().pop() : null;
       st.map = { layout: clone((last && last.map.layout) || DEFAULT_LAYOUT), xptDest: clone((last && last.map.xptDest) || {}), versions: [{ from: '', slots: {} }] };
-      st.dirty = false;
+      st.dirty = false; st.baseAt = null;
     }
-    if (!st.map.layout.mesas) st.map.layout = clone(DEFAULT_LAYOUT);
+    if (!st.map.layout || !st.map.layout.mesas) st.map.layout = clone(DEFAULT_LAYOUT);
     if (st.map.layout.xpt == null) st.map.layout.xpt = DEFAULT_LAYOUT.xpt;   // mapas de antes da função XPT
     st.ver = Math.min(st.ver, st.map.versions.length - 1);
     st.undo = null;
@@ -150,7 +151,7 @@ window.Piso = (() => {
   function touch() {
     st.dirty = true;
     ls.drafts = ls.drafts || {};
-    ls.drafts[`${st.date}|${st.turno}`] = { at: new Date().toISOString(), map: st.map };
+    ls.drafts[`${st.date}|${st.turno}`] = { at: new Date().toISOString(), map: st.map, baseAt: st.baseAt || null };
     lsSave();
   }
   const cur = () => st.map.versions[st.ver];
@@ -220,6 +221,40 @@ window.Piso = (() => {
     });
     entrou.forEach(e => out.push(`${e.n} entrou: ${e.d}`));
     return out;
+  }
+
+  // Junta duas edições do mesmo mapa (ex.: um líder montou a Mesa 1 e a Descarga e outro, ao mesmo tempo, a Mesa 2 e a 4).
+  // base = mapa salvo em que a nossa edição começou (null = mapa novo). Vaga a vaga: se nós mudamos em relação à base,
+  // fica o nosso; senão, o deles. Mudanças (horários) que só um dos lados criou entram; a que um lado excluiu sai.
+  // Quadro do 2º Sorting / Auditoria: junta os movimentos dos dois.
+  function mergeMaps(base, ours, theirs) {
+    const b = base || { versions: [{ from: '', slots: {} }] };
+    const vk = v => `${v.from || ''}|${v.tipo || ''}`;
+    const idx = m => new Map(((m && m.versions) || []).map(v => [vk(v), v]));
+    const B0 = idx(b), O = idx(ours), T = idx(theirs);
+    const same = (x, y) => JSON.stringify(x == null ? null : x) === JSON.stringify(y == null ? null : y);
+    const pick = (bv, ov, tv) => (same(ov, bv) ? tv : ov);
+    const versions = [];
+    new Set([...O.keys(), ...T.keys()]).forEach(k => {
+      const o = O.get(k), t = T.get(k), bb = B0.get(k);
+      if (o && t) {
+        const bs = (bb && bb.slots) || {}, slots = {};
+        new Set([...Object.keys(o.slots || {}), ...Object.keys(t.slots || {}), ...Object.keys(bs)]).forEach(key => {
+          const val = pick(bs[key] || '', (o.slots || {})[key] || '', (t.slots || {})[key] || '');
+          if (val) slots[key] = val;
+        });
+        versions.push({ ...t, ...o, slots });
+      } else if (!bb) versions.push(clone(o || t));   // criada por um dos lados (a que existia na base e sumiu foi excluída)
+    });
+    versions.sort((x, y) => (x.from || '').localeCompare(y.from || ''));
+    const bx = b.xptDest || {}, ox = ours.xptDest || {}, tx = theirs.xptDest || {}, xptDest = {};
+    new Set([...Object.keys(ox), ...Object.keys(tx), ...Object.keys(bx)]).forEach(key => { const val = pick(bx[key], ox[key], tx[key]); if (val && val.length) xptDest[key] = val; });
+    const board = {};
+    ['s2', 'aud'].forEach(f => {
+      const seen = new Set();
+      board[f] = [...((theirs.board || {})[f] || []), ...((ours.board || {})[f] || [])].filter(e => { const id = JSON.stringify([e.t, e.n, e.to]); return !seen.has(id) && seen.add(id); });
+    });
+    return { ...theirs, ...ours, layout: clone(pick(b.layout, ours.layout, theirs.layout) || ours.layout), xptDest, board, versions: versions.length ? versions : [{ from: '', slots: {} }] };
   }
 
   function renderMapa(ctx) {
@@ -701,13 +736,19 @@ window.Piso = (() => {
     const hist = B().mapaHistory(st.date, st.turno);
     const fmt = iso => new Date(iso).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     const ppl = m => new Set(m.versions.flatMap(v => Object.values(v.slots || {}).filter(Boolean).map(nk))).size;
-    const r = await modal(`Versões salvas — ${brShort(st.date)} · ${st.turno}`, `<p class="muted">Escolha um salvamento para voltar a ele. Ele vira o mapa em edição; clique em <b>Salvar mapa</b> para confirmar.</p>
+    const r = await modal(`Versões salvas — ${brShort(st.date)} · ${st.turno}`, `<p class="muted">Escolha um salvamento. <b>Juntar</b> completa o mapa em edição com o que só existe nele (ex.: duas pessoas montaram partes diferentes e uma salvou por cima da outra); <b>Restaurar</b> volta exatamente a ele. Depois, clique em <b>Salvar mapa</b> para confirmar.</p>
       <div class="pz-pick-list">${hist.map((h, i) => `<label class="pz-int-row"><input type="radio" name="pzVer" value="${i}" ${i === 0 ? 'checked' : ''}>
         <span class="pz-int-name">${fmt(h.at)} · ${esc(h.user)}${i === 0 ? ' <span class="pill good">mais recente</span>' : ''}</span>
         <span class="muted small">${h.map.versions.length} mudança(s) · ${ppl(h.map)} pessoa(s)</span></label>`).join('')}</div>`,
-      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Restaurar esta versão', 'btn-primary solid']], null,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Restaurar esta versão', 'btn-ghost'], ['merge', 'Juntar com o mapa em edição', 'btn-primary solid']], null,
       dlg => +((dlg.querySelector('input[name="pzVer"]:checked') || {}).value || 0));
-    if (!r || r.btn !== 'ok') return;
+    if (!r || (r.btn !== 'ok' && r.btn !== 'merge')) return;
+    if (r.btn === 'merge') {
+      // Sem base: o que está em edição fica; o salvamento escolhido completa as vagas vazias e as mudanças que faltam.
+      st.map = mergeMaps(null, st.map, clone(hist[r.data].map));
+      st.ver = 0; st.undo = null; touch(); drawMapa();
+      return ui.toast(`Juntado com o salvamento de ${fmt(hist[r.data].at)} (${hist[r.data].user}). Confira e clique em Salvar mapa.`);
+    }
     st.map = clone(hist[r.data].map);
     if (!st.map.layout || !st.map.layout.mesas) st.map.layout = clone(DEFAULT_LAYOUT);
     st.ver = 0; st.undo = null; touch(); drawMapa();
@@ -994,16 +1035,28 @@ window.Piso = (() => {
 
   async function saveMap() {
     if (!baseOn()) return;
+    // Antes de gravar, busca o que outra pessoa salvou deste dia/turno e junta com a nossa edição (senão uma apagaria a outra).
+    await B().load(true);
+    const latest = B().mapaGet(st.date, st.turno);
+    let juntou = null;
+    if (latest && latest.at !== st.baseAt) {
+      const base = st.baseAt ? (B().mapaHistory(st.date, st.turno).find(h => h.at === st.baseAt) || {}).map : null;
+      st.map = mergeMaps(base, st.map, latest.map);
+      st.ver = Math.min(st.ver, st.map.versions.length - 1);
+      juntou = latest;
+    }
     // Só grava as vagas que existem no layout atual.
     st.map.versions.forEach(v => { const keys = new Set(slotsOf(st.map.layout, v).map(s => s.key)); Object.keys(v.slots).forEach(k => { if ((!keys.has(k) && !k.startsWith('int.')) || !v.slots[k]) delete v.slots[k]; }); });
-    const first = !B().mapaGet(st.date, st.turno);
+    const first = !latest;
     try {
-      await B().mapaSave(st.date, st.turno, clone(st.map));
+      const sv = await B().mapaSave(st.date, st.turno, clone(st.map));
+      st.baseAt = sv ? sv.at : null;
       if (ls.drafts) { delete ls.drafts[`${st.date}|${st.turno}`]; lsSave(); }
       st.dirty = false;
       // Primeiro salvamento do mapa de hoje: o turno começou, então passa para Troca de função (dá para voltar a Corrigir).
       if (first && isToday() && !modoTroca()) { st.modo = 'troca'; st.mt = ''; st.undo = null; }
-      ui.toast(`Mapa de ${brShort(st.date)} · ${st.turno} salvo${st.modo === 'troca' && first ? '. Agora as alterações viram troca de função com horário (use ✏️ Corrigir para arrumar erros).' : ''}`);
+      if (juntou) ui.toast(`Mapa salvo e juntado com o que ${juntou.user} salvou às ${new Date(juntou.at).toLocaleTimeString('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' })}. Confira.`);
+      else ui.toast(`Mapa de ${brShort(st.date)} · ${st.turno} salvo${st.modo === 'troca' && first ? '. Agora as alterações viram troca de função com horário (use ✏️ Corrigir para arrumar erros).' : ''}`);
       drawMapa();
     } catch (e) { ui.toast(String(e.message || e), true); }
   }
@@ -1791,6 +1844,6 @@ window.Piso = (() => {
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.
-    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf },
+    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf, mergeMaps },
   };
 })();

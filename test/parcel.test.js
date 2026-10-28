@@ -451,3 +451,26 @@ test('XPT: vale pelo começo do nome (XPT-SMD responde por XPT-SMD-01, XPT-SMD-0
   assert.deepEqual(P.destsOf(map, 'xpt.1'), ['XPT-CRX']);
   assert.deepEqual(P.destsOf(map, 'xpt.2'), []);
 });
+
+test('mapa de piso: duas pessoas salvando partes diferentes ao mesmo tempo — junta em vez de apagar', () => {
+  const P = global.window.Piso._;
+  const L = P.DEFAULT_LAYOUT;
+  // Mapa novo (sem base): um montou Mesa 1 e Descarga, o outro Mesa 2 e Mesa 4; o segundo salvou primeiro.
+  const a = { layout: L, versions: [{ from: '', slots: { 'm1.ind.0': 'ANA', 'desc.0': 'BIA' } }] };
+  const b = { layout: L, versions: [{ from: '', slots: { 'm2.ind.0': 'CAIO', 'm4.ind.0': 'DANI' } }] };
+  const m = P.mergeMaps(null, a, b);
+  assert.deepEqual(m.versions[0].slots, { 'm1.ind.0': 'ANA', 'desc.0': 'BIA', 'm2.ind.0': 'CAIO', 'm4.ind.0': 'DANI' });
+  // Com base: o que eu tirei sai (mesmo que o outro não tenha mexido); o que o outro mudou fica; troca nova de um lado entra.
+  const base = { layout: L, versions: [{ from: '', slots: { 'm1.ind.0': 'ANA', 'desc.0': 'BIA' } }] };
+  const ours = { layout: L, versions: [{ from: '', slots: { 'm1.ind.0': 'ANA' } }, { from: '10:00', slots: { 'm1.ind.0': 'EVA' } }] };
+  const theirs = { layout: L, versions: [{ from: '', slots: { 'm1.ind.0': 'ANA', 'desc.0': 'BIA', 'm2.ind.0': 'CAIO' } }],
+    board: { s2: [{ t: '09:00', n: 'FABIO', to: 'C' }], aud: [] } };
+  const r = P.mergeMaps(base, ours, theirs);
+  assert.deepEqual(r.versions.map(v => v.from), ['', '10:00']);
+  assert.deepEqual(r.versions[0].slots, { 'm1.ind.0': 'ANA', 'm2.ind.0': 'CAIO' });
+  assert.equal(r.board.s2.length, 1);
+  // Mudança que existia na base e o outro excluiu: sai.
+  const base2 = { layout: L, versions: [{ from: '', slots: {} }, { from: '11:00', slots: { 'desc.0': 'X' } }] };
+  const r2 = P.mergeMaps(base2, base2, { layout: L, versions: [{ from: '', slots: {} }] });
+  assert.deepEqual(r2.versions.map(v => v.from), ['']);
+});
