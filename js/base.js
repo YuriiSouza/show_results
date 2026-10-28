@@ -18,6 +18,7 @@ window.Base = (() => {
 
   let reports = new Map(); // "iso|kind|campo" -> { v, user, at, removed }
   let audits = new Map();  // "iso|turno" -> { date, shift, fileName, status, user, importedAt, importId, summary }
+  const mapaHist = new Map(); // "iso|turno" -> todos os salvamentos (para restaurar uma versão anterior)
   let mapas = new Map();   // "iso|turno" -> { date, turno, status, user, at, map: { layout, versions } }
   let erros = new Map();   // id -> { id, date, turno, tipo, code, rota, time, resp, status, user, at, detail }
   let recebs = new Map();  // "iso|turno" -> { date, turno, status, user, at, inicio, meta, res }
@@ -103,6 +104,18 @@ window.Base = (() => {
     try { const js = cells.slice(MAPA_JSON_AT).join(''); map = js ? JSON.parse(js) : null; } catch (e) { return; }
     mapas.set(key, { date, turno, status: st, user: who, at, map });
   }
+  // Guarda todos os salvamentos de cada dia/turno (não só o mais recente).
+  function histMapaRow(r) {
+    const cells = r.map(x => (x == null ? '' : String(x)));
+    const [date, turno, st, who, at] = cells;
+    if (!date || !turno || st === 'excluido') return;
+    let map = null;
+    try { const js = cells.slice(MAPA_JSON_AT).join(''); map = js ? JSON.parse(js) : null; } catch (e) { return; }
+    if (!map) return;
+    const key = `${date}|${turno}`, list = mapaHist.get(key) || [];
+    if (!list.some(x => x.at === at)) list.push({ user: who, at, map });
+    mapaHist.set(key, list.sort((a, b) => b.at.localeCompare(a.at)));
+  }
   // ErrosPiso: ID, Data, Turno, Tipo, Código, Rota/letra, Horário, Responsáveis, Status, Usuário, Gravado em, Aparelho, Detalhe (JSON).
   function applyErroRow(r) {
     const c = r.map(x => (x == null ? '' : String(x)));
@@ -139,11 +152,11 @@ window.Base = (() => {
         if (!ensured) { await api.baseEnsure(ID); ensured = true; }
         await flush();
         const data = await api.baseRead(ID);
-        reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapas = new Map(); erros = new Map();
+        reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapaHist.clear(); mapas = new Map(); erros = new Map();
         data.reports.forEach(applyReportRow);
         data.audit.forEach(applyAuditRow);
         (data.parcel || []).forEach(applyParcelRow);
-        (data.mapa || []).forEach(applyMapaRow);
+        (data.mapa || []).forEach(r => { applyMapaRow(r); histMapaRow(r); });
         (data.erros || []).forEach(applyErroRow);
         (data.receb || []).forEach(applyRecebRow);
         // O que ainda está na fila (não enviado) vale por cima do que veio da planilha.
@@ -287,18 +300,20 @@ window.Base = (() => {
     const people = new Set();
     (map.versions || []).forEach(v => Object.values(v.slots || {}).forEach(n => { if (n) people.add(n); }));
     const row = [iso, turno, 'ativo', who, at, device(), (map.versions || []).length, people.size, ...chunks];
-    applyMapaRow(row);
+    applyMapaRow(row); histMapaRow(row);
     queue('MapaPiso', [row]);
     return mapas.get(`${iso}|${turno}`);
   }
+
+  const mapaHistory = (iso, turno) => (mapaHist.get(`${iso}|${turno}`) || []).slice();
 
   // ---------- Erros de piso ----------
   const erroList = () => [...erros.values()].filter(e => e.status !== 'excluido').sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   // Colunas legíveis depois do JSON: Categoria, Operador SPX (recebedor), Etiquetador, Observação.
   function readable(e) {
     const d = e.detail || {};
-    const cat = e.tipo === 'sort' ? 'Sorting' : d.classe === 'backlog' ? 'Backlog' : d.classe === 'naorec' ? 'Não recebido' : 'Etiquetagem';
-    return [cat, e.tipo === 'sort' ? '' : d.recebeu || d.operadorSpx || '', e.tipo === 'sort' ? '' : (e.resp || []).join(' | '), d.obs || ''];
+    const cat = e.tipo === 'sort' ? 'Sorting' : e.tipo === 'xpt' ? 'XPT' : d.classe === 'backlog' ? 'Backlog' : d.classe === 'naorec' ? 'Não recebido' : 'Etiquetagem';
+    return [cat, e.tipo !== 'etiq' ? '' : d.recebeu || d.operadorSpx || '', e.tipo !== 'etiq' ? '' : (e.resp || []).join(' | '), d.obs || ''];
   }
   async function erroSave(e) {
     const who = await ensureUser(), at = nowIso();
@@ -366,7 +381,7 @@ window.Base = (() => {
     auditList, auditSave, auditDelete,
     parcelList, parcelGet, parcelSave, parcelDelete,
     recebList, recebGet, recebSave,
-    mapaList, mapaGet, mapaSave, erroList, erroSave, erroDelete,
+    mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();

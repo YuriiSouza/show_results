@@ -397,4 +397,19 @@ test('janela de recebimento: dentro = etiquetagem, antes = backlog, depois = nã
   assert.equal(Core.receiverInWindow(mk('2026-10-15T21:59:00'), '2026-10-16', W).classe, 'backlog');
   assert.equal(Core.receiverInWindow(mk('2026-10-16T05:31:00'), '2026-10-16', W).classe, 'naorec');
   assert.equal(Core.receiverInWindow({ tracking_list: [] }, '2026-10-16', W).classe, 'naorec');
+  // Janela do PM1 (09:00–11:15 do mesmo dia; backlog só antes das 05:30; entre 05:30 e 09:00 = não recebido).
+  const P1 = { inicio: '09:00', fim: '11:15', backlogAntes: '05:30' };
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T10:00:00'), '2026-10-16', P1).classe, 'etiq');
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T07:00:00'), '2026-10-16', P1).classe, 'naorec');
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T04:00:00'), '2026-10-16', P1).classe, 'backlog');
+  assert.equal(Core.receiverInWindow(mk('2026-10-16T11:16:00'), '2026-10-16', P1).classe, 'naorec');
+});
+
+test('módulo da planilha-base carrega e expõe as funções principais', () => {
+  global.window = { APP_CONFIG: { BASE_SHEET_URL: 'https://docs.google.com/spreadsheets/d/abcdefghijklmnopqrstuvwxyz/edit', METAS: {} }, hubApi: null };
+  global.localStorage = { getItem: () => null, setItem() {} };
+  delete require.cache[require.resolve('../js/base.js')];
+  require('../js/base.js');
+  ['load', 'mapaList', 'mapaGet', 'mapaSave', 'mapaHistory', 'erroList', 'erroSave', 'recebList', 'parcelList', 'auditList']
+    .forEach(f => assert.equal(typeof global.window.Base[f], 'function', f));
 });

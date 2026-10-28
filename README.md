@@ -309,6 +309,13 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 
 ## Mapa de piso e Erros de piso (grupo Piso)
 
+- **Mapa de piso** tem duas sub-abas: **Mapa do turno** e **Dashboard** (mapas salvos no período do filtro do topo: turnos,
+  pessoas, rodízio, polivalência, diaristas, intervalos, pessoas por função/turno, cobertura das vagas, movimentos por letra e a
+  matriz pessoa × função). O quadro do 2º Sorting/Auditoria e as listas antigas por letra abrem recolhidos ao entrar na tela.
+- **Erros de piso** tem duas sub-abas: **Registro do turno** (formulário e lista do turno) e **Análise do período** (filtros por
+  tipo; erros por dia, turno e hora; taxa por mil pacotes recebidos; letra, bancada, gaiola, pessoas, operadores SPX e origem).
+
+
 - **Mapa de piso**: quem está em cada função por **dia e turno (AM / PM1 / PM2)** — mesas (indução, postos de
   recebimento/etiquetagem com 2 pessoas, sorting), 2º sorting e auditoria por letra, descarga e 5S.
   - **Mudanças no turno**: "+ Mudança" copia o mapa com um horário ("a partir das 09:30"); cada mudança é um retrato completo.
@@ -318,8 +325,24 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - **Intervalo**: informa quantos estão em função, você diz quantos vão, e o app sugere quem (1ª leva: volumoso, descarga
     e 1º sorting; 2ª leva: recebimento/etiquetagem; uma vez por dia por pessoa). Vira uma mudança "☕ Intervalo HH:MM",
     com a volta criada automaticamente.
-  - Função **XPT** no layout (padrão 2 vagas).
-  - **2º Sorting e Auditoria** de cada letra são listas (0 a 50 pessoas): **+ Selecionar** abre a lista com busca, marcar várias e o número de diaristas; × tira da lista.
+  - **XPT por destino**: cada vaga de XPT tem o XPT (ex.: XPT-JRU-01, como no Sort Code) e quem bipa os pacotes dele no turno.
+    Erros de piso tem o tipo **Erro de XPT** (responsável = quem estava na vaga daquele XPT), também no modo tela cheia; no Parcel,
+    pacote de outro XPT mostra "🗺 Mapa de piso DD/MM: NOME" — quem estava na vaga daquele XPT no **dia do relatório**
+    (a data mais antiga da coluna Scanned Time do relatório de contagem) — e isso sai no CSV.
+  - **Horário automático das alterações**: depois que o mapa do turno é salvo, cada alteração vira uma mudança com o horário
+    (alterações seguidas em até 10 min entram na mesma). Dá para informar outro horário ("às") ou desligar para corrigir a mudança aberta.
+  - **Descartar alterações** volta ao mapa salvo na planilha; **Versões salvas** lista todos os salvamentos do dia/turno e
+    restaura qualquer um (vira o mapa em edição; confirme com Salvar mapa).
+  - **Rodízio e sexo**: Descarga, Indução e a mesa de volumoso só recebem homens. O app presume o sexo pelo primeiro nome e,
+    ao clicar em Rodízio, mostra a lista para revisar (Homem / Mulher / Não sei). Correções ficam lembradas no aparelho;
+    "Não sei" não entra nessas vagas.
+  - No quadro do 2º Sorting/Auditoria, a coluna **Disponíveis** já mostra (tracejados) todos que têm alguma função no mapa do dia;
+    "+ Adicionar pessoas" fica para quem estiver de fora.
+  - **2º Sorting e Auditoria em quadro (kanban)**: colunas "Disponíveis" e uma por letra; cada pessoa é um cartão.
+    Arraste entre as colunas (ou clique para selecionar e "Mover aqui"); **Mover todos ▸** passa a coluna inteira para outra letra.
+    Vários grupos podem estar em letras diferentes. Cada movimento grava o horário (campo "Movimentos às" para registrar um
+    horário passado) e aparece na linha do tempo — não precisa criar mudança. Erro de sorting na letra C: todos que passaram
+    pela C (2º Sorting ou Auditoria) no turno. Mapas antigos com listas por letra continuam aparecendo como "formato anterior".
   - Recebimento/etiquetagem por **bancada**, numeradas em sequência entre as mesas (Bancada 1 a 8 no layout padrão).
   - **DIARISTA** pode ser escolhido em quantas vagas forem precisas (não conta como "em duas funções" nem entra no rodízio).
   - **Layout** editável pelo líder (mesas, postos, letras, vagas); o mapa novo usa o layout do último salvo.
@@ -331,8 +354,9 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.
   - Análise do período (filtro do topo): por pessoa, por dia e por letra. **Recalcular responsáveis** refaz os registros do período com as regras atuais.
-  - **Janela do recebimento** (etiquetagem): só vale o operador que bipou o pacote entre **22:00 da véspera e 05:30** do dia do erro
-    (`RECEB_JANELA` em `js/config.js`). Bipado antes = **Backlog**; depois ou nunca = **Não recebido** (sem etiquetador).
+  - **Janela do recebimento por turno** (etiquetagem, `RECEB_JANELAS` em `js/config.js`): **AM** 22:00 da véspera às 05:30;
+    **PM1** 09:00 às 11:15 (bipado antes das 05:30 = backlog; entre 05:30 e 09:00 = não recebido); **PM2** sem janela (o erro de
+    etiquetagem fica sem etiquetador, sem consultar o SPX). Bipado antes da janela = **Backlog**; depois ou nunca = **Não recebido**.
   - Tabela do turno: Hora, Tipo, Pacote, **Gaiola**, **Operador SPX**, **Etiquetador**. A análise tem filtros por tipo
     (Sorting, Etiquetagem, Backlog, Não recebido).
   - **Buscar responsáveis** (Erros do turno): busca de uma vez o responsável de todos os erros do turno que estão sem responsável.
@@ -349,4 +373,7 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   (média das 2 últimas horas completas) e **previsão de término**. Turno da noite consultado de madrugada usa o dia em que começou.
 - A meta é gravada assim que é digitada; o resultado, ao **Salvar**, ao atualizar à mão e, na atualização automática
   (a cada 10 min com a tela aberta), no máximo 1 vez por hora — guia **RecebimentoHora** da planilha-base.
-- Histórico do período (filtro do topo): recebido × a receber por turno.
+- Sub-abas **Turno** (consulta e previsão) e **Dashboard** (turnos salvos no período do filtro do topo, com filtro por turno):
+  turnos, recebido, % de meta atingida, ritmo médio, produtividade da equipe; **produtividade por colaborador** (pacotes por hora
+  ativa, comparação com a média da equipe, total, turnos, dias, média por turno, horas ativas, melhor hora, % do recebido; busca,
+  ordenação e opção de incluir os e-mails @shopee); recebido por dia, perfil por hora do dia e recebido × a receber por turno.
