@@ -47,12 +47,17 @@ window.Piso = (() => {
     const ts = s.split(' '), tl = new Set(l.split(' '));
     return ts.length >= 2 && ts.every(t => tl.has(t));
   }
+  // Guia HSE do mês atual (ou a mais recente conectada) e o mês dela.
+  function hseCur() {
+    const m = ui.model();
+    if (!m) return { key: '', hse: null };
+    const by = m.hseByMonth || {}, keys = Object.keys(by).sort(), now = ui.ym(new Date());
+    const key = by[now] ? now : keys[keys.length - 1] || '';
+    return { key, hse: (key && by[key]) || m.hse || null };
+  }
   // Colaboradores da guia HSE do mês atual (só para sugerir nomes; o mapa grava o nome como texto).
   function people() {
-    const m = ui.model();
-    if (!m) return [];
-    const by = m.hseByMonth || {}, keys = Object.keys(by).sort();
-    const hse = by[ui.ym(new Date())] || (keys.length ? by[keys[keys.length - 1]] : null) || m.hse;
+    const hse = hseCur().hse;
     const seen = new Set();
     return ((hse && hse.people) || []).map(p => String(p.nome || '').trim()).filter(n => n && !seen.has(nk(n)) && seen.add(nk(n)))
       .sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -115,8 +120,12 @@ window.Piso = (() => {
     return `${ms ? ms.nome : 'Mesa'} · ${p[1] === 'rec' ? `Bancada ${bancadaNo(L, p[0], +p[2])} (${p[3] === '0' ? 'recebe' : 'etiqueta'})` : FUNCS[p[1]]}`;
   }
 
+  // Sub-abas dentro de uma tela (Mapa | Dashboard, Registro | Análise).
+  const subTabs = (items, curv, attr) => `<div class="pc-tabs" role="tablist">${items.map(([k, l]) =>
+    `<button role="tab" aria-selected="${k === curv}" class="${k === curv ? 'active' : ''}" ${attr}="${k}">${l}</button>`).join('')}</div>`;
+
   // ================= Mapa de piso =================
-  const st = { date: todayIso(), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', ver: 0, map: null, dirty: false, locks: new Set(), undo: null };
+  const st = { date: todayIso(), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', ver: 0, map: null, dirty: false, locks: new Set(), undo: null, bf: 's2', bsel: new Set(), bt: '' };
 
   function loadMap() {
     const key = `${st.date}|${st.turno}`;
@@ -127,7 +136,7 @@ window.Piso = (() => {
     else {
       // Mapa novo: layout do último mapa salvo (o líder ajusta o layout uma vez e ele segue valendo).
       const last = baseOn() ? B().mapaList().pop() : null;
-      st.map = { layout: clone((last && last.map.layout) || DEFAULT_LAYOUT), versions: [{ from: '', slots: {} }] };
+      st.map = { layout: clone((last && last.map.layout) || DEFAULT_LAYOUT), xptDest: clone((last && last.map.xptDest) || {}), versions: [{ from: '', slots: {} }] };
       st.dirty = false;
     }
     if (!st.map.layout.mesas) st.map.layout = clone(DEFAULT_LAYOUT);
@@ -142,9 +151,27 @@ window.Piso = (() => {
     lsSave();
   }
   const cur = () => st.map.versions[st.ver];
+  // Horário automático: depois que o mapa do turno foi salvo, cada alteração vira uma mudança com o horário (igual ao quadro
+  // do 2º Sorting). Alterações seguidas (até 10 min, sem horário escolhido) entram na mesma mudança automática.
+  // Desligado (ls.autoVer === false) ou mapa ainda não salvo: a alteração vai para a mudança aberta.
+  const autoOn = () => ls.autoVer !== false && baseOn() && !!B().mapaGet(st.date, st.turno);
+  const minOf = hm2 => { const [h, m] = String(hm2 || '0:0').split(':').map(Number); return h * 60 + m; };
+  function editVersion() {
+    if (!autoOn()) return { v: cur(), created: false };
+    const vs = sortedVers(st.map), latest = vs[vs.length - 1];
+    if (latest.i !== st.ver) return { v: cur(), created: false };      // editando uma mudança antiga de propósito
+    const when = st.mt || nowHm();
+    if (latest.auto && (latest.from === when || (!st.mt && Math.abs(minOf(when) - minOf(latest.from)) <= 10))) return { v: cur(), created: false };
+    st.map.versions.push({ from: when, auto: true, slots: clone(cur().slots) });
+    st.ver = st.map.versions.length - 1;
+    return { v: cur(), created: true };
+  }
 
   function renderMapa(ctx) {
     ui = ctx;
+    // Ao entrar na tela, o quadro do 2º Sorting/Auditoria e as listas antigas por letra começam recolhidos.
+    if (!st.inMapa) { st.boardOpen = false; st.legacyOpen = false; }
+    st.inMapa = true;
     if (!st.map || st.loadedKey !== `${st.date}|${st.turno}`) { loadMap(); st.loadedKey = `${st.date}|${st.turno}`; }
     drawMapa();
     if (baseOn()) B().load().then(() => { if (ui.isActive('mapa') && !st.dirty) { loadMap(); drawMapa(); } });
@@ -152,16 +179,24 @@ window.Piso = (() => {
 
   function drawMapa() {
     const m = ui.main, L = st.map.layout, v = cur();
+    const tabs = subTabs([['mapa', 'Mapa do turno'], ['dash', 'Dashboard']], ls.mview === 'dash' ? 'dash' : 'mapa', 'data-pz-view');
+    if (ls.mview === 'dash') {
+      m.innerHTML = ui.head('Mapa de piso', 'Análise dos mapas salvos · período do filtro do topo') + tabs + '<div id="pzDash"></div>';
+      drawMapaDash();
+      return;
+    }
     vacMap = vacated();
     const saved = baseOn() ? B().mapaGet(st.date, st.turno) : null;
     const vers = sortedVers(st.map);
-    m.innerHTML = ui.head('Mapa de piso', 'Quem está em cada função · por dia e turno') + `
+    m.innerHTML = ui.head('Mapa de piso', 'Quem está em cada função · por dia e turno') + tabs + `
       <div class="au-bar pz-bar">
         <label>Dia <input type="date" id="pzDate" value="${st.date}"></label>
         <label>Turno <select id="pzTurno">${TURNOS.map(t => `<option ${t === st.turno ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <span class="pz-state ${st.dirty ? 'warn' : saved ? 'ok' : ''}">${st.dirty ? '● Alterações não salvas' : saved ? `✓ Salvo por ${esc(saved.user)} · ${new Date(saved.at).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Mapa novo'}</span>
         <div class="au-bar-right pz-actions">
           ${!saved && !st.dirty ? '<button class="tool" data-pz="copy-last" title="Copia o último mapa salvo deste turno">Copiar último mapa</button>' : ''}
+          ${saved && st.dirty ? '<button class="tool danger" data-pz="discard" title="Desfaz as alterações não salvas e volta ao mapa salvo na planilha">Descartar alterações</button>' : ''}
+          ${baseOn() && B().mapaHistory(st.date, st.turno).length ? `<button class="tool" data-pz="versions" title="Restaurar um salvamento anterior deste dia e turno">Versões salvas (${B().mapaHistory(st.date, st.turno).length})</button>` : ''}
           <button class="tool" data-pz="layout">Editar layout</button>
           <button class="tool" data-pz="text">Copiar texto</button>
           <button class="btn-primary solid" data-pz="save" ${baseOn() ? '' : 'disabled title="Salvar precisa do login Google e da planilha-base"'}>Salvar mapa</button>
@@ -171,6 +206,9 @@ window.Piso = (() => {
         <span class="muted small">Mudanças no turno:</span>
         ${vers.map(x => `<button class="chip ${x.i === st.ver ? 'active' : ''}" data-pz-ver="${x.i}">${esc(verChip(x))}</button>`).join('')}
         <button class="tool" data-pz="add-ver" title="Nova mudança: copia o mapa atual e você altera só quem mudou de função">+ Mudança</button>
+        ${saved ? `<label class="pz-auto" title="Depois de salvo, cada alteração vira uma mudança com o horário. Desligue para corrigir a mudança aberta.">
+          <input type="checkbox" id="pzAuto" ${ls.autoVer !== false ? 'checked' : ''}> ⏱ Registrar horário das alterações
+          ${ls.autoVer !== false ? `<span>às <input type="time" id="pzMT" value="${esc(st.mt || '')}" title="Em branco = agora"></span>` : ''}</label>` : ''}
         ${st.ver > 0 ? `<label class="pz-from">Vale a partir das <input type="time" id="pzFrom" value="${esc(v.from || '')}"></label>
           <button class="tool danger" data-pz="del-ver">Excluir esta mudança</button>` : ''}
         <span class="pz-sep"></span>
@@ -184,8 +222,9 @@ window.Piso = (() => {
       <div class="pz-grid ${ls.sideOff ? 'side-off' : ''}" id="pzGrid">
         <div class="pz-main">
           <div class="pz-mesas">${L.mesas.map(mesaCard).join('')}</div>
-          ${lettersCard()}
-          <div class="pz-mesas">${simpleCard('desc', 'Descarga', L.desc)}${simpleCard('xpt', 'XPT', L.xpt || 0)}${simpleCard('s5', '5S', L.s5)}${intCard()}</div>
+          ${boardCard()}
+          ${legacyLetters() ? lettersCard() : ''}
+          <div class="pz-mesas">${simpleCard('desc', 'Descarga', L.desc)}${xptCard(L.xpt || 0)}${simpleCard('s5', '5S', L.s5)}${intCard()}</div>
         </div>
         <aside class="pz-side" id="pzSide"></aside>
       </div>`;
@@ -222,6 +261,128 @@ window.Piso = (() => {
       ${ms.sort ? `<div class="pz-sub">Sorting</div>${range(ms.sort).map(k => slotInput(`${ms.id}.sort.${k}`)).join('')}` : ''}
     </section>`;
   }
+  // ---------- Quadro do 2º Sorting e da Auditoria (kanban) ----------
+  // Cada pessoa é um cartão; as colunas são "Disponíveis" e as letras. Mover um cartão grava um movimento com horário
+  // (map.board[f] = [{ t, n, to }]); to = letra, 'pool' (disponível), 'int' (intervalo) ou '' (saiu). Vale para o turno
+  // inteiro, sem precisar criar mudança. Vários grupos podem estar em letras diferentes ao mesmo tempo.
+  const BF = { s2: '2º Sorting', aud: 'Auditoria' };
+  const boardOf = (map = st.map) => { map.board = map.board || {}; map.board.s2 = map.board.s2 || []; map.board.aud = map.board.aud || []; return map.board; };
+  const isToday = () => st.date === todayIso();
+  // Estado de cada pessoa num horário (último movimento até ali). Sem horário: agora (hoje) ou o fim do turno (outros dias).
+  function bStateAt(ev, T) {
+    const at = T || (isToday() ? nowHm() : '99:99');
+    const m = new Map();
+    ev.map((e, i) => ({ ...e, i })).filter(e => (e.t || '') <= at).sort((a, b) => (a.t || '').localeCompare(b.t || '') || a.i - b.i)
+      .forEach(e => m.set(nk(e.n), { n: e.n, to: e.to, t: e.t }));
+    return m;
+  }
+  const bPeople = (f, T) => [...bStateAt(boardOf()[f], T).values()].filter(x => x.to);
+  function bMove(f, names, to, t) {
+    const ev = boardOf()[f], when = t || st.bt || nowHm();
+    names.forEach(n => ev.push({ t: when, n, to }));
+    touch();
+  }
+  const n2Of = () => bPeople('s2').filter(x => x.to !== 'int').length, nAOf = () => bPeople('aud').filter(x => x.to !== 'int').length;
+  // "Disponíveis" automático: todos que já tiveram alguma função no mapa do dia (vagas de qualquer mudança e o quadro das
+  // duas abas) e ainda não estão neste quadro. Aparecem como cartão "sugerido"; ao mover, viram um movimento normal.
+  function boardSuggest(f) {
+    const here = new Set(bPeople(f).map(x => nk(x.n)));
+    const out = new Map();
+    const add = n => { if (n && !isDw(n) && !here.has(nk(n)) && !out.has(nk(n))) out.set(nk(n), n); };
+    st.map.versions.forEach(v => Object.values(v.slots || {}).forEach(add));
+    ['s2', 'aud'].forEach(g => (boardOf()[g] || []).forEach(e => add(e.n)));
+    return [...out.values()].map(n => ({ n, to: 'pool', sug: true }));
+  }
+  // Pessoas do quadro + sugeridas (para mostrar e mover).
+  const boardAll = f => [...bPeople(f), ...boardSuggest(f)];
+  const legacyLetters = () => Object.keys(cur().slots).some(k => /^(s2|aud)\./.test(k) && cur().slots[k]);
+  function boardCard() {
+    const L = st.map.layout;
+    if (!L.letras.length) return '';
+    const f = st.bf, all = boardAll(f);
+    const cols = [['pool', 'Disponíveis'], ...L.letras.map(l => [l, `Letra ${l}`])];
+    const byCol = id => all.filter(x => x.to === id).sort((a, b) => a.n.localeCompare(b.n, 'pt-BR'));
+    const targets = from => cols.filter(([id]) => id !== from).map(([id, lb]) => `<option value="${id}">${esc(lb)}</option>`).join('');
+    const sel = st.bsel.size;
+    const col = ([id, label]) => {
+      const ps = byCol(id);
+      return `<div class="pz-col ${id === 'pool' ? 'pool' : ''} ${ps.length ? '' : 'empty'}" data-bcol="${id}">
+        <div class="pz-col-head"><b>${esc(label)}</b><span class="pz-col-n">${ps.length}</span>
+          ${ps.length ? `<select class="pz-col-move" data-bmove="${id}" title="Mover todos desta coluna" aria-label="Mover todos de ${esc(label)}"><option value="">Mover todos ▸</option>${targets(id)}<option value="">──────</option><option value="__out">Tirar todos da função</option></select>` : ''}</div>
+        <div class="pz-col-body">${ps.map(x => `<div class="pz-pcard ${st.bsel.has(nk(x.n)) ? 'sel' : ''} ${isDw(x.n) ? 'dw' : ''} ${x.sug ? 'sug' : ''}" draggable="true" data-bcard="${esc(x.n)}" title="${x.sug ? 'Já tem função no mapa do dia' : `Desde ${esc(x.t || '')}`} · clique para selecionar, arraste para mover">
+          <span>${esc(x.n)}</span>${x.sug ? '' : `<button data-brm="${esc(x.n)}" title="Tirar da função" aria-label="Tirar ${esc(x.n)}">×</button>`}</div>`).join('')}
+          ${sel && !ps.some(x => st.bsel.has(nk(x.n))) ? `<button class="pz-col-drop" data-bto="${id}">Mover ${sel} aqui</button>` : ''}</div>
+        ${id === 'pool' ? `<div class="pz-col-foot"><button class="tool" data-bpick="1">+ Adicionar pessoas</button><button class="tool" data-bdw="1" title="Adiciona um diarista">+ Diarista</button></div>` : ''}
+      </div>`;
+    };
+    const ev = boardOf()[f];
+    const groups = [];
+    ev.forEach(e => { const g = groups[groups.length - 1]; if (g && g.t === e.t && g.to === e.to) g.n.push(e.n); else groups.push({ t: e.t, to: e.to, n: [e.n] }); });
+    const lbl = to => (to === 'pool' ? 'Disponíveis' : to === 'int' ? 'Intervalo' : !to ? 'saiu da função' : `letra ${to}`);
+    const n2 = bPeople('s2').length, nA = bPeople('aud').length;
+    if (!st.boardOpen) {
+      const lets = st => [...new Set(bPeople(st).filter(x => x.to && x.to !== 'pool' && x.to !== 'int').map(x => x.to))].sort().join(', ') || '—';
+      return `<section class="card pz-card pz-board off"><div class="pz-card-head"><div class="pz-title">2º Sorting e Auditoria</div>
+        <button class="tool" data-board-toggle="1" title="Mostrar o quadro">Expandir ▾</button></div>
+        <div class="muted small">2º Sorting: <b>${n2Of()}</b> pessoa(s) · letras ${esc(lets('s2'))} &nbsp;·&nbsp; Auditoria: <b>${nAOf()}</b> · letras ${esc(lets('aud'))}</div></section>`;
+    }
+    return `<section class="card pz-card pz-board bf-${f}">
+      <div class="pz-seg" role="tablist" aria-label="Quadro">
+        <button role="tab" aria-selected="${f === 's2'}" class="${f === 's2' ? 'on' : ''}" data-bf="s2">2º Sorting <b>${n2}</b></button>
+        <button role="tab" aria-selected="${f === 'aud'}" class="${f === 'aud' ? 'on' : ''}" data-bf="aud">Auditoria <b>${nA}</b></button>
+      </div>
+      <div class="pz-card-head"><div class="pz-title">Você está no quadro: <span class="pz-bf-name">${BF[f]}</span></div>
+        <div class="pz-board-tools">
+          <button class="tool" data-board-toggle="1" title="Recolher o quadro">Recolher ▴</button>
+          <label class="pz-bt" title="Deixe em branco para usar o horário de agora">Movimentos às <input type="time" id="pzBT" value="${esc(st.bt)}"></label>
+          <button class="tool pz-clear" data-pz-clear="board:${f}" title="Tirar todos do ${BF[f]}">Limpar</button>
+        </div></div>
+      <div class="muted small">Em "Disponíveis" já aparecem, tracejados, todos que têm alguma função no mapa do dia; "+ Adicionar pessoas" é para quem estiver de fora. Arraste os cartões entre as colunas, ou clique para selecionar e depois em "Mover aqui". "Mover todos ▸" passa a coluna inteira para outra letra. Cada movimento grava o horário${isToday() ? '' : ' (dia que não é hoje: mostra como terminou o turno)'}.</div>
+      ${sel ? `<div class="pz-bsel">${sel} selecionado(s) — clique em "Mover ${sel} aqui" na coluna de destino. <button class="link" data-bclear="1">Desmarcar</button></div>` : ''}
+      <div class="pz-cols">${cols.map(col).join('')}</div>
+      ${groups.length ? `<details class="pz-tl"><summary>Linha do tempo do ${BF[f]} (${groups.length} movimento(s))</summary>
+        <ul>${groups.slice().reverse().slice(0, 60).map(g => `<li><b>${esc(g.t || '')}</b> · ${g.n.length > 3 ? `${g.n.length} pessoas` : g.n.map(esc).join(', ')} → ${lbl(g.to)}</li>`).join('')}</ul></details>` : ''}
+    </section>`;
+  }
+  // Adicionar pessoas ao quadro (vão para "Disponíveis"). Quem está numa vaga do mapa pode ser retirado de lá.
+  async function boardPick() {
+    const f = st.bf, v = cur(), L = st.map.layout;
+    const on = new Set(boardAll(f).map(x => nk(x.n)));
+    const where = new Map();
+    Object.entries(v.slots).forEach(([k, n]) => { if (n && !isDw(n)) where.set(nk(n), slotDesc(k, L)); });
+    const other = f === 's2' ? 'aud' : 's2';
+    bPeople(other).forEach(x => { if (!isDw(x.n)) where.set(nk(x.n), BF[other]); });
+    const names = [...new Map([...people(), ...Object.values(v.slots).filter(n => n && !isDw(n))].map(n => [nk(n), n])).values()]
+      .filter(n => !on.has(nk(n))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const r = await modal(`Adicionar ao ${BF[f]}`, `
+      <input type="search" class="search pz-pick-search" id="pzPickQ" placeholder="Buscar nome…" autocomplete="off">
+      <div class="pz-pick-list" id="pzPickList">${names.map(n => `<label class="pz-int-row"><input type="checkbox" data-pick="${esc(n)}">
+        <span class="pz-int-name">${esc(n)}</span><span class="muted small">${where.has(nk(n)) ? esc(where.get(nk(n))) : ''}</span></label>`).join('')}</div>
+      <div class="muted small" id="pzPickCount">Entram na coluna "Disponíveis"; depois arraste para a letra.</div>`,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Adicionar', 'btn-primary solid']],
+      dlg => {
+        dlg.querySelector('#pzPickQ').addEventListener('input', e => { const q = nk(e.target.value); dlg.querySelectorAll('#pzPickList label').forEach(x => { x.hidden = !!q && !nk(x.textContent).includes(q); }); });
+        dlg.addEventListener('change', () => { dlg.querySelector('#pzPickCount').textContent = `${dlg.querySelectorAll('#pzPickList input:checked').length} selecionada(s)`; });
+        setTimeout(() => dlg.querySelector('#pzPickQ').focus(), 0);
+      },
+      dlg => [...dlg.querySelectorAll('#pzPickList input:checked')].map(i => i.dataset.pick));
+    if (!r || r.btn !== 'ok' || !r.data.length) return;
+    const busy = r.data.filter(n => where.has(nk(n)));
+    if (busy.length) {
+      const q = await modal('Colaborador já está em outra função', `<p>${busy.map(n => `<b>${esc(n)}</b> está em <b>${esc(where.get(nk(n)))}</b>`).join('<br>')}</p>
+        <p class="muted">Deseja retirá-los de lá?</p>`, [['cancel', 'Cancelar', 'btn-ghost'], ['keep', 'Manter nas duas', 'btn-ghost'], ['move', 'Retirar de lá', 'btn-primary solid']]);
+      if (q.btn === 'cancel') return;
+      if (q.btn === 'move') {
+        const out = new Set(busy.map(nk));
+        Object.keys(v.slots).forEach(k => { if (v.slots[k] && out.has(nk(v.slots[k]))) delete v.slots[k]; });
+        const leave = bPeople(other).filter(x => out.has(nk(x.n))).map(x => x.n);
+        if (leave.length) bMove(other, leave, '');
+      }
+    }
+    bMove(f, r.data, 'pool');
+    drawMapa();
+  }
+
   function lettersCard() {
     const L = st.map.layout, v = cur();
     if (!L.letras.length) return '';
@@ -232,7 +393,12 @@ window.Piso = (() => {
         ${vac.map(([, n]) => `<span class="pz-chip vac" title="Saiu para o intervalo">☕ ${esc(n)}</span>`).join('')}
         <button class="tool pz-add" data-pz-pick="${f}.${l}" title="Selecionar as pessoas da lista">${ks.length ? '+ / editar' : '+ Selecionar'}</button></div>`;
     };
-    return `<section class="card pz-card">${cardHead('2º Sorting e Auditoria por letra', 'letras')}
+    const n = L.letras.reduce((a, l) => a + listKeys(v, 's2', l).length + listKeys(v, 'aud', l).length, 0);
+    if (!st.legacyOpen) return `<section class="card pz-card"><div class="pz-card-head"><div class="pz-title">Listas por letra (formato anterior)</div>
+        <button class="tool" data-legacy-toggle="1" title="Mostrar as listas">Expandir ▾</button></div>
+        <div class="muted small">${n} pessoa(s) em listas por letra (mapas montados antes do quadro).</div></section>`;
+    return `<section class="card pz-card"><div class="pz-card-head"><div class="pz-title">Listas por letra (formato anterior)</div>
+        <div class="pz-board-tools"><button class="tool" data-legacy-toggle="1" title="Recolher">Recolher ▴</button><button class="tool pz-clear" data-pz-clear="letras" title="Limpar todas as listas">Limpar</button></div></div>
       <div class="table-wrap"><table class="pz-letters"><thead><tr><th>Letra</th><th class="left">2º Sorting</th><th class="left">Auditoria</th></tr></thead><tbody>
       ${L.letras.map(l => `<tr><td><b>${esc(l)}</b>${listKeys(v, 's2', l).length || listKeys(v, 'aud', l).length ? `<button class="pz-clear-l" data-pz-clear="letra:${l}" title="Limpar a letra ${esc(l)}">×</button>` : ''}</td><td class="left">${cell('s2', l)}</td><td class="left">${cell('aud', l)}</td></tr>`).join('')}
       </tbody></table></div></section>`;
@@ -240,21 +406,28 @@ window.Piso = (() => {
   // Limpa uma área inteira da mudança atual: mesa:m1 · letras · letra:C · func:desc|xpt|s5|int.
   async function clearArea(area) {
     const v = cur(), [kind, id] = area.split(':'), L = st.map.layout;
+    if (kind === 'board') {
+      const ps = bPeople(id).filter(x => x.to !== 'int');
+      if (!ps.length) return ui.toast('O quadro já está vazio.');
+      if (!(await uiConfirm(`Tirar todas as ${ps.length} pessoa(s) do ${BF[id]}?`, { ok: 'Limpar' }))) return;
+      bMove(id, ps.map(x => x.n), ''); drawMapa(); return;
+    }
     const match = k => kind === 'mesa' ? k.startsWith(`${id}.`) : kind === 'letras' ? /^(s2|aud)\./.test(k)
       : kind === 'letra' ? k.startsWith(`s2.${id}.`) || k.startsWith(`aud.${id}.`) : k.startsWith(`${id}.`);
     const keys = Object.keys(v.slots).filter(k => v.slots[k] && match(k));
     if (!keys.length) return ui.toast('Essa área já está vazia.');
     const nome = kind === 'mesa' ? (L.mesas.find(m => m.id === id) || {}).nome : kind === 'letras' ? '2º Sorting e Auditoria (todas as letras)'
       : kind === 'letra' ? `letra ${id} (2º Sorting e Auditoria)` : FUNCS[id];
-    if (!(await uiConfirm(`Limpar ${nome}? Sai(em) ${keys.length} pessoa(s) desta mudança (${verLabel(v)}).`, { ok: 'Limpar' }))) return;
-    st.undo = clone(v.slots);
-    keys.forEach(k => delete v.slots[k]);
+    if (!(await uiConfirm(`Limpar ${nome}? Sai(em) ${keys.length} pessoa(s)${autoOn() ? ' (registrado como mudança com horário)' : ` desta mudança (${verLabel(v)})`}.`, { ok: 'Limpar' }))) return;
+    const ev = editVersion().v;
+    st.undo = clone(ev.slots);
+    keys.forEach(k => delete ev.slots[k]);
     touch(); drawMapa();
     ui.toast(`${nome}: ${keys.length} vaga(s) limpa(s). Use "Desfazer" se foi sem querer.`);
   }
   // Grava a lista de uma letra (s2.C.0, s2.C.1…) na mudança atual.
   function setList(f, l, names) {
-    const v = cur();
+    const v = editVersion().v;
     listKeys(v, f, l).forEach(k => delete v.slots[k]);
     Object.keys(v.slots).filter(k => k.startsWith(`${f}.${l}.`)).forEach(k => delete v.slots[k]);
     names.forEach((n, i) => { v.slots[`${f}.${l}.${i}`] = n; });
@@ -308,6 +481,19 @@ window.Piso = (() => {
     touch(); drawMapa();
   }
   const intCard = () => { const ks = intKeys(cur()); return ks.length ? `<section class="card pz-card pz-int">${cardHead('☕ Intervalo', 'func:int')}${ks.map(k => slotInput(k)).join('')}</section>` : ''; };
+  // XPT: cada vaga é um XPT (destino) para o turno inteiro; quem está na vaga bipa os pacotes daquele XPT.
+  const xptDest = () => (st.map.xptDest = st.map.xptDest || {});
+  function knownXpts() {
+    const set = new Set();
+    (baseOn() ? B().mapaList() : []).forEach(r => Object.values((r.map && r.map.xptDest) || {}).forEach(d => d && set.add(d)));
+    (baseOn() ? B().parcelList() : []).forEach(p => p.items.forEach(x => x.dest && /^XPT/i.test(x.dest) && set.add(x.dest)));
+    Object.values(xptDest()).forEach(d => d && set.add(d));
+    return [...set].sort();
+  }
+  const xptCard = n => (n ? `<section class="card pz-card pz-xpt">${cardHead('XPT', 'func:xpt')}
+      <div class="muted small">Cada vaga é um XPT do turno: escolha o XPT (como no Sort Code, ex.: XPT-JRU-01) e quem vai bipar os pacotes dele.</div>
+      <datalist id="pzXptList">${knownXpts().map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+      ${range(n).map(k => `<div class="pz-xpt-row"><input class="pz-xpt-dest" list="pzXptList" data-xptd="xpt.${k}" value="${esc(xptDest()[`xpt.${k}`] || '')}" placeholder="XPT (ex.: XPT-JRU-01)" autocomplete="off">${slotInput(`xpt.${k}`, 'Colaborador')}</div>`).join('')}</section>` : '');
   const simpleCard = (f, title, n) => (n ? `<section class="card pz-card">${cardHead(title, `func:${f}`)}${range(n).map(k => slotInput(`${f}.${k}`)).join('')}</section>` : '');
 
   function layoutEditor() {
@@ -377,6 +563,9 @@ window.Piso = (() => {
     filled.filter(s => !isDw(v.slots[s.key])).forEach(s => { const k = nk(v.slots[s.key]); byName.set(k, [...(byName.get(k) || []), s]); });
     const dup = [...byName.entries()].filter(([, a]) => a.length > 1);
     const inInt = new Set(intKeys(v).map(k => nk(v.slots[k])));
+    const onBoard = ['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to !== 'int' && !isDw(x.n)));
+    onBoard.forEach(x => { const k = nk(x.n); byName.set(k, [...(byName.get(k) || []), { func: x.to === 'pool' ? 's2' : 's2', board: true }]); });
+    ['s2', 'aud'].forEach(f => bPeople(f).filter(x => x.to === 'int').forEach(x => inInt.add(nk(x.n))));
     const free = people().filter(n => !byName.has(nk(n)) && !inInt.has(nk(n)));
     const perFunc = Object.keys(FUNCS).map(f => [f, filled.filter(s => s.func === f).length, slots.filter(s => s.func === f).length]).filter(x => x[2]);
     document.querySelectorAll('.pz-slot input').forEach(i => {
@@ -394,7 +583,9 @@ window.Piso = (() => {
         <div class="pz-kv"><span>Pessoas em função</span><b>${byName.size}</b></div>
         ${nDw ? `<div class="pz-kv"><span>Diaristas</span><b>${nDw}</b></div>` : ''}
         ${inInt.size ? `<div class="pz-kv"><span>Em intervalo</span><b>${inInt.size}</b></div>` : ''}
-        ${perFunc.map(([f, n, t]) => `<div class="pz-kv"><span>${FUNCS[f]}</span><b>${n}/${t}</b></div>`).join('')}
+        ${perFunc.filter(([f]) => f !== 's2' && f !== 'aud').map(([f, n, t]) => `<div class="pz-kv"><span>${FUNCS[f]}</span><b>${n}/${t}</b></div>`).join('')}
+        ${['s2', 'aud'].map(f => { const ps = bPeople(f).filter(x => x.to !== 'int'); const nl = ps.filter(x => x.to !== 'pool').length;
+          return `<div class="pz-kv"><span>${BF[f]}</span><b title="em letra / no quadro">${nl}/${ps.length}</b></div>`; }).join('')}
       </section>
       ${dup.length ? `<section class="card pz-card"><div class="pz-title">Em mais de uma vaga</div>
         ${dup.map(([, a]) => `<div class="pz-warn">⚠ ${esc(v.slots[a[0].key])} <span class="muted small">(${a.map(s => FUNCS[s.func]).join(', ')})</span></div>`).join('')}
@@ -403,6 +594,82 @@ window.Piso = (() => {
         <input class="search" id="pzFree" type="search" placeholder="Buscar…">
         <div class="pz-free" id="pzFreeList">${free.map(n => `<div>${esc(n)}</div>`).join('') || '<span class="muted small">Todos da lista HSE estão no mapa.</span>'}</div>
         <div class="muted small">Lista da guia HSE do mês atual.</div></section>`;
+  }
+
+  // ---------- Versões salvas (restaurar um salvamento anterior) ----------
+  async function openVersions() {
+    const hist = B().mapaHistory(st.date, st.turno);
+    const fmt = iso => new Date(iso).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const ppl = m => new Set(m.versions.flatMap(v => Object.values(v.slots || {}).filter(Boolean).map(nk))).size;
+    const r = await modal(`Versões salvas — ${brShort(st.date)} · ${st.turno}`, `<p class="muted">Escolha um salvamento para voltar a ele. Ele vira o mapa em edição; clique em <b>Salvar mapa</b> para confirmar.</p>
+      <div class="pz-pick-list">${hist.map((h, i) => `<label class="pz-int-row"><input type="radio" name="pzVer" value="${i}" ${i === 0 ? 'checked' : ''}>
+        <span class="pz-int-name">${fmt(h.at)} · ${esc(h.user)}${i === 0 ? ' <span class="pill good">mais recente</span>' : ''}</span>
+        <span class="muted small">${h.map.versions.length} mudança(s) · ${ppl(h.map)} pessoa(s)</span></label>`).join('')}</div>`,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Restaurar esta versão', 'btn-primary solid']], null,
+      dlg => +((dlg.querySelector('input[name="pzVer"]:checked') || {}).value || 0));
+    if (!r || r.btn !== 'ok') return;
+    st.map = clone(hist[r.data].map);
+    if (!st.map.layout || !st.map.layout.mesas) st.map.layout = clone(DEFAULT_LAYOUT);
+    st.ver = 0; st.undo = null; touch(); drawMapa();
+    ui.toast(`Versão de ${fmt(hist[r.data].at)} restaurada. Confira e clique em Salvar mapa.`);
+  }
+
+  // ---------- Sexo presumido pelo primeiro nome (regra do rodízio) ----------
+  // Descarga, Indução e a mesa de volumoso são feitas só por homens. Não há cadastro: o app presume pelo primeiro nome
+  // e mostra a lista para o líder revisar antes do rodízio. Nome sem como saber fica como "?" (não entra nessas vagas).
+  // As correções do líder ficam lembradas neste aparelho (ls.sexo).
+  const F_NAMES = new Set('ALICE BEATRIZ CARMEN ELLEN ESTHER EVELYN INGRID IRIS ISABEL ISIS IVONE KAREN KELLY LIZ MABEL MIRIAM NOEMI RAQUEL RUTH SUELEN SUELLEN TAIS THAIS JANE JENIFER JENNIFER JHENIFER MARIZE ROSE INES INEZ ASHLEY EMILY EMILLY STEFANY STEPHANY TIFFANY LUANY GISELE GIZELE ADRIELLY'.split(' '));
+  const M_NAMES = new Set('KAUA LUCA NICOLA JOSUA ISAIA JOSE DAVI LEVI HENRY WESLEY WESLLEY WESLEI RAMON SOLANO GERSON EVERTON WELINGTON WELLINGTON ALEX ROBERT JOAO'.split(' '));
+  const AMBIG = new Set('ARIEL DARCI JURACI VALDECI ALDACI GILDACI DENI DENIS DIVANI ADAIR ALTAIR CLAUDI ELI DJANIR JACI'.split(' '));
+  function presumeSex(name) {
+    const first = nk(name).split(' ')[0] || '';
+    if (!first || isDw(name)) return '';
+    if (AMBIG.has(first) || /CI$/.test(first)) return '';
+    if (F_NAMES.has(first)) return 'F';
+    if (M_NAMES.has(first)) return 'M';
+    if (/(A|ANE|ANNE|AINE|IANE|ENE|INE|ELE|ELLE|ETE|ICE|ISE|IDE|EIDE|LY|LLY|NY|ELY)$/.test(first)) return 'F';
+    if (/(O|OS|EL|AEL|UEL|ON|OR|ER|AS|IO|EU|ES|IR|UR|AN|EN|IM|UL|IL|E|US|IZ|ARD|RT|NT|K|C|D|X|Z|G|B|P|T|H|M)$/.test(first)) return 'M';
+    return '';
+  }
+  const sexOf = n => { const o = (ls.sexo || {})[nk(n)]; return o != null ? o : presumeSex(n); };
+  const isMale = n => sexOf(n) === 'M';
+  // Revisão antes do rodízio: lista quem entra, com o sexo presumido (o líder corrige o que estiver errado).
+  async function reviewSex(pool, title) {
+    const rows = pool.filter(n => !isDw(n)).slice().sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const lab = { M: 'Homem', F: 'Mulher', '': 'Não sei' };
+    const r = await modal(title, `<p class="muted">Descarga, Indução e a mesa de volumoso só recebem <b>homens</b>. O sexo abaixo é <b>presumido pelo nome</b>: confira e corrija antes de continuar. Quem ficar como "Não sei" não entra nessas vagas.</p>
+      <input type="search" class="search pz-pick-search" id="pzSexQ" placeholder="Buscar nome…" autocomplete="off">
+      <div class="pz-pick-list" id="pzSexList">${rows.map(n => { const o = (ls.sexo || {})[nk(n)], v = sexOf(n); return `<div class="pz-col-row" data-colrow="${esc(nk(n))}"><span class="pz-int-name">${esc(n)}${o != null ? ' <span class="muted small">(corrigido)</span>' : ''}</span>
+        <select data-sexo="${esc(n)}" data-was="${v}" class="${v ? '' : 'unk'}">${['M', 'F', ''].map(k => `<option value="${k}" ${k === v ? 'selected' : ''}>${lab[k]}</option>`).join('')}</select></div>`; }).join('')}</div>
+      <div class="muted small" id="pzSexCount"></div>`,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Fazer o rodízio', 'btn-primary solid']],
+      dlg => {
+        const count = () => { const v = [...dlg.querySelectorAll('[data-sexo]')].map(x => x.value); dlg.querySelector('#pzSexCount').textContent = `${v.filter(x => x === 'M').length} homem(ns) · ${v.filter(x => x === 'F').length} mulher(es) · ${v.filter(x => !x).length} sem como saber`; };
+        dlg.querySelector('#pzSexQ').addEventListener('input', e => { const q = nk(e.target.value); dlg.querySelectorAll('[data-colrow]').forEach(x => { x.hidden = !!q && !x.dataset.colrow.includes(q); }); });
+        dlg.addEventListener('change', e => { if (e.target.dataset.sexo != null) e.target.classList.toggle('unk', !e.target.value); count(); }); count();
+      },
+      dlg => [...dlg.querySelectorAll('[data-sexo]')].filter(x => x.value !== x.dataset.was).map(x => [x.dataset.sexo, x.value]));
+    if (!r || r.btn !== 'ok') return false;
+    if (r.data.length) {
+      ls.sexo = ls.sexo || {};
+      // Guarda só o que diverge do presumido (se o líder voltou ao presumido, esquece a correção).
+      r.data.forEach(([n, v]) => { if (v === presumeSex(n)) delete ls.sexo[nk(n)]; else ls.sexo[nk(n)] = v; });
+      lsSave();
+    }
+    return true;
+  }
+
+  // Quem fez um XPT num dia (todas as mudanças e turnos do dia, ou só um turno). Compara o código sem pontuação e aceita
+  // um contido no outro (ex.: "XPT-JRU-01" e "JRU").
+  const xk = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const sameXpt = (a, b) => { const x = xk(a), y = xk(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+  function xptWho(iso, dest, turno) {
+    const out = new Map();
+    (baseOn() ? B().mapaList() : []).filter(r => r.date === iso && (!turno || r.turno === turno) && r.map).forEach(r => {
+      const keys = Object.entries(r.map.xptDest || {}).filter(([, d]) => sameXpt(d, dest)).map(([k]) => k);
+      r.map.versions.forEach(v => keys.forEach(k => { const n = v.slots[k]; if (n && !out.has(nk(n))) out.set(nk(n), n); }));
+    });
+    return [...out.values()];
   }
 
   // ---------- Rodízio ----------
@@ -422,6 +689,13 @@ window.Piso = (() => {
         did.get(k).add(f);
         if (r.turno === st.turno) { pool.set(k, name); useSlot.set(key, (useSlot.get(key) || 0) + 1); }
       }));
+      ['s2', 'aud'].forEach(f => ((r.map.board || {})[f] || []).forEach(e => {
+        if (!e.to || e.to === 'pool' || e.to === 'int' || isDw(e.n)) return;
+        const k = nk(e.n);
+        if (!did.has(k)) did.set(k, new Set());
+        did.get(k).add(f);
+        if (r.turno === st.turno) pool.set(k, e.n);
+      }));
       did.forEach((fs, k) => {
         const c = cnt.get(k) || {};
         fs.forEach(f => { c[f] = (c[f] || 0) + 1; });
@@ -434,7 +708,7 @@ window.Piso = (() => {
   }
   // Mapa já preenchido: redistribui as mesmas pessoas. Mapa vazio: preenche com quem trabalhou neste turno
   // nos últimos 10 dias, cada um numa função diferente das que fez. Vagas com 🔒 e o intervalo ficam como estão.
-  function rodizio() {
+  async function rodizio() {
     const v = cur(), slots = slotsOf(st.map.layout, v);
     const { cnt, last, pool: hPool, useSlot } = history();
     const locked = new Set(slots.filter(s => st.locks.has(s.key) && v.slots[s.key]).map(s => nk(v.slots[s.key])));
@@ -454,21 +728,29 @@ window.Piso = (() => {
       mode = 'preencher';
     }
     if (target.length < 1) return ui.toast('Não há vagas livres para o rodízio (solte as vagas com 🔒).', true);
+    if (!(await reviewSex(pool, mode === 'preencher' ? `Rodízio — ${pool.length} pessoa(s) do turno ${st.turno} (últimos ${HIST_DAYS} dias)` : `Rodízio — ${pool.length} pessoa(s) desta mudança`))) return;
     const now = new Map(target.filter(s => v.slots[s.key]).map(s => [nk(v.slots[s.key]), s.func]));
     st.undo = clone(v.slots);
     const left = new Set(pool);
-    target.slice().sort(() => Math.random() - 0.5).forEach(s => {
+    // Descarga, Indução e mesa de volumoso só com homens (cadastro de Colaboradores). Essas vagas são preenchidas primeiro.
+    const volum = new Set(st.map.layout.mesas.filter(m => /volum/i.test(m.nome)).map(m => m.id));
+    const heavy = sl => sl.func === 'desc' || sl.func === 'ind' || volum.has(sl.mesa);
+    const useSex = true;
+    let semHomem = 0;
+    target.slice().sort(() => Math.random() - 0.5).sort((x, y) => (useSex ? heavy(y) - heavy(x) : 0)).forEach(s => {
       let best = null, bestScore = Infinity;
       left.forEach(n => {
+        if (useSex && heavy(s) && !isMale(n)) return;
         const k = nk(n);
         const score = ((cnt.get(k) || {})[s.func] || 0) * 2 + (last.get(k) === s.func ? 6 : 0) + (now.get(k) === s.func ? 3 : 0) + Math.random() * 0.5;
         if (score < bestScore) { bestScore = score; best = n; }
       });
-      if (best != null) { v.slots[s.key] = best; left.delete(best); } else delete v.slots[s.key];
+      if (best != null) { v.slots[s.key] = best; left.delete(best); } else { delete v.slots[s.key]; if (useSex && heavy(s)) semHomem++; }
     });
     const changed = target.filter(s => nk(st.undo[s.key]) !== nk(v.slots[s.key])).length;
     touch(); drawMapa();
-    ui.toast(mode === 'preencher'
+    if (semHomem) ui.toast(`Rodízio: ${semHomem} vaga(s) de Descarga/Indução/volumoso ficaram vazias por falta de homens. Preencha à mão.`, true);
+    else ui.toast(mode === 'preencher'
       ? `Rodízio: ${target.length - left.size} pessoa(s) do turno ${st.turno} (últimos ${HIST_DAYS} dias) colocadas em funções diferentes. Confira quem veio hoje e salve.`
       : `Rodízio: ${changed} vaga(s) mudaram. Confira e clique em Salvar mapa.`);
   }
@@ -479,7 +761,7 @@ window.Piso = (() => {
   function intervaloHoje() {
     const done = new Set();
     const maps = (baseOn() ? B().mapaList() : []).filter(r => r.date === st.date && r.turno !== st.turno).map(r => r.map).concat([st.map]);
-    maps.forEach(m => m.versions.forEach(v => intKeys(v).forEach(k => done.add(nk(v.slots[k])))));
+    maps.forEach(m => { m.versions.forEach(v => intKeys(v).forEach(k => done.add(nk(v.slots[k])))); ['s2', 'aud'].forEach(f => ((m.board || {})[f] || []).forEach(e => { if (e.to === 'int') done.add(nk(e.n)); })); });
     return done;
   }
   function intervaloSugestao(n) {
@@ -492,6 +774,8 @@ window.Piso = (() => {
       return s.func === 'rec' ? 0 : 2;
     };
     const cands = slots.filter(s => v.slots[s.key] && !isDw(v.slots[s.key])).map(s => ({ key: s.key, name: v.slots[s.key], func: s.func, where: slotDesc(s.key, L), prio: prio(s), done: done.has(nk(v.slots[s.key])) }));
+    ['s2', 'aud'].forEach(f => bPeople(f).filter(x => x.to !== 'int' && !isDw(x.n)).forEach(x => cands.push({ key: `board.${f}`, name: x.n, func: f,
+      where: `${BF[f]} · ${x.to === 'pool' ? 'disponível' : `letra ${x.to}`}`, prio: prio({ func: f }), done: done.has(nk(x.n)), board: f, letra: x.to })));
     // Uma linha por pessoa (a primeira vaga dela).
     const uniq = [...new Map(cands.map(c => [nk(c.name), c])).values()];
     const avail = uniq.filter(c => !c.done);
@@ -507,7 +791,8 @@ window.Piso = (() => {
   }
   async function intervalo() {
     const v = cur(), slots = slotsOf(st.map.layout, v);
-    const alocados = new Set(slots.filter(s => v.slots[s.key] && !isDw(v.slots[s.key])).map(s => nk(v.slots[s.key]))).size;
+    const alocados = new Set([...slots.filter(s => v.slots[s.key] && !isDw(v.slots[s.key])).map(s => nk(v.slots[s.key])),
+      ...['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to !== 'int' && !isDw(x.n)).map(x => nk(x.n)))]).size;
     if (!alocados) return ui.toast('O mapa desta mudança está vazio.', true);
     let n = Math.min(alocados, Math.max(1, Math.round(alocados / 2)));
     let sug = intervaloSugestao(n);
@@ -544,6 +829,13 @@ window.Piso = (() => {
     Object.entries(base).forEach(([k, name]) => { if (!go.has(nk(name)) && !k.startsWith('int.')) slotsInt[k] = name; });
     r.data.names.forEach((name, i) => { slotsInt[`int.${i}`] = name; });
     st.map.versions.push({ from: r.data.at, tipo: 'intervalo', slots: slotsInt });
+    // Quem está no quadro (2º Sorting / Auditoria) vai para o intervalo no quadro e volta para a mesma coluna.
+    ['s2', 'aud'].forEach(f => {
+      const ps = bPeople(f).filter(x => go.has(nk(x.n)) && x.to !== 'int');
+      if (!ps.length) return;
+      bMove(f, ps.map(x => x.n), 'int', r.data.at);
+      if (r.data.back) ps.forEach(x => bMove(f, [x.n], x.to, end(r.data.at, r.data.dur)));
+    });
     const iv = st.map.versions.length - 1;
     if (r.data.back) {
       const back = {};
@@ -581,13 +873,15 @@ window.Piso = (() => {
       lines.push('');
     });
     if (L.letras.length) {
-      const lst = (f, l) => { const ks = listKeys(v, f, l); return ks.length ? list(ks) : '—'; };
+      const lst = (f, l) => { const ns = [...listKeys(v, f, l).map(get), ...bPeople(f).filter(x => x.to === l).map(x => x.n)]; return ns.length ? ns.join(', ') : '—'; };
       lines.push('2º SORTING'); L.letras.forEach(l => lines.push(`${l}: ${lst('s2', l)}`)); lines.push('');
       lines.push('AUDITORIA'); L.letras.forEach(l => lines.push(`${l}: ${lst('aud', l)}`)); lines.push('');
     }
     if (L.desc) lines.push(`Descarga: ${list(range(L.desc).map(k => `desc.${k}`))}`);
-    if (L.xpt) lines.push(`XPT: ${list(range(L.xpt).map(k => `xpt.${k}`))}`);
+    if (L.xpt) range(L.xpt).forEach(k => { const d2 = xptDest()[`xpt.${k}`]; if (d2 || v.slots[`xpt.${k}`]) lines.push(`${d2 || 'XPT ' + (k + 1)}: ${get(`xpt.${k}`)}`); });
     if (L.s5) lines.push(`5S: ${list(range(L.s5).map(k => `s5.${k}`))}`);
+    const disp = ['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to === 'pool').map(x => x.n));
+    if (disp.length) lines.push(`Disponíveis (2º Sorting/Auditoria): ${disp.join(', ')}`);
     if (intKeys(v).length) lines.push(`Intervalo: ${list(intKeys(v))}`);
     return lines.join('\n').trim();
   }
@@ -611,11 +905,29 @@ window.Piso = (() => {
   }
 
   async function onMapaClick(e) {
-    const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear]');
+    const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear],[data-bf],[data-bcard],[data-brm],[data-bpick],[data-bdw],[data-bto],[data-bclear],[data-pz-view],[data-board-toggle],[data-legacy-toggle],[data-pd-t],[data-pd-f]');
     if (!t) return;
     const d = t.dataset;
     if (d.lock) { if (!st.locks.delete(d.lock)) st.locks.add(d.lock); t.classList.toggle('on', st.locks.has(d.lock)); t.textContent = st.locks.has(d.lock) ? '🔒' : '🔓'; return; }
+    if (d.pdT || d.pdF) {
+      const key = d.pdT ? 'dTurnos' : 'dFuncs', val = d.pdT || d.pdF, set = new Set(Array.isArray(ls[key]) ? ls[key] : []);
+      if (val === 'all') set.clear(); else if (!set.delete(val)) set.add(val);
+      ls[key] = [...set]; lsSave(); drawMapaDash(); return;
+    }
+    if (d.pzView) { ls.mview = d.pzView; lsSave(); drawMapa(); return; }
     if (d.pzClear) { clearArea(d.pzClear); return; }
+    if (d.boardToggle) { st.boardOpen = !st.boardOpen; drawMapa(); return; }
+    if (d.legacyToggle) { st.legacyOpen = !st.legacyOpen; drawMapa(); return; }
+    if (d.bf) { st.bf = d.bf; st.bsel.clear(); drawMapa(); return; }
+    if (d.brm) { bMove(st.bf, [d.brm], ''); st.bsel.delete(nk(d.brm)); drawMapa(); return; }
+    if (d.bcard) { const k = nk(d.bcard); if (!st.bsel.delete(k)) st.bsel.add(k); drawMapa(); return; }
+    if (d.bpick) { boardPick(); return; }
+    if (d.bdw) { bMove(st.bf, [DIARISTA + ' ' + (bPeople(st.bf).filter(x => isDw(x.n)).length + 1)], 'pool'); drawMapa(); return; }
+    if (d.bclear) { st.bsel.clear(); drawMapa(); return; }
+    if (d.bto) {
+      const names = boardAll(st.bf).filter(x => st.bsel.has(nk(x.n))).map(x => x.n);
+      bMove(st.bf, names, d.bto); st.bsel.clear(); drawMapa(); return;
+    }
     if (d.pzPick) { const [f, l] = d.pzPick.split('.'); openPicker(f, l); return; }
     if (d.pzRm) {
       const [f, l] = d.pzRm.split('.'), v = cur();
@@ -627,7 +939,14 @@ window.Piso = (() => {
     if (a === 'save') saveMap();
     else if (a === 'text') copyText(mapText(), 'Mapa copiado');
     else if (a === 'side') { ls.sideOff = !ls.sideOff; lsSave(); const g = $('pzGrid'); if (g) g.classList.toggle('side-off', !!ls.sideOff); drawSide(); }
-    else if (a === 'layout') openLayout(); else if (a === 'add-ver') {
+    else if (a === 'layout') openLayout();
+    else if (a === 'discard') {
+      if (!(await uiConfirm('Descartar as alterações não salvas e voltar ao mapa salvo na planilha?', { ok: 'Descartar' }))) return;
+      if (ls.drafts) { delete ls.drafts[`${st.date}|${st.turno}`]; lsSave(); }
+      st.ver = 0; loadMap(); drawMapa(); ui.toast('Voltou ao mapa salvo.');
+    }
+    else if (a === 'versions') openVersions();
+    else if (a === 'add-ver') {
       st.map.versions.push({ from: nowHm(), slots: clone(cur().slots) });
       st.ver = st.map.versions.length - 1; st.undo = null; touch(); drawMapa();
       ui.toast('Mudança criada com o horário de agora: ajuste o horário e quem mudou de função.');
@@ -637,15 +956,14 @@ window.Piso = (() => {
       st.map.versions.splice(st.ver, 1); st.ver = 0; touch(); drawMapa();
     } else if (a === 'rodizio') {
       const vazio = !slotsOf(st.map.layout, cur()).some(s => cur().slots[s.key] && !st.locks.has(s.key));
-      if (await uiConfirm(vazio
-        ? `Preencher o mapa com o rodízio? Entram as pessoas que trabalharam no turno ${st.turno} nos últimos ${HIST_DAYS} dias, cada uma numa função diferente das que fez. Depois confira quem veio hoje.`
-        : `Fazer o rodízio desta mudança? As pessoas do mapa vão para funções diferentes das que fizeram nos últimos ${HIST_DAYS} dias. Vagas com 🔒 ficam como estão.`)) rodizio();
+      // A confirmação é a própria revisão do sexo (lista de quem entra no rodízio).
+      void vazio; rodizio();
     } else if (a === 'intervalo') { intervalo();
     } else if (a === 'undo') { if (st.undo) { cur().slots = st.undo; st.undo = null; touch(); drawMapa(); } }
     else if (a === 'copy-last') {
       const last = baseOn() ? B().mapaList().filter(r => r.turno === st.turno && `${r.date}|${r.turno}` !== `${st.date}|${st.turno}`).pop() : null;
       if (!last) return ui.toast(`Nenhum mapa salvo do turno ${st.turno} para copiar.`, true);
-      st.map = { layout: clone(last.map.layout), versions: [{ from: '', slots: clone(sortedVers(last.map).pop().slots) }] };
+      st.map = { layout: clone(last.map.layout), xptDest: clone(last.map.xptDest || {}), versions: [{ from: '', slots: clone(sortedVers(last.map).pop().slots) }] };
       st.ver = 0; touch(); drawMapa();
       ui.toast(`Copiado o mapa de ${brShort(last.date)} (última mudança). Ajuste e salve.`);
     }
@@ -658,12 +976,22 @@ window.Piso = (() => {
       if (t.id === 'pzTurno') { st.turno = t.value; ls.turno = t.value; lsSave(); }
       st.ver = 0; loadMap(); st.loadedKey = `${st.date}|${st.turno}`; drawMapa(); return;
     }
+    if (d.bmove != null && t.value) {
+      const from = d.bmove, to = t.value === '__out' ? '' : t.value;
+      bMove(st.bf, boardAll(st.bf).filter(x => x.to === from && (to !== '' || !x.sug)).map(x => x.n), to); st.bsel.clear(); drawMapa(); return;
+    }
+    if (t.id === 'pzBT') { st.bt = t.value; return; }
+    if (d.xptd) { const val = t.value.trim().toUpperCase(); if (val) xptDest()[d.xptd] = val; else delete xptDest()[d.xptd]; t.value = val; touch(); return; }
+    if (t.id === 'pzAuto') { ls.autoVer = t.checked; lsSave(); drawMapa(); return; }
+    if (t.id === 'pzMT') { st.mt = t.value; return; }
     if (t.id === 'pzFrom') { if (st.ver === 0) return; cur().from = t.value; touch(); drawMapa(); return; }
     if (d.slot) { setSlot(t, d.slot); return; }
   }
   // Colocar alguém numa vaga. Se a pessoa já está em outra vaga desta mudança, pergunta se é para tirar de lá.
   async function setSlot(input, key) {
-    const v = cur(), name = canon(input.value), prev = v.slots[key] || '';
+    const name = canon(input.value), prev = cur().slots[key] || '';
+    if (nk(name) === nk(prev)) { input.value = prev; return; }
+    const { v, created } = editVersion();
     if (name && !isDw(name)) {
       const other = Object.keys(v.slots).filter(k => k !== key && v.slots[k] && nk(v.slots[k]) === nk(name));
       if (other.length) {
@@ -671,13 +999,15 @@ window.Piso = (() => {
         const r = await modal('Colaborador já está em outra função', `<p><b>${esc(name)}</b> está em <b>${esc(where)}</b> nesta mudança (${esc(verLabel(v))}).</p>
           <p class="muted">Deseja retirá-lo de lá e colocar aqui? Se a troca é só a partir de um horário, cancele e use <b>+ Mudança</b>.</p>`,
           [['cancel', 'Cancelar', 'btn-ghost'], ['keep', 'Manter nas duas', 'btn-ghost'], ['move', 'Retirar de lá', 'btn-primary solid']]);
-        if (r.btn === 'cancel') { input.value = prev; return; }
+        if (r.btn === 'cancel') { input.value = prev; if (created) { st.map.versions.pop(); st.ver = st.map.versions.length - 1; drawMapa(); } return; }
         if (r.btn === 'move') other.forEach(k => { delete v.slots[k]; const el = document.querySelector(`[data-slot="${k}"]`); if (el) el.value = ''; });
       }
     }
     if (name) v.slots[key] = name; else delete v.slots[key];
-    input.value = name; touch(); drawSide();
-    const s = document.querySelector('.pz-state'); if (s) { s.className = 'pz-state warn'; s.textContent = '● Alterações não salvas'; }
+    const wasDirty = st.dirty;
+    input.value = name; touch();
+    // Primeira alteração ou mudança nova: redesenha; depois, só o painel lateral.
+    if (!wasDirty || created) { drawMapa(); if (created) ui.toast(`Alteração registrada na mudança das ${cur().from}.`); } else drawSide();
   }
   function onMapaInput(e) {
     if (e.target.id !== 'pzFree') return;
@@ -686,11 +1016,12 @@ window.Piso = (() => {
   }
 
   // ================= Erros de piso =================
-  const se = { date: todayIso(), turno: st.turno, tipo: ls.tipo === 'etiq' ? 'etiq' : 'sort', code: '', rota: '', time: '', recv: '', classe: '', busy: false, spxMsg: '',
+  const se = { date: todayIso(), turno: st.turno, tipo: ['etiq', 'xpt'].includes(ls.tipo) ? ls.tipo : 'sort', code: '', rota: '', time: '', recv: '', classe: '', busy: false, spxMsg: '',
     cats: new Set(Array.isArray(ls.cats) ? ls.cats : []) };
   // Categoria do erro: sorting, etiquetagem, backlog (bipado antes da janela) ou não recebido (depois da janela / nunca).
-  const CATS = { sort: ['Sorting', 'warn'], etiq: ['Etiquetagem', 'info'], backlog: ['Backlog', 'neutral'], naorec: ['Não recebido', 'bad'] };
-  const catOf = x => (x.tipo === 'sort' ? 'sort' : x.detail && (x.detail.classe === 'backlog' || x.detail.classe === 'naorec') ? x.detail.classe : 'etiq');
+  const CATS = { sort: ['Sorting', 'warn'], etiq: ['Etiquetagem', 'info'], xpt: ['XPT', 'good'], backlog: ['Backlog', 'neutral'], naorec: ['Não recebido', 'bad'] };
+  const semResp = x => ['backlog', 'naorec', 'semjanela'].includes(x.detail && x.detail.classe);   // não procura etiquetador
+  const catOf = x => (x.tipo === 'sort' ? 'sort' : x.tipo === 'xpt' ? 'xpt' : x.detail && (x.detail.classe === 'backlog' || x.detail.classe === 'naorec') ? x.detail.classe : 'etiq');
   // Observação do erro: a gravada (busca no SPX, motivo de não ter responsável) ou, nos registros antigos, o motivo
   // calculado agora a partir do mapa.
   const obsOf = x => {
@@ -699,7 +1030,9 @@ window.Piso = (() => {
     if (x.tipo === 'etiq' && !(x.detail && x.detail.recebeu) && !['backlog', 'naorec'].includes(x.detail && x.detail.classe)) return 'Operador do SPX ainda não buscado (sem Sessão SPX no registro).';
     return respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time: x.time, recv: x.detail.recebeu, classe: x.detail.classe }).note || '';
   };
-  const janela = () => (window.APP_CONFIG && window.APP_CONFIG.RECEB_JANELA) || { inicio: '22:00', fim: '05:30' };
+  // Janela de recebimento do turno (config RECEB_JANELAS). null = turno sem janela (etiquetagem sem etiquetador).
+  const janelaDe = turno => { const J = (window.APP_CONFIG && window.APP_CONFIG.RECEB_JANELAS) || { AM: { inicio: '22:00', fim: '05:30' } }; return J[turno] || null; };
+  const janTxt = w => (w ? `${w.inicio}${w.inicio > w.fim ? ' da véspera' : ''} às ${w.fim}` : 'sem janela');
   const rotaLetra = r => { const m = String(r || '').toUpperCase().trim().match(/^([A-Z]{1,2})\s*-?\s*\d*/); return m ? m[1] : ''; };
   const mapOfDay = (iso, turno) => (baseOn() ? B().mapaGet(iso, turno) : null);
 
@@ -707,18 +1040,28 @@ window.Piso = (() => {
   // e: { date, turno, tipo: 'sort' | 'etiq', rota, time, recv }
   function respFor(e) {
     // Backlog / não recebido não dependem do mapa: não há etiquetador do turno.
-    if (e.tipo !== 'sort' && e.classe === 'backlog') return { resp: [], classe: 'backlog', note: `Backlog: o pacote foi bipado antes das ${janela().inicio} da véspera — sem etiquetador do turno.` };
-    if (e.tipo !== 'sort' && e.classe === 'naorec') return { resp: [], classe: 'naorec', note: `Não recebido: o pacote não foi bipado entre ${janela().inicio} da véspera e ${janela().fim}.` };
+    const J = janelaDe(e.turno);
+    if (e.tipo === 'etiq' && (e.classe === 'semjanela' || !J)) return { resp: [], classe: 'semjanela', note: `O turno ${e.turno} não tem janela de recebimento: erro de etiquetagem sem etiquetador.` };
+    if (e.tipo === 'etiq' && e.classe === 'backlog') return { resp: [], classe: 'backlog', note: `Backlog: o pacote foi bipado antes da janela de recebimento do turno ${e.turno} (${janTxt(J)}) — sem etiquetador do turno.` };
+    if (e.tipo === 'etiq' && e.classe === 'naorec') return { resp: [], classe: 'naorec', note: `Não recebido: o pacote não foi bipado na janela de recebimento do turno ${e.turno} (${janTxt(J)}).` };
     const rec = mapOfDay(e.date, e.turno);
     if (!rec) return { resp: [], note: `Sem mapa de piso salvo para ${brShort(e.date)} · ${e.turno}.` };
     const v = versionAt(rec.map, e.time), slots = slotsOf(rec.map.layout, v);
     const at = `mapa ${verLabel(v)}`;
+    if (e.tipo === 'xpt') {
+      // XPT: quem estava na vaga daquele XPT no turno (ou, sem ninguém no turno, em qualquer turno do dia).
+      if (!e.rota) return { resp: [], note: 'Informe o XPT do pacote (ex.: XPT-JRU-01).' };
+      let resp = xptWho(e.date, e.rota, e.turno), onde = `turno ${e.turno}`;
+      if (!resp.length) { resp = xptWho(e.date, e.rota); onde = 'dia'; }
+      return { resp, note: resp.length ? `Quem bipava o ${e.rota} no ${onde} (vaga XPT do mapa de piso).` : `Ninguém com o ${e.rota} no mapa de piso de ${brShort(e.date)}.` };
+    }
     if (e.tipo === 'sort') {
       const l = rotaLetra(e.rota);
       if (!l) return { resp: [], note: 'Informe a rota do pacote (ex.: C-12).' };
       // Todos que passaram pelo 2º Sorting ou pela Auditoria da letra em qualquer mudança do turno.
       const seen = new Map();
       rec.map.versions.forEach(x => ['s2', 'aud'].forEach(f => listKeys(x, f, l).forEach(k => { const n = x.slots[k]; if (n && !seen.has(nk(n))) seen.set(nk(n), n); })));
+      ['s2', 'aud'].forEach(f => ((rec.map.board || {})[f] || []).forEach(e => { if (e.to === l && !seen.has(nk(e.n))) seen.set(nk(e.n), e.n); }));
       const resp = [...seen.values()];
       return { resp, letra: l, verFrom: '', note: resp.length ? `Possíveis responsáveis: todos que passaram pelo 2º Sorting ou pela Auditoria da letra ${l} no turno (${rec.map.versions.length} mudança(s)).` : `Ninguém no 2º Sorting nem na Auditoria da letra ${l} no turno.` };
     }
@@ -734,16 +1077,20 @@ window.Piso = (() => {
       note: resp.length ? `Quem etiquetava na ${banc} de ${v.slots[mine.key]} (${at}).` : `${banc} de ${v.slots[mine.key]} sem ninguém na etiquetagem (${at}).` };
   }
   const responsaveis = () => respFor(se);
+  // XPTs do mapa de piso de um dia (todas as vagas e turnos).
+  const xptOfDay = iso => [...new Set((baseOn() ? B().mapaList() : []).filter(r => r.date === iso && r.map).flatMap(r => Object.values(r.map.xptDest || {})).filter(Boolean))].sort();
   // Quem recebeu o pacote no hub, pelo rastreio do SPX (só no PC, com a Sessão SPX ativa).
   // Só vale o operador que bipou dentro da janela (22:00 da véspera até 05:30 do dia do erro):
   // antes = backlog; depois ou nunca = não recebido (nos dois casos não há etiquetador do turno).
-  async function lookupReceiver(code, dayIso) {
+  async function lookupReceiver(code, dayIso, turno) {
+    const J = janelaDe(turno);
+    if (!J) return { classe: 'semjanela', name: '', raw: '', time: '', day: '' };   // turno sem janela: não consulta o SPX
     if (!(api() && api().parcelTrack)) return { error: 'A busca no SPX só funciona no app do computador.' };
     if (!(await window.SpxSession.has())) return { error: 'Sem Sessão SPX.', noSession: true };
     try {
       const r = await api().parcelTrack(code);
       if (!r.ok) return { error: r.error || 'Falha na consulta.' };
-      const w = PC.receiverInWindow(r.data, dayIso, janela(), (window.APP_CONFIG && window.APP_CONFIG.PARCEL) || {});
+      const w = PC.receiverInWindow(r.data, dayIso, J, (window.APP_CONFIG && window.APP_CONFIG.PARCEL) || {});
       const day = w.ts ? new Date(w.ts * 1000).toLocaleDateString('sv-SE', { timeZone: TZ }) : '';
       return { classe: w.classe, name: w.classe === 'etiq' ? canon(w.name) : '', raw: w.name || '', time: w.ts ? hmOf(w.ts) : '', day };
     } catch (e) { return { error: 'Falha na consulta.' }; }
@@ -761,7 +1108,13 @@ window.Piso = (() => {
     const recMap = mapOfDay(se.date, se.turno);
     const recNames = recMap ? [...new Set(recMap.map.versions.flatMap(v => Object.entries(v.slots).filter(([k]) => funcOf(k) === 'rec').map(([, n]) => n)))] : [];
     const today = (baseOn() ? B().erroList() : []).filter(x => x.date === se.date && x.turno === se.turno).reverse();
-    m.innerHTML = ui.head('Erros de piso', 'Sorting e etiquetagem · responsáveis pelo mapa de piso') + `
+    const tabs = subTabs([['reg', 'Registro do turno'], ['ana', 'Análise do período']], ls.eview === 'ana' ? 'ana' : 'reg', 'data-pe-view');
+    if (ls.eview === 'ana') {
+      m.innerHTML = ui.head('Erros de piso', 'Análise do período · filtro do topo') + tabs + '<div id="peAnal"></div>';
+      drawAnalise();
+      return;
+    }
+    m.innerHTML = ui.head('Erros de piso', 'Sorting e etiquetagem · responsáveis pelo mapa de piso') + tabs + `
       ${baseOn() ? '' : '<div class="au-demo">Para registrar erros é preciso entrar com a conta Google (planilha-base).</div>'}
       <div class="au-bar pz-bar">
         <label>Dia <input type="date" id="peDate" value="${se.date}"></label>
@@ -770,11 +1123,15 @@ window.Piso = (() => {
         <div class="au-bar-right"><button class="btn-primary solid" data-pe="kiosk" ${baseOn() ? '' : 'disabled'} title="Tela cheia para os colaboradores registrarem os erros (sem mostrar responsáveis)">🖥 Modo registro (tela cheia)</button></div>
       </div>
       <div class="grid">
-        <section class="card"><div class="card-head"><div><div class="card-title">Registrar erro</div><div class="card-sub">Durante a operação, quando o erro aparece</div></div></div>
+        <section class="card w12"><div class="card-head"><div><div class="card-title">Registrar erro</div><div class="card-sub">Durante a operação, quando o erro aparece</div></div></div>
           <div class="pe-form">
-            <div class="chips">${[['sort', 'Erro de sorting'], ['etiq', 'Erro de etiquetagem']].map(([k, l]) => `<button class="chip ${se.tipo === k ? 'active' : ''}" data-pe-tipo="${k}">${l}</button>`).join('')}</div>
+            <div class="chips">${[['sort', 'Erro de sorting'], ['etiq', 'Erro de etiquetagem'], ['xpt', 'Erro de XPT']].map(([k, l]) => `<button class="chip ${se.tipo === k ? 'active' : ''}" data-pe-tipo="${k}">${l}</button>`).join('')}</div>
             <label>Código do pacote (BR) <input id="peCode" type="text" value="${esc(se.code)}" placeholder="BR264457056294A" autocomplete="off"></label>
-            ${se.tipo === 'sort' ? `
+            ${se.tipo === 'xpt' ? `
+              <label>XPT do pacote <input id="peRota" list="peXptList" type="text" value="${esc(se.rota)}" placeholder="XPT-JRU-01" autocomplete="off"></label>
+              <datalist id="peXptList">${xptOfDay(se.date).map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+              <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
+              <div class="muted small">Pacote do XPT com erro (principalmente o que foi sem bipar): o responsável é quem estava na vaga desse XPT no mapa de piso.</div>` : se.tipo === 'sort' ? `
               <label>Rota certa do pacote <input id="peRota" type="text" value="${esc(se.rota)}" placeholder="C-12" autocomplete="off"></label>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
               <div class="muted small">O pacote foi para a gaiola errada: os possíveis responsáveis são todos que passaram pelo 2º Sorting ou pela Auditoria da letra da rota no turno (em qualquer mudança do mapa).</div>` : `
@@ -789,21 +1146,30 @@ window.Piso = (() => {
             <div class="pe-resp ${r.resp.length ? 'ok' : ''}"><b>${r.resp.length ? r.resp.map(esc).join(', ') : 'Sem responsável definido'}</b><div class="muted small">${esc(r.note)}</div></div>
             <button class="btn-primary solid" data-pe="save" ${baseOn() && se.code.trim() ? '' : 'disabled'}>Salvar erro</button>
           </div></section>
-        <section class="card"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div>
-          ${today.some(x => !x.resp.length && catOf(x) !== 'backlog' && catOf(x) !== 'naorec') ? `<div class="card-tools"><button class="tool" data-pe="fixall" ${se.fixing ? 'disabled' : ''} title="Busca o responsável de todos os erros do turno que estão sem responsável">${se.fixing ? `Buscando… ${se.fixing.done}/${se.fixing.total}` : `🔎 Buscar responsáveis (${today.filter(x => !x.resp.length && catOf(x) !== 'backlog' && catOf(x) !== 'naorec').length})`}</button></div>` : ''}</div>
+        <section class="card w12"><div class="card-head"><div><div class="card-title">Erros do turno</div><div class="card-sub">${brShort(se.date)} · ${se.turno} · ${today.length} erro(s)</div></div>
+          ${today.some(x => !x.resp.length && !semResp(x)) ? `<div class="card-tools"><button class="tool" data-pe="fixall" ${se.fixing ? 'disabled' : ''} title="Busca o responsável de todos os erros do turno que estão sem responsável">${se.fixing ? `Buscando… ${se.fixing.done}/${se.fixing.total}` : `🔎 Buscar responsáveis (${today.filter(x => !x.resp.length && !semResp(x)).length})`}</button></div>` : ''}</div>
           ${today.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Hora</th><th class="left">Tipo</th><th class="left">Pacote</th><th class="left">Gaiola</th><th class="left">Operador SPX</th><th class="left">Etiquetador</th><th class="left">Observação</th><th></th></tr></thead><tbody>
             ${today.map(x => { const c = catOf(x), dash = '<span class="muted">—</span>'; return `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${CATS[c][1]}">${CATS[c][0]}</span>${x.detail.origem === 'quiosque' ? ' <span class="muted small">· registro</span>' : ''}</td>
-              <td class="left pc-code">${esc(x.code)}</td><td class="left">${x.tipo === 'sort' ? `<b>${esc(x.rota)}</b>` : dash}</td>
-              <td class="left">${x.tipo === 'sort' ? dash : esc(x.detail.recebeu || x.detail.operadorSpx || '') || dash}</td>
-              <td class="left">${c === 'backlog' || c === 'naorec' ? dash : x.resp.length ? (x.tipo === 'sort' ? `<span class="muted small">sorting/auditoria:</span> ${x.resp.map(esc).join(', ')}` : x.resp.map(esc).join(', ')) : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca o operador no SPX e quem estava no mapa">Buscar responsável</button>`}</td>
+              <td class="left pc-code">${esc(x.code)}</td><td class="left">${x.tipo !== 'etiq' ? `<b>${esc(x.rota)}</b>` : dash}</td>
+              <td class="left">${x.tipo !== 'etiq' ? dash : esc(x.detail.recebeu || x.detail.operadorSpx || '') || dash}</td>
+              <td class="left">${c === 'backlog' || c === 'naorec' || semResp(x) ? dash : x.resp.length ? (x.tipo === 'sort' ? `<span class="muted small">sorting/auditoria:</span> ${x.resp.map(esc).join(', ')}` : x.tipo === 'xpt' ? `<span class="muted small">XPT:</span> ${x.resp.map(esc).join(', ')}` : x.resp.map(esc).join(', ')) : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca o operador no SPX e quem estava no mapa">Buscar responsável</button>`}</td>
               <td class="left pc-obs pe-obs">${esc(obsOf(x)) || dash}</td>
               <td><button class="tool danger" data-pe-del="${esc(x.id)}" title="Excluir este registro">Excluir</button></td></tr>`; }).join('')}
           </tbody></table></div>` : ui.empty('Nenhum erro registrado neste turno.')}</section>
-      </div>
-      <div class="section-sub pc-sec">Análise do período</div>
-      <div id="peAnal"></div>`;
-    drawAnalise();
+      </div>`;
   }
+
+  // Volume recebido por dia (planilhas conectadas), para a taxa de erros por mil pacotes.
+  function volumeByIso() {
+    const m = ui.model(), out = new Map();
+    if (!m || !m.dates) return out;
+    m.dates.forEach((d, i) => { const v = m.rec && m.rec.total ? m.rec.total[i] : null; if (v) out.set(d.split('/').reverse().join('-'), v); });
+    return out;
+  }
+  // Nome curto para gráficos: primeiro e último nome (sem "da", "de", "dos"…). O nome completo fica nas tabelas.
+  const shortName = n => { const t = String(n || '').trim().split(/\s+/).filter(w => !/^(d[aeo]s?|e)$/i.test(w)); return t.length > 2 ? `${t[0]} ${t[t.length - 1]}` : t.join(' '); };
+  const countBy = (list, get) => { const m = new Map(); list.forEach(x => { const k = get(x); if (k) m.set(k, (m.get(k) || 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'pt-BR', { numeric: true })); };
+  const top10 = arr => { const h = arr.slice(0, 10), r = arr.slice(10).reduce((s, [, n]) => s + n, 0); return r ? [...h, ['Outros', r]] : h; };
 
   function drawAnalise() {
     const el = $('peAnal');
@@ -811,57 +1177,227 @@ window.Piso = (() => {
     const rg = ui.range();
     const all = (baseOn() ? B().erroList() : []).filter(x => x.date >= rg.from && x.date <= rg.to);
     const per = rg.from === rg.to ? brShort(rg.from) : `${brShort(rg.from)} a ${brShort(rg.to)}`;
+    if (!baseOn()) { el.innerHTML = ui.empty('A análise usa a planilha-base: entre com a conta Google.'); return; }
     if (!all.length) { el.innerHTML = ui.empty(`Nenhum erro registrado em ${per}. Mude o período no filtro do topo para ver outros dias.`); return; }
     // Filtro por tipo (vários ao mesmo tempo; nenhum = todos). Fica salvo no aparelho.
     const list = all.filter(x => !se.cats.size || se.cats.has(catOf(x)));
     const n = c => list.filter(x => catOf(x) === c).length;
     const chips = `<div class="pc-filters pe-cats"><button class="chip ${se.cats.size ? '' : 'active'}" data-pe-cat="all">Todos</button>
       ${Object.entries(CATS).map(([k, [l]]) => `<button class="chip ${se.cats.has(k) ? 'active' : ''}" data-pe-cat="${k}">${l} <b>${all.filter(x => catOf(x) === k).length}</b></button>`).join('')}</div>`;
+    if (!list.length) { el.innerHTML = chips + ui.empty('Nenhum erro desse tipo no período.'); return; }
+
+    // Pessoas (sorting: possíveis; etiquetagem: etiquetador). Diaristas ficam fora do ranking.
     const ppl = new Map();
-    list.filter(x => catOf(x) === 'sort' || catOf(x) === 'etiq').forEach(x => x.resp.filter(nm => !isDw(nm)).forEach(nm => {
-      const k = nk(nm), o = ppl.get(k) || { nome: nm, sort: 0, etiq: 0, days: new Set() };
-      o[catOf(x)]++; o.days.add(x.date); ppl.set(k, o);
+    list.filter(x => ['sort', 'etiq', 'xpt'].includes(catOf(x))).forEach(x => x.resp.filter(nm => !isDw(nm)).forEach(nm => {
+      const k = nk(nm), o = ppl.get(k) || { nome: nm, sort: 0, etiq: 0, xpt: 0, days: new Set(), turnos: new Set() };
+      o[catOf(x)]++; o.days.add(x.date); o.turnos.add(x.turno); ppl.set(k, o);
     }));
-    const rows = [...ppl.values()].sort((a, b) => (b.sort + b.etiq) - (a.sort + a.etiq) || a.nome.localeCompare(b.nome, 'pt-BR'));
+    const rows = [...ppl.values()].sort((a, b) => (b.sort + b.etiq + b.xpt) - (a.sort + a.etiq + a.xpt) || a.nome.localeCompare(b.nome, 'pt-BR'));
     const days = [...new Set(list.map(x => x.date))].sort();
-    const byL = new Map(); list.filter(x => x.tipo === 'sort').forEach(x => { const l = x.detail.letra || rotaLetra(x.rota) || '?'; byL.set(l, (byL.get(l) || 0) + 1); });
-    const letras = [...byL.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    el.innerHTML = chips + (!list.length ? ui.empty('Nenhum erro desse tipo no período.') : `<div class="kpis">${[
-        ui.kpi('Erros', H.fmt.int(list.length), [`<span>${per}</span>`]),
-        ui.kpi('Sorting', H.fmt.int(n('sort')), ['<span>gaiola errada</span>']),
-        ui.kpi('Etiquetagem', H.fmt.int(n('etiq')), ['<span>etiqueta errada</span>']),
-        ui.kpi('Backlog', H.fmt.int(n('backlog')), [`<span>bipado antes das ${janela().inicio}</span>`]),
-        ui.kpi('Não recebido', H.fmt.int(n('naorec')), [`<span>sem bipe até ${janela().fim}</span>`]),
-        ui.kpi('Pessoas envolvidas', H.fmt.int(rows.length), ['<span>sorting e etiquetagem</span>']),
+    const vol = volumeByIso();
+    const volPer = days.reduce((s2, d) => s2 + (vol.get(d) || 0), 0);
+    const comResp = list.filter(x => ['sort', 'etiq', 'xpt'].includes(catOf(x)) && x.resp.length).length;
+    const resolviveis = list.filter(x => ['sort', 'etiq', 'xpt'].includes(catOf(x))).length;
+    const pend = list.filter(x => ['sort', 'etiq', 'xpt'].includes(catOf(x)) && !x.resp.length).length;
+    const byTurno = countBy(list, x => x.turno);
+    const byHora = new Map(); list.forEach(x => { const h = (x.time || '').slice(0, 2); if (/^\d\d$/.test(h)) byHora.set(h, (byHora.get(h) || 0) + 1); });
+    const horas = [...byHora.keys()].sort();
+    const byLetra = countBy(list.filter(x => x.tipo === 'sort'), x => x.detail.letra || rotaLetra(x.rota));
+    const byBancada = countBy(list.filter(x => catOf(x) === 'etiq'), x => x.detail.posto || '');
+    const byRota = countBy(list.filter(x => x.tipo === 'sort'), x => x.rota);
+    const byOperador = countBy(list.filter(x => x.tipo !== 'sort'), x => x.detail.recebeu || x.detail.operadorSpx || '');
+    const byOrigem = countBy(list, x => (x.detail.origem === 'quiosque' ? 'Modo registro (tela cheia)' : 'Líder (formulário)'));
+    const media = list.length / Math.max(1, days.length);
+    const taxa = volPer ? list.length / volPer * 1000 : null;
+
+    el.innerHTML = chips + `<div class="kpis">${[
+        ui.kpi('Erros no período', H.fmt.int(list.length), [`<span>${per} · média ${H.fmt.dec(media, 1)}/dia</span>`]),
+        ui.kpi('Por mil pacotes', taxa != null ? H.fmt.dec(taxa, 2) : '—', [taxa != null ? `<span>${H.fmt.int(volPer)} pacotes recebidos nos dias com erro</span>` : '<span>sem volume das planilhas nesses dias</span>']),
+        ui.kpi('Sorting / Etiquetagem', `${n('sort')} / ${n('etiq')}`, ['<span>gaiola errada / etiqueta errada</span>']),
+        ui.kpi('Backlog / Não recebido', `${n('backlog')} / ${n('naorec')}`, ['<span>fora da janela de recebimento do turno</span>']),
+        ui.kpi('Com responsável', resolviveis ? H.fmt.pct(comResp / resolviveis, 0) : '—', [pend ? `<span class="pill warn">${pend} sem responsável</span>` : '<span class="pill good">✓ todos com responsável</span>']),
+        ui.kpi('Pessoas envolvidas', H.fmt.int(rows.length), [rows[0] ? `<span>mais citada: ${esc(rows[0].nome)} (${rows[0].sort + rows[0].etiq + rows[0].xpt})</span>` : '']),
       ].join('')}</div>
       <div class="grid">
         ${ui.card('peCh1', 'Erros por dia', 'Por tipo', { w: 8 })}
-        ${ui.card('peCh2', 'Sorting por letra', 'Letra da rota do pacote', { w: 4 })}
+        ${ui.card('peCh3', 'Por turno', 'Erros de cada turno', { w: 4 })}
+        ${ui.card('peCh4', 'Por hora', 'Horário do erro (no sorting) ou do bipe (etiquetagem)', { w: 6 })}
+        ${ui.card('peCh5', 'Taxa por dia', 'Erros por mil pacotes recebidos', { w: 6 })}
+        ${ui.card('peCh2', 'Sorting por letra', 'Letra da gaiola certa do pacote', { w: 6 })}
+        ${ui.card('peCh6', 'Etiquetagem por bancada', 'Bancada de quem bipou o pacote', { w: 6 })}
+        ${ui.card('peCh7', 'Pessoas com mais erros', 'Sorting (possível) e etiquetagem · nome completo na tabela "Pessoas"', { w: 12, h: 'tall' })}
+        ${ui.card('', 'Gaiolas com mais erros de sorting', `${byRota.length} gaiola(s)`, { w: 4, body: byRota.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Gaiola</th><th>Erros</th></tr></thead><tbody>
+          ${byRota.slice(0, 15).map(([k, v]) => `<tr><td class="left"><b>${esc(k)}</b></td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ui.empty('Sem erros de sorting.') })}
+        ${ui.card('', 'Operadores SPX dos pacotes com erro', 'Quem bipou (etiquetagem, backlog, não recebido)', { w: 4, body: byOperador.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Operador</th><th>Pacotes</th></tr></thead><tbody>
+          ${byOperador.slice(0, 15).map(([k, v]) => `<tr><td class="left">${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ui.empty('Sem operador registrado.') })}
+        ${ui.card('', 'Origem dos registros', 'Quem registrou', { w: 4, body: `<div class="table-wrap"><table class="pc-table"><tbody>${byOrigem.map(([k, v]) => `<tr><td class="left">${esc(k)}</td><td><b>${v}</b></td><td>${H.fmt.pct(v / list.length, 0)}</td></tr>`).join('')}</tbody></table></div>` })}
         ${ui.card('', 'Pessoas', 'Sorting: todos que passaram pelo 2º Sorting ou pela Auditoria da letra no turno · Etiquetagem: quem estava na vaga Etiqueta da bancada', { w: 12,
           tools: '<button class="tool" data-pe="recalc" title="Refaz os responsáveis do período com as regras atuais">Recalcular responsáveis</button><button class="tool" data-pe="copy">Copiar lista</button>',
-          body: rows.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>Total</th><th>Dias</th></tr></thead><tbody>
-            ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td><b>${o.sort + o.etiq}</b></td><td>${o.days.size}</td></tr>`).join('')}
+          body: rows.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>XPT</th><th>Total</th><th>Dias</th><th>Turnos</th></tr></thead><tbody>
+            ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td>${o.xpt}</td><td><b>${o.sort + o.etiq + o.xpt}</b></td><td>${o.days.size}</td><td class="left">${[...o.turnos].sort().join(', ')}</td></tr>`).join('')}
           </tbody></table></div>` : ui.empty('Nenhuma pessoa nos tipos filtrados.') })}
-      </div>`);
-    if (!list.length) return;
-    const colors = { sort: H.color(1), etiq: H.color(2), backlog: H.color(4), naorec: H.css('--bad') };
-    H.render('peCh1', { labels: days.map(H.dayLabel), stacked: true, totals: true, datasets: Object.keys(CATS).filter(c => n(c)).map(c =>
+      </div>`;
+    const colors = { sort: H.color(1), etiq: H.color(2), xpt: H.color(5), backlog: H.color(4), naorec: H.css('--bad') };
+    const cats = Object.keys(CATS).filter(c => n(c));
+    H.render('peCh1', { labels: days.map(H.dayLabel), stacked: true, totals: true, datasets: cats.map(c =>
       H.bar(CATS[c][0], days.map(d => list.filter(x => x.date === d && catOf(x) === c).length || null), colors[c])) });
-    H.render('peCh2', { labels: letras.map(x => x[0]), legend: false, datasets: [H.bar('Erros', letras.map(x => x[1]), H.color(1))] });
+    const turnos = TURNOS.filter(t => byTurno.some(([k]) => k === t));
+    H.render('peCh3', { labels: turnos, stacked: true, datasets: cats.map(c => H.bar(CATS[c][0], turnos.map(t => list.filter(x => x.turno === t && catOf(x) === c).length || null), colors[c])) });
+    H.render('peCh4', { labels: horas.map(h => `${h}h`), stacked: true, datasets: cats.map(c => H.bar(CATS[c][0], horas.map(h => list.filter(x => (x.time || '').startsWith(h) && catOf(x) === c).length || null), colors[c])) });
+    H.render('peCh5', { labels: days.map(H.dayLabel), legend: false, yFormat: v => H.fmt.dec(v, 1), datasets: [
+      H.bar('Erros por mil', days.map(d => (vol.get(d) ? +(list.filter(x => x.date === d).length / vol.get(d) * 1000).toFixed(2) : null)), H.color(3))] });
+    H.render('peCh2', { labels: byLetra.map(x => x[0]).sort(), legend: false, datasets: [H.bar('Erros', byLetra.map(x => x[0]).sort().map(l => (byLetra.find(y => y[0] === l) || [, 0])[1]), H.color(1))] });
+    const bb = top10(byBancada);
+    H.render('peCh6', { labels: bb.map(x => x[0].replace(/^.* · /, '')), horizontal: true, legend: false, datasets: [H.bar('Erros', bb.map(x => x[1]), H.color(2))] });
+    const tp = rows.slice(0, 10);
+    H.render('peCh7', { labels: tp.map(o => shortName(o.nome)), horizontal: true, stacked: true, datasets: [H.bar('Sorting', tp.map(o => o.sort || null), H.color(1)), H.bar('Etiquetagem', tp.map(o => o.etiq || null), H.color(2)), H.bar('XPT', tp.map(o => o.xpt || null), H.color(5))] });
     st.copyRows = rows; st.copyPer = per;
+  }
+
+  // ---------- Dashboard dos mapas salvos ----------
+  // Para cada mapa salvo no período: quem fez cada função (vagas de todas as mudanças + quadro do 2º Sorting/Auditoria),
+  // diaristas, intervalos e cobertura das vagas.
+  function mapaFacts(r) {
+    const funcs = new Map(), first = new Map();
+    let dw = 0, intv = new Set();
+    const add = (name, f) => {
+      if (!name || f === 'int') return;
+      if (isDw(name)) return;
+      const k = nk(name);
+      if (!funcs.has(k)) funcs.set(k, { n: name, f: new Set() });
+      funcs.get(k).f.add(f);
+      if (!first.has(k)) first.set(k, f);
+    };
+    sortedVers(r.map).forEach(v => {
+      Object.entries(v.slots || {}).forEach(([k, n]) => { if (k.startsWith('int.')) { if (n) intv.add(nk(n)); } else add(n, funcOf(k)); });
+      dw = Math.max(dw, Object.values(v.slots || {}).filter(n => n && isDw(n)).length);
+    });
+    const b = r.map.board || {};
+    ['s2', 'aud'].forEach(f => (b[f] || []).forEach(e => {
+      if (e.to === 'int') intv.add(nk(e.n));
+      else if (e.to && e.to !== 'pool') add(e.n, f);
+    }));
+    const dwBoard = new Set(['s2', 'aud'].flatMap(f => (b[f] || []).filter(e => isDw(e.n)).map(e => nk(e.n))));
+    const v0 = r.map.versions[0] || { slots: {} };
+    const cover = {};
+    slotsOf(r.map.layout && r.map.layout.mesas ? r.map.layout : DEFAULT_LAYOUT, v0).forEach(sl => { if (sl.func === 's2' || sl.func === 'aud') return; const c = cover[sl.func] || (cover[sl.func] = [0, 0]); c[1]++; if (v0.slots[sl.key]) c[0]++; });
+    return { funcs, first, dw: dw + dwBoard.size, intv, cover };
+  }
+  // Função de cada pessoa no início do turno: vagas da mudança "Início" + onde estava no quadro do 2º Sorting /
+  // Auditoria no primeiro horário com movimento (o "Disponíveis" não conta como função).
+  function startFuncs(r) {
+    const out = new Map();
+    const v0 = sortedVers(r.map)[0] || { slots: {} };
+    Object.entries(v0.slots || {}).forEach(([k, n]) => { const f = funcOf(k); if (n && f !== 'int' && !isDw(n) && !out.has(nk(n))) out.set(nk(n), f); });
+    const b = r.map.board || {};
+    ['s2', 'aud'].forEach(f => {
+      const ev = b[f] || [];
+      if (!ev.length) return;
+      const t0 = ev.map(e => e.t || '').sort()[0];
+      bStateAt(ev, t0).forEach((x, k) => { if (x.to && x.to !== 'pool' && x.to !== 'int' && !isDw(x.n) && !out.has(k)) out.set(k, f); });
+    });
+    return out;
+  }
+  function drawMapaDash() {
+    const el = $('pzDash');
+    if (!el) return;
+    if (!baseOn()) { el.innerHTML = ui.empty('O dashboard usa os mapas salvos na planilha-base: entre com a conta Google.'); return; }
+    const rg = ui.range();
+    const FL = ['ind', 'rec', 'sort', 's2', 'aud', 'desc', 'xpt', 's5'];
+    // Filtros do dashboard (vários ao mesmo tempo; nenhum = todos), salvos no aparelho.
+    const fT = new Set(Array.isArray(ls.dTurnos) ? ls.dTurnos : []), fF = new Set(Array.isArray(ls.dFuncs) ? ls.dFuncs : []);
+    const inPer = B().mapaList().filter(r => r.date >= rg.from && r.date <= rg.to && r.map);
+    const per = rg.from === rg.to ? brShort(rg.from) : `${brShort(rg.from)} a ${brShort(rg.to)}`;
+    const chip = (attr, k, label, on, n) => `<button class="chip ${on ? 'active' : ''}" ${attr}="${k}">${label}${n != null ? ` <b>${n}</b>` : ''}</button>`;
+    const filtros = `<div class="pc-filters pd-filters">
+        <span class="pd-flabel">Turno</span>${chip('data-pd-t', 'all', 'Todos', !fT.size)}${TURNOS.map(t => chip('data-pd-t', t, t, fT.has(t), inPer.filter(r => r.turno === t).length)).join('')}
+        <span class="pd-flabel">Função</span>${chip('data-pd-f', 'all', 'Todas', !fF.size)}${FL.map(f => chip('data-pd-f', f, FUNCS[f], fF.has(f))).join('')}
+      </div>`;
+    const recs = inPer.filter(r => !fT.size || fT.has(r.turno));
+    if (!recs.length) { el.innerHTML = filtros + ui.empty(inPer.length ? 'Nenhum mapa salvo para os turnos escolhidos no período.' : `Nenhum mapa salvo em ${per}. Mude o período no filtro do topo.`); return; }
+    // Filtro de função: só conta quem fez alguma das funções escolhidas (e só essas funções).
+    const facts = recs.map(r => ({ r, ...mapaFacts(r) })).map(fa => {
+      if (!fF.size) return fa;
+      const funcs = new Map();
+      fa.funcs.forEach((v, k) => { const f = new Set([...v.f].filter(x => fF.has(x))); if (f.size) funcs.set(k, { n: v.n, f }); });
+      return { ...fa, funcs, intv: new Set([...fa.intv].filter(k => funcs.has(k))) };
+    });
+    // Pessoa × função (turnos em cada função).
+    const ppl = new Map();
+    facts.forEach(fa => fa.funcs.forEach((v, k) => {
+      const o = ppl.get(k) || { nome: v.n, turnos: 0, f: {}, int: 0 };
+      o.turnos++; v.f.forEach(f => { o.f[f] = (o.f[f] || 0) + 1; }); if (fa.intv.has(k)) o.int++;
+      ppl.set(k, o);
+    }));
+    const rows = [...ppl.values()].map(o => { const fs = Object.entries(o.f).sort((a, b) => b[1] - a[1]); return { ...o, poli: fs.length, main: fs[0] ? fs[0][0] : '', mainPct: fs[0] ? fs[0][1] / o.turnos : 0 }; })
+      .sort((a, b) => b.turnos - a.turnos || a.nome.localeCompare(b.nome, 'pt-BR'));
+    // Rodízio: função de cada pessoa no INÍCIO do turno comparada com o início do mesmo turno no dia anterior
+    // (o mapa do dia anterior pode estar fora do período do filtro; sem mapa no dia anterior, o dia não entra).
+    let comp = 0, mudou = 0;
+    const prevIso = iso => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
+    const allMaps = B().mapaList();
+    facts.forEach(fa => {
+      const prev = allMaps.find(r => r.turno === fa.r.turno && r.date === prevIso(fa.r.date) && r.map);
+      if (!prev) return;
+      const a = startFuncs(prev), b = startFuncs(fa.r);
+      b.forEach((f, k) => { const p = a.get(k); if (p && (!fF.size || fF.has(f) || fF.has(p))) { comp++; if (p !== f) mudou++; } });
+    });
+    const dates = [...new Set(recs.map(r => r.date))].sort();
+    const perFuncDay = f => dates.map(d => facts.filter(fa => fa.r.date === d).reduce((s2, fa) => s2 + [...fa.funcs.values()].filter(v => v.f.has(f)).length, 0) || null);
+    const pessoasTurno = facts.map(fa => fa.funcs.size);
+    const media = pessoasTurno.reduce((a, b) => a + b, 0) / facts.length;
+    const intTotal = facts.reduce((s2, fa) => s2 + fa.intv.size, 0), dwTotal = facts.reduce((s2, fa) => s2 + fa.dw, 0);
+    const cover = {};
+    facts.forEach(fa => Object.entries(fa.cover).forEach(([f, [a, b]]) => { const c = cover[f] || (cover[f] = [0, 0]); c[0] += a; c[1] += b; }));
+    const moves = {};
+    recs.forEach(r => ['s2', 'aud'].forEach(f => ((r.map.board || {})[f] || []).forEach(e => { if (e.to && e.to !== 'pool' && e.to !== 'int') moves[e.to] = (moves[e.to] || 0) + 1; })));
+    const letras = Object.keys(moves).sort();
+    const nSingle = rows.filter(o => o.poli === 1 && o.turnos >= 3).length;
+    el.innerHTML = filtros + `<div class="kpis">${[
+        ui.kpi('Turnos com mapa', H.fmt.int(recs.length), [`<span>${dates.length} dia(s) · ${per}</span>`]),
+        ui.kpi('Pessoas diferentes', H.fmt.int(rows.length), [`<span>média de ${H.fmt.dec(media, 1)} por turno</span>`]),
+        ui.kpi('Rodízio', comp ? H.fmt.pct(mudou / comp, 0) : '—', [comp ? `<span>começaram o turno numa função diferente da do início do mesmo turno no dia anterior (${mudou}/${comp})</span>` : '<span>precisa do mapa do mesmo turno no dia anterior</span>']),
+        ui.kpi('Polivalência', rows.length ? H.fmt.dec(rows.reduce((a, o) => a + o.poli, 0) / rows.length, 1) : '—', [`<span>funções diferentes por pessoa${nSingle ? ` · ${nSingle} sempre na mesma (3+ turnos)` : ''}</span>`]),
+        ui.kpi('Diaristas', H.fmt.int(dwTotal), [`<span>média de ${H.fmt.dec(dwTotal / facts.length, 1)} por turno</span>`]),
+        ui.kpi('Intervalos registrados', H.fmt.int(intTotal), [`<span>${H.fmt.pct(intTotal / Math.max(1, pessoasTurno.reduce((a, b) => a + b, 0)), 0)} das pessoas-turno</span>`]),
+      ].join('')}</div>
+      <div class="grid">
+        ${ui.card('pdCh1', 'Pessoas por função por dia', 'Soma dos turnos do dia (cada pessoa conta uma vez em cada função que fez)', { w: 8 })}
+        ${ui.card('pdCh2', 'Pessoas por turno', 'Média de pessoas em função', { w: 4 })}
+        ${ui.card('pdCh3', 'Cobertura das vagas', 'Vagas preenchidas no início do turno, por função', { w: 6 })}
+        ${ui.card('pdCh4', 'Movimentos no quadro por letra', '2º Sorting e Auditoria', { w: 6 })}
+        ${ui.card('', 'Pessoas × funções', `${rows.length} pessoa(s) · turnos em cada função no período`, { w: 12,
+          tools: '<input class="search" id="pdQ" type="search" placeholder="Buscar pessoa…">',
+          body: `<div class="table-wrap"><table class="pc-table pd-matrix"><thead><tr><th class="left">Pessoa</th><th>Turnos</th>${FL.map(f => `<th>${esc(FUNCS[f])}</th>`).join('')}<th>Funções</th><th class="left">Mais frequente</th><th>Intervalos</th></tr></thead><tbody>
+            ${rows.map(o => `<tr data-pdrow="${esc(nk(o.nome))}"><td class="left">${esc(o.nome)}</td><td><b>${o.turnos}</b></td>
+              ${FL.map(f => `<td class="${o.f[f] ? 'pd-on' : 'muted'}">${o.f[f] || '·'}</td>`).join('')}
+              <td>${o.poli}</td><td class="left">${o.main ? `${esc(FUNCS[o.main])} <span class="muted small">${H.fmt.pct(o.mainPct, 0)}</span>` : '—'}</td><td>${o.int || '·'}</td></tr>`).join('')}
+          </tbody></table></div>` })}
+      </div>`;
+    const pal = [H.color(1), H.color(2), H.color(3), H.color(4), H.color(5), H.css('--good'), H.css('--warn'), H.css('--muted')];
+    H.render('pdCh1', { labels: dates.map(H.dayLabel), stacked: true, totals: true, datasets: FL.map((f, i) => H.bar(FUNCS[f], perFuncDay(f), pal[i])).filter((d, i) => (!fF.size || fF.has(FL[i])) && d.data.some(Boolean)) });
+    const tt = TURNOS.filter(t => facts.some(fa => fa.r.turno === t));
+    H.render('pdCh2', { labels: tt, legend: false, datasets: [H.bar('Pessoas', tt.map(t => { const fs = facts.filter(fa => fa.r.turno === t); return +(fs.reduce((a, fa) => a + fa.funcs.size, 0) / fs.length).toFixed(1); }), H.color(2))] });
+    const cf = Object.keys(cover).filter(f => cover[f][1] && (!fF.size || fF.has(f)));
+    H.render('pdCh3', { labels: cf.map(f => FUNCS[f]), legend: false, yFormat: v => H.fmt.pct(v, 0), yMax: 1, datasets: [H.bar('Preenchidas', cf.map(f => +(cover[f][0] / cover[f][1]).toFixed(3)), H.color(3))] });
+    H.render('pdCh4', { labels: letras, legend: false, datasets: [H.bar('Movimentos', letras.map(l => moves[l]), H.color(1))] });
+    const q = $('pdQ');
+    if (q) q.addEventListener('input', e => { const k = nk(e.target.value); document.querySelectorAll('[data-pdrow]').forEach(tr => { tr.hidden = !!k && !tr.dataset.pdrow.includes(k); }); });
   }
 
   // Texto da busca no SPX (vai para a observação do erro).
   const spxDesc = w => w.error ? `SPX: ${w.error}`
     : w.classe === 'etiq' ? `Bipado no SPX por ${w.raw} em ${brShort(w.day)} às ${w.time}.`
-    : w.classe === 'backlog' ? `Backlog: bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}, antes das ${janela().inicio} da véspera.`
+    : w.classe === 'semjanela' ? 'Turno sem janela de recebimento: sem etiquetador.'
+    : w.classe === 'backlog' ? `Backlog: bipado por ${w.raw} em ${brShort(w.day)} às ${w.time}, antes da janela de recebimento do turno.`
     : w.raw ? `Não recebido na janela: bipado só em ${brShort(w.day)} às ${w.time}.` : 'Não recebido: o rastreio do SPX não mostra o recebimento no hub.';
   async function spxReceiver() {
     const code = se.code.trim().toUpperCase();
     if (!PC.CODE_RE.test(code)) { se.spxMsg = 'Código inválido.'; return drawErros(); }
+    if (!janelaDe(se.turno)) { se.classe = 'semjanela'; se.recv = ''; se.opSpx = ''; se.spxMsg = spxDesc({ classe: 'semjanela' }); return drawErros(); }
     if (!(await window.SpxSession.has())) { se.spxMsg = ''; return window.SpxSession.open(() => spxReceiver()); }
     se.busy = true; se.spxMsg = ''; drawErros();
-    const w = await lookupReceiver(code, se.date);
+    const w = await lookupReceiver(code, se.date, se.turno);
     se.spxMsg = spxDesc(w);
     if (!w.error) { se.classe = w.classe; se.recv = w.name; se.opSpx = w.raw || ''; if (w.time) se.time = w.time; }
     se.busy = false; drawErros();
@@ -871,7 +1407,7 @@ window.Piso = (() => {
   // etiquetagem: vaga Etiqueta da bancada do operador do SPX).
   async function recalcAll() {
     const rg = ui.range();
-    const list = B().erroList().filter(x => x.date >= rg.from && x.date <= rg.to && (x.tipo === 'sort' ? x.rota : x.detail.recebeu && catOf(x) === 'etiq'));
+    const list = B().erroList().filter(x => x.date >= rg.from && x.date <= rg.to && (x.tipo !== 'etiq' ? x.rota : x.detail.recebeu && catOf(x) === 'etiq'));
     const changes = list.map(x => ({ x, r: respFor({ date: x.date, turno: x.turno, tipo: x.tipo, rota: x.rota, time: x.time, recv: x.detail.recebeu }) }))
       .filter(({ x, r }) => r.resp.length && r.resp.map(nk).sort().join('|') !== x.resp.map(nk).sort().join('|'));
     if (!changes.length) return ui.toast('Nenhum erro do período mudou de responsável.');
@@ -887,8 +1423,8 @@ window.Piso = (() => {
     const x = B().erroList().find(e => e.id === id);
     if (!x) return { ok: false, msg: 'Registro não encontrado.' };
     let recv = x.detail.recebeu || '', time = x.time, classe = x.detail.classe || '';
-    if (x.tipo === 'etiq' && !recv && !['backlog', 'naorec'].includes(classe)) {
-      const w = await lookupReceiver(x.code, x.date);
+    if (x.tipo === 'etiq' && !recv && !['backlog', 'naorec', 'semjanela'].includes(classe)) {
+      const w = await lookupReceiver(x.code, x.date, x.turno);
       if (w.noSession) { if (!quiet) window.SpxSession.open(() => completeErro(id)); return { ok: false, noSession: true, msg: w.error }; }
       if (w.error) {
         await B().erroSave({ ...x, detail: { ...x.detail, obs: spxDesc(w) } });
@@ -915,7 +1451,7 @@ window.Piso = (() => {
   }
   // Busca o responsável de todos os erros do turno que ainda estão sem responsável.
   async function completeAll() {
-    const pend = B().erroList().filter(x => x.date === se.date && x.turno === se.turno && !x.resp.length && catOf(x) !== 'backlog' && catOf(x) !== 'naorec');
+    const pend = B().erroList().filter(x => x.date === se.date && x.turno === se.turno && !x.resp.length && !semResp(x));
     if (!pend.length) return ui.toast('Todos os erros do turno já têm responsável.');
     if (pend.some(x => x.tipo === 'etiq' && !x.detail.recebeu) && api() && api().parcelTrack && !(await window.SpxSession.has()))
       return window.SpxSession.open(() => completeAll());
@@ -939,7 +1475,7 @@ window.Piso = (() => {
     const r = responsaveis();
     if (!r.resp.length && !r.classe && !(await uiConfirm(`Nenhum responsável foi encontrado (${r.note}) Salvar mesmo assim?`))) return;
     try {
-      await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo === 'sort' ? se.rota.trim().toUpperCase() : '', time: se.time,
+      await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo !== 'etiq' ? se.rota.trim().toUpperCase() : '', time: se.time,
         resp: r.resp, detail: { letra: r.letra || '', recebeu: se.tipo === 'etiq' ? se.recv : '', operadorSpx: se.tipo === 'etiq' ? (se.opSpx || se.recv) : '', mapa: r.verFrom || '', posto: r.posto || '', classe: se.tipo === 'etiq' ? (se.classe || 'etiq') : '',
           obs: r.classe ? (se.spxMsg || r.note) : [se.tipo === 'etiq' && se.spxMsg ? se.spxMsg : '', r.note].filter((t, i, a) => t && a.indexOf(t) === i).join(' ') } });
       ui.toast(`Erro de ${se.tipo === 'sort' ? 'sorting' : 'etiquetagem'} salvo · ${code}`);
@@ -949,10 +1485,11 @@ window.Piso = (() => {
     } catch (e) { ui.toast(String(e.message || e), true); }
   }
   async function onErrosClick(e) {
-    const t = e.target.closest('[data-pe],[data-pe-tipo],[data-pe-del],[data-pe-fix],[data-pe-cat]');
+    const t = e.target.closest('[data-pe],[data-pe-tipo],[data-pe-del],[data-pe-fix],[data-pe-cat],[data-pe-view]');
     if (!t) return;
     const d = t.dataset;
-    if (d.peTipo) { se.tipo = d.peTipo; ls.tipo = se.tipo; lsSave(); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); drawErros(); return; }
+    if (d.peTipo) { se.tipo = d.peTipo; ls.tipo = se.tipo; lsSave(); if (se.tipo !== 'etiq' && !se.time) se.time = nowHm(); drawErros(); return; }
+    if (d.peView) { ls.eview = d.peView; lsSave(); drawErros(); return; }
     if (d.peCat) {
       if (d.peCat === 'all') se.cats.clear(); else if (!se.cats.delete(d.peCat)) se.cats.add(d.peCat);
       ls.cats = [...se.cats]; lsSave(); drawAnalise(); return;
@@ -1018,9 +1555,11 @@ window.Piso = (() => {
         <div class="kiosk-types">
           <button data-k="sort">Erro de sorting<small>pacote na gaiola errada</small></button>
           <button data-k="etiq">Erro de etiquetagem<small>etiqueta errada</small></button>
+          <button data-k="xpt">Erro de XPT<small>pacote de XPT sem bipar</small></button>
         </div>
-        <div id="kSortBox" hidden><div class="kiosk-lbl">3. Gaiola certa do pacote</div>
-          <input id="kRota" class="kiosk-input" placeholder="C-12" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+        <div id="kSortBox" hidden><div class="kiosk-lbl" id="kRotaLbl">3. Gaiola certa do pacote</div>
+          <input id="kRota" class="kiosk-input" placeholder="C-12" list="kXptList" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <datalist id="kXptList"></datalist></div>
         <button class="kiosk-save" data-k="save" disabled>Registrar</button>
         <div class="kiosk-msg" id="kMsg"></div>
       </div>
@@ -1030,10 +1569,13 @@ window.Piso = (() => {
     if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
     const q = id => el.querySelector('#' + id);
     const code = () => q('kCode').value.trim().toUpperCase();
-    const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || rotaLetra(q('kRota').value));
+    const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || (K.tipo === 'xpt' ? !!q('kRota').value.trim() : rotaLetra(q('kRota').value)));
     const sync = () => {
       el.querySelectorAll('.kiosk-types button').forEach(b => b.classList.toggle('on', b.dataset.k === K.tipo));
-      q('kSortBox').hidden = K.tipo !== 'sort';
+      q('kSortBox').hidden = K.tipo !== 'sort' && K.tipo !== 'xpt';
+      q('kRotaLbl').textContent = K.tipo === 'xpt' ? '3. XPT do pacote' : '3. Gaiola certa do pacote';
+      q('kRota').placeholder = K.tipo === 'xpt' ? 'XPT-JRU-01' : 'C-12';
+      q('kXptList').innerHTML = K.tipo === 'xpt' ? xptOfDay(K.date).map(d => `<option value="${esc(d)}">`).join('') : '';
       el.querySelector('[data-k="save"]').disabled = !ready() || K.busy;
     };
     const say = (t, ok) => { q('kMsg').textContent = t; q('kMsg').className = 'kiosk-msg ' + (ok ? 'ok' : t ? 'err' : ''); };
@@ -1041,18 +1583,18 @@ window.Piso = (() => {
     async function save() {
       if (!ready() || K.busy) return;
       K.busy = true; sync(); say('Registrando…', true);
-      const c = code(), tipo = K.tipo, rota = tipo === 'sort' ? q('kRota').value.trim().toUpperCase() : '';
+      const c = code(), tipo = K.tipo, rota = tipo !== 'etiq' ? q('kRota').value.trim().toUpperCase() : '';
       let time = nowHm(), recv = '';
       let classe = '';
       let spx = '';
       let opSpx = '';
-      if (tipo === 'etiq') { const w = await lookupReceiver(c, K.date); spx = spxDesc(w); if (!w.error) { recv = w.name; opSpx = w.raw || ''; classe = w.classe; if (w.time) time = w.time; } }
+      if (tipo === 'etiq') { const w = await lookupReceiver(c, K.date, K.turno); spx = spxDesc(w); if (!w.error) { recv = w.name; opSpx = w.raw || ''; classe = w.classe; if (w.time) time = w.time; } }
       const rr = respFor({ date: K.date, turno: K.turno, tipo, rota, time, recv, classe });
       try {
         await B().erroSave({ date: K.date, turno: K.turno, tipo, code: c, rota, time, resp: rr.resp,
           detail: { letra: rr.letra || '', recebeu: recv, operadorSpx: opSpx, classe: rr.classe || (tipo === 'etiq' && recv ? 'etiq' : ''), mapa: rr.verFrom || '', posto: rr.posto || '', pendente: !rr.resp.length && !rr.classe, origem: 'quiosque',
             obs: rr.classe ? (spx || rr.note) : [spx, rr.note].filter((t, i, a) => t && a.indexOf(t) === i).join(' ') } });
-        K.last.unshift(`${nowHm()} · ${c} · ${tipo === 'sort' ? `sorting · ${rota}` : 'etiquetagem'}`);
+        K.last.unshift(`${nowHm()} · ${c} · ${tipo === 'sort' ? `sorting · ${rota}` : tipo === 'xpt' ? `XPT · ${rota}` : 'etiquetagem'}`);
         q('kLast').innerHTML = K.last.slice(0, 8).map(t => `<li>${esc(t)}</li>`).join('');
         say(`✓ Registrado: ${c}`, true);
         K.busy = false; reset();
@@ -1086,11 +1628,33 @@ window.Piso = (() => {
     main.addEventListener('click', e => { if (ui.isActive('mapa')) onMapaClick(e); else if (ui.isActive('erros')) onErrosClick(e); });
     main.addEventListener('change', e => { if (ui.isActive('mapa')) onMapaChange(e); else if (ui.isActive('erros')) onErrosChange(e); });
     main.addEventListener('input', e => { if (ui.isActive('mapa')) onMapaInput(e); else if (ui.isActive('erros')) onErrosInput(e); });
+    // Quadro do 2º Sorting / Auditoria: arrastar cartões entre as colunas (leva junto os selecionados).
+    main.addEventListener('dragstart', e => {
+      const c = ui.isActive('mapa') && e.target.closest && e.target.closest('[data-bcard]');
+      if (!c) return;
+      const n = c.dataset.bcard, names = st.bsel.has(nk(n)) ? boardAll(st.bf).filter(x => st.bsel.has(nk(x.n))).map(x => x.n) : [n];
+      e.dataTransfer.setData('text/plain', JSON.stringify(names)); e.dataTransfer.effectAllowed = 'move';
+    });
+    main.addEventListener('dragover', e => { const col = ui.isActive('mapa') && e.target.closest && e.target.closest('[data-bcol]'); if (col) { e.preventDefault(); col.classList.add('over'); } });
+    main.addEventListener('dragleave', e => { const col = e.target.closest && e.target.closest('[data-bcol]'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('over'); });
+    main.addEventListener('drop', e => {
+      const col = ui.isActive('mapa') && e.target.closest && e.target.closest('[data-bcol]');
+      if (!col) return;
+      e.preventDefault();
+      let names = [];
+      try { names = JSON.parse(e.dataTransfer.getData('text/plain')) || []; } catch (err) { return; }
+      const to = col.dataset.bcol;
+      const move = names.filter(n => (bStateAt(boardOf()[st.bf]).get(nk(n)) || {}).to !== to);
+      if (move.length) { bMove(st.bf, move, to); st.bsel.clear(); drawMapa(); }
+    });
   }
 
   return {
     // Usado pela tela Recebimento por hora para desenhar as bancadas do mapa.
-    helpers: { slotsOf, bancadaNo, sameName, sortedVers, isDw, listKeys },
+    helpers: { slotsOf, bancadaNo, sameName, sortedVers, isDw, listKeys, xptWho },
+    _board: { bStateAt },
+    // Ao sair da tela (o app chama), o próximo acesso volta com o quadro recolhido.
+    leave: () => { st.inMapa = false; },
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.

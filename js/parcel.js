@@ -319,6 +319,7 @@ window.Parcel = (() => {
     ['ID do motorista', r => r.driverId],
     ['Nome do motorista', r => r.driverName],
     ['Avaria', r => r.damage],
+    ['XPT bipado por (Mapa de piso)', () => ''],
     ['Observação/erro', r => r.note],
   ];
   const resultCells = code => {
@@ -328,7 +329,8 @@ window.Parcel = (() => {
     if (!o.ok) return [code, ...blank, 'Erro: ' + o.error];
     // Pacote de outro XPT: a coluna "AT anterior" leva o XPT (ex.: XPT-CRX-01) no lugar da AT.
     const xpt = situ(code) === 'xpt' ? xptLabel({ code, row: o.row }) : '';
-    return RESULT_COLS.map(([h, get]) => (xpt && h === 'AT anterior' ? xpt : get(o.row) || ''));
+    const by = xpt ? xptBy({ code, row: o.row }) : '';
+    return RESULT_COLS.map(([h, get]) => (xpt && h === 'AT anterior' ? xpt : h === 'XPT bipado por (Mapa de piso)' ? by : get(o.row) || ''));
   };
 
   // Situação de um código consultado: avaria · ok (AT do hub no dia) · xpt (pacote de outro XPT) · noat (sem AT no dia) · nomiss · err · wait
@@ -352,6 +354,31 @@ window.Parcel = (() => {
     return !d && row && !row.atBefore && row.xpt ? row.xpt : '';
   };
   const xptLabel = x => otherDest(x.code, x.row);
+  // Pacote de outro XPT: quem estava na vaga daquele XPT no mapa de piso do dia do missing (responsável pelo bipe).
+  // Dia do relatório: a data mais antiga da coluna "Scanned Time" (quando a contagem começou).
+  // Sem essa coluna, o dia do missing do próprio pacote.
+  function reportDay() {
+    if (st.reportDayKey === st.file + st.rows.length) return st.reportDay;
+    const c = st.headers.findIndex(h => /^scanned time$/i.test(String(h).trim()));
+    let best = '';
+    if (c >= 0) st.rows.forEach(r => {
+      const v = String(r[c] || '');
+      const m = v.match(/(\d{4})-(\d{2})-(\d{2})/) || v.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (!m) return;
+      const iso = m[1].length === 4 ? `${m[1]}-${m[2]}-${m[3]}` : `${m[3]}-${m[2]}-${m[1]}`;
+      if (!best || iso < best) best = iso;
+    });
+    st.reportDay = best; st.reportDayKey = st.file + st.rows.length;
+    return best;
+  }
+  // Quem fez o XPT do pacote no dia do relatório, pelo Mapa de piso (vaga XPT com aquele destino).
+  const xptByInfo = x => {
+    const P = window.Piso && window.Piso.helpers;
+    if (!P || !P.xptWho || !x.row) return { names: '', day: '' };
+    const day = reportDay() || (x.row.missingTs ? new Date(x.row.missingTs * 1000).toLocaleDateString('sv-SE', { timeZone: TZ }) : '');
+    return { names: day ? P.xptWho(day, xptLabel(x)).join(', ') : '', day };
+  };
+  const xptBy = x => xptByInfo(x).names;
   const SITU = { avaria: ['warn', 'Avaria'], ok: ['good', 'AT no dia'], xpt: ['info', 'Outro XPT'], noat: ['bad', 'Sem AT no dia'], nomiss: ['neutral', 'Sem missing'], err: ['warn', 'Erro'], wait: ['neutral', 'Na fila'] };
   const hm = ts => (ts ? new Date(ts * 1000).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
   const rowsDone = () => st.results.map(code => ({ code, s: situ(code), row: (st.out.get(code) || {}).row || null, o: st.out.get(code) }));
@@ -459,7 +486,7 @@ window.Parcel = (() => {
         return `<tr class="${x.s === 'noat' ? 'hl' : ''}"><td class="left pc-code">${esc(x.code)}</td>
           <td class="left"><span class="pill ${cls}">${label}</span></td>
           <td class="left">${hm(r.missingTs) || dash}</td><td class="left">${esc(r.missingOperator || '') || dash}</td>
-          <td class="left">${x.s === 'avaria' ? '<b>Avaria</b>' : r.atBefore ? esc(r.atBefore) : x.s === 'xpt' ? `<b>${esc(xptLabel(x))}</b>` : x.s === 'noat' ? '<b class="bad">Sem AT</b>' : dash}</td>
+          <td class="left">${x.s === 'avaria' ? '<b>Avaria</b>' : x.s === 'xpt' ? `<b>${esc(xptLabel(x))}</b>${(i => (i.names ? `<div class="small pc-xpt-by" title="Do Mapa de piso de ${esc(i.day.split('-').reverse().join('/'))}: quem estava na vaga desse XPT">🗺 Mapa de piso ${esc(i.day.split('-').reverse().slice(0, 2).join('/'))}: ${esc(i.names)}</div>` : i.day ? `<div class="small muted">Sem ninguém nesse XPT no Mapa de piso de ${esc(i.day.split('-').reverse().slice(0, 2).join('/'))}</div>` : ''))(xptByInfo(x))}` : r.atBefore ? esc(r.atBefore) : x.s === 'noat' ? '<b class="bad">Sem AT</b>' : dash}</td>
           <td class="left">${esc(r.cage || '') || dash}</td>
           <td class="left">${r.driverName ? `${esc(r.driverName)}${r.driverId ? ` <span class="muted">· ${esc(r.driverId)}</span>` : ''}` : dash}</td>
           <td class="left pc-obs">${note ? esc(note) : dash}</td>

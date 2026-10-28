@@ -19,8 +19,8 @@ android {
         applicationId "br.hub.lgo03.dashboard"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10704
-        versionName "1.7.4"
+        versionCode 10705
+        versionName "1.7.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [googleOAuthScheme: googleOAuthScheme]
         aaptOptions {

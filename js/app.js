@@ -46,7 +46,7 @@
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
     { id: 'qualidade', group: 'Qualidade', label: 'Missing (planilha)', daily: false, render: renderQualidade },
     { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: true, render: () => window.Parcel.render(pcCtx) },
-    { id: 'mapa', group: 'Piso', label: 'Mapa de piso', daily: false, render: () => window.Piso.renderMapa(pisoCtx) },
+    { id: 'mapa', group: 'Piso', label: 'Mapa de piso', daily: true, render: () => window.Piso.renderMapa(pisoCtx) },
     { id: 'rechora', group: 'Piso', label: 'Recebimento por hora', daily: true, render: () => window.Receb.render(rhCtx) },
     { id: 'erros', group: 'Piso', label: 'Erros de piso', daily: true, render: () => window.Piso.renderErros(pisoCtx) },
     { id: 'hse', group: 'Segurança', label: 'HSE', daily: false, render: renderHSE },
@@ -375,7 +375,7 @@
     tab.render();
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'erros' && tab.id !== 'rechora' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);
@@ -868,6 +868,7 @@
   }
 
   function selectTab(id) {
+    if (state.tab === 'mapa' && id !== 'mapa' && window.Piso && window.Piso.leave) window.Piso.leave();
     state.tab = id; LS.set('tab', id);
     document.body.classList.remove('nav-open');
     renderAll();

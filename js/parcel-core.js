@@ -219,16 +219,21 @@ const ParcelCore = (() => {
   const receiver = (resp, opts) => receivers(resp, opts).pop() || null;
   // Janela de recebimento do turno da noite: de "inicio" (HH:MM) da véspera até "fim" (HH:MM) do dia do erro (fuso do hub).
   // Recebido antes da janela = backlog; só depois da janela (ou nunca) = não recebido; dentro = operador do recebimento.
+  // win: { inicio, fim, backlogAntes? }. Janela que vira a noite (inicio > fim) começa na véspera. Com backlogAntes,
+  // backlog é só o que foi bipado antes desse horário do dia (entre ele e o início da janela = não recebido).
   function receiverInWindow(resp, dayIso, win, opts) {
     const o = { ...DEFAULTS, ...(opts || {}) };
     const off = o.tzOffsetMin * 60;
     const at = (iso, hhmm, plusDays = 0) => { const [y, m, d] = iso.split('-').map(Number), [h, mi] = hhmm.split(':').map(Number); return Date.UTC(y, m - 1, d + plusDays, h, mi) / 1000 - off; };
-    const from = at(dayIso, win.inicio, -1), to = at(dayIso, win.fim);
+    const from = at(dayIso, win.inicio, win.inicio > win.fim ? -1 : 0), to = at(dayIso, win.fim);
+    const backlogTo = win.backlogAntes ? at(dayIso, win.backlogAntes) : from;
     const all = receivers(resp, opts);
     const inside = all.filter(r => r.ts >= from && r.ts <= to).pop();
     if (inside) return { classe: 'etiq', ...inside, from, to };
-    const before = all.filter(r => r.ts < from).pop();
+    const before = all.filter(r => r.ts < backlogTo).pop();
     if (before) return { classe: 'backlog', ...before, from, to };
+    const gap = all.filter(r => r.ts >= backlogTo && r.ts < from).pop();
+    if (gap) return { classe: 'naorec', ...gap, from, to };
     return { classe: 'naorec', ...(all.filter(r => r.ts > to).pop() || {}), from, to };
   }
 

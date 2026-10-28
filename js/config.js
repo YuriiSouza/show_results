@@ -9,9 +9,15 @@ window.APP_CONFIG = {
   // colaboradores não saírem da tela por engano, não é uma proteção de segurança.
   KIOSK_PASSWORD: 'admin123',
 
-  // Erros de etiquetagem: o operador que bipou o pacote no SPX só vale dentro desta janela (das 22:00 da véspera às
-  // 05:30 do dia do erro). Antes = backlog; depois (ou sem recebimento) = não recebido.
-  RECEB_JANELA: { inicio: '22:00', fim: '05:30' },
+  // Erros de etiquetagem: o operador que bipou o pacote no SPX só vale dentro da janela de recebimento do turno.
+  // Janela que vira a noite (inicio > fim) começa na véspera. Bipado antes da janela (ou antes de "backlogAntes", quando
+  // houver) = backlog; depois da janela, entre "backlogAntes" e o início, ou nunca = não recebido.
+  // Turno sem janela (null): o erro de etiquetagem fica sem etiquetador.
+  RECEB_JANELAS: {
+    AM: { inicio: '22:00', fim: '05:30' },
+    PM1: { inicio: '09:00', fim: '11:15', backlogAntes: '05:30' },
+    PM2: null,
+  },
 
   // Atualização automática (minutos), fixa para todos os aparelhos. 0 = desligada.
   AUTO_REFRESH_MIN: 30,
