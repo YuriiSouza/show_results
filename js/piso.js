@@ -125,7 +125,7 @@ window.Piso = (() => {
     `<button role="tab" aria-selected="${k === curv}" class="${k === curv ? 'active' : ''}" ${attr}="${k}">${l}</button>`).join('')}</div>`;
 
   // ================= Mapa de piso =================
-  const st = { date: todayIso(), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', ver: 0, map: null, dirty: false, locks: new Set(), undo: null, bf: 's2', bsel: new Set(), bt: '' };
+  const st = { date: todayIso(), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', ver: 0, map: null, dirty: false, locks: new Set(), undo: null, bf: 's2', bsel: new Set(), modo: 'fix', mt: '', mtUsed: 0 };
 
   function loadMap() {
     const key = `${st.date}|${st.turno}`;
@@ -143,6 +143,9 @@ window.Piso = (() => {
     if (st.map.layout.xpt == null) st.map.layout.xpt = DEFAULT_LAYOUT.xpt;   // mapas de antes da função XPT
     st.ver = Math.min(st.ver, st.map.versions.length - 1);
     st.undo = null;
+    // Mapa já salvo do dia de hoje: o turno está rodando, então as alterações viram trocas com horário.
+    st.modo = saved && st.date === todayIso() ? 'troca' : 'fix';
+    st.mt = '';
   }
   function touch() {
     st.dirty = true;
@@ -151,20 +154,72 @@ window.Piso = (() => {
     lsSave();
   }
   const cur = () => st.map.versions[st.ver];
-  // Horário automático: depois que o mapa do turno foi salvo, cada alteração vira uma mudança com o horário (igual ao quadro
-  // do 2º Sorting). Alterações seguidas (até 10 min, sem horário escolhido) entram na mesma mudança automática.
-  // Desligado (ls.autoVer === false) ou mapa ainda não salvo: a alteração vai para a mudança aberta.
-  const autoOn = () => ls.autoVer !== false && baseOn() && !!B().mapaGet(st.date, st.turno);
-  const minOf = hm2 => { const [h, m] = String(hm2 || '0:0').split(':').map(Number); return h * 60 + m; };
+  // Modo de edição (chave na barra de mudanças):
+  //  - 'fix'   (✏️ Corrigir): a alteração corrige a mudança aberta e as seguintes que ainda tinham o mesmo nome na vaga;
+  //  - 'troca' (⏱ Troca de função): a alteração é uma troca às HH:MM (campo único; em branco = agora). Usa a mudança
+  //    daquele horário ou cria uma nova a partir do mapa que valia ali, e também vale para as mudanças seguintes.
+  // O horário escolhido à mão volta para "agora" depois de 10 min sem uso (hoje), para não ficar preso sem querer.
+  const modoTroca = () => st.modo === 'troca';
+  const MT_IDLE = 10 * 60e3;
+  const peekWhen = () => { if (st.mt && isToday() && Date.now() - st.mtUsed > MT_IDLE) st.mt = ''; return st.mt || nowHm(); };
+  const useWhen = () => { const w = peekWhen(); st.mtUsed = Date.now(); return w; };
+  // No modo troca, a tela mostra o mapa que vale no horário da troca.
+  const syncVer = () => { if (modoTroca()) st.ver = versionAt(st.map, peekWhen()).i; };
   function editVersion() {
-    if (!autoOn()) return { v: cur(), created: false };
-    const vs = sortedVers(st.map), latest = vs[vs.length - 1];
-    if (latest.i !== st.ver) return { v: cur(), created: false };      // editando uma mudança antiga de propósito
-    const when = st.mt || nowHm();
-    if (latest.auto && (latest.from === when || (!st.mt && Math.abs(minOf(when) - minOf(latest.from)) <= 10))) return { v: cur(), created: false };
-    st.map.versions.push({ from: when, auto: true, slots: clone(cur().slots) });
+    if (!modoTroca()) return { v: cur(), created: false };
+    const when = useWhen();
+    const same = st.map.versions.findIndex(x => (x.from || '') === when);
+    if (same >= 0) { st.ver = same; return { v: cur(), created: false }; }
+    st.map.versions.push({ from: when, slots: clone(versionAt(st.map, when).slots) });
     st.ver = st.map.versions.length - 1;
     return { v: cur(), created: true };
+  }
+  // Leva a alteração da mudança v às mudanças seguintes: em cada vaga alterada, as mudanças depois dela que ainda tinham o
+  // nome antigo recebem o novo, até a primeira que já tinha outro nome (troca feita de propósito). O intervalo não
+  // interrompe (a vaga fica vazia nele e a Volta repõe o nome).
+  function propagate(map, v, before) {
+    const later = sortedVers(map).filter(x => (x.from || '') > (v.from || '')).map(x => map.versions[x.i]);
+    new Set([...Object.keys(before), ...Object.keys(v.slots)]).forEach(k => {
+      const a = before[k] || '', b = v.slots[k] || '';
+      if (nk(a) === nk(b)) return;
+      for (const x of later) {
+        if (nk(x.slots[k]) !== nk(a)) { if (x.tipo === 'intervalo') continue; break; }
+        if (b) x.slots[k] = b; else delete x.slots[k];
+      }
+    });
+  }
+  // Começa e termina uma alteração no mapa (com desfazer de todas as mudanças, já que a correção pode passar adiante).
+  function beginEdit() {
+    const snap = { versions: clone(st.map.versions), ver: st.ver };
+    const r = editVersion();
+    return { ...r, before: clone(r.v.slots), snap };
+  }
+  function endEdit(r, undo) {
+    propagate(st.map, r.v, r.before);
+    if (undo) st.undo = r.snap;
+    touch();
+  }
+  // O que mudou de uma mudança para a outra, por pessoa: "Ana: Mesa 1 · Indução → Descarga".
+  function verDiff(prev, v, L) {
+    const where = slots => {
+      const m = new Map();
+      Object.entries(slots || {}).forEach(([k, n]) => { if (!n || isDw(n)) return; const e = m.get(nk(n)) || { n, d: [] }; e.d.push(slotDesc(k, L)); m.set(nk(n), e); });
+      return m;
+    };
+    const a = where(prev && prev.slots), b = where(v.slots), out = [], saiu = [], entrou = [];
+    new Set([...a.keys(), ...b.keys()]).forEach(k => {
+      const x = a.has(k) ? a.get(k).d.sort().join(', ') : '', y = b.has(k) ? b.get(k).d.sort().join(', ') : '';
+      if (x === y) return;
+      const n = (b.get(k) || a.get(k)).n;
+      if (!x) entrou.push({ n, d: y }); else if (!y) saiu.push({ n, d: x }); else out.push(`${n}: ${x} → ${y}`);
+    });
+    // Quem saiu e quem entrou na mesma vaga viram uma linha: "Mesa 1 · Indução: Ana → Bia".
+    saiu.forEach(o => {
+      const j = entrou.findIndex(e => e.d === o.d);
+      if (j >= 0) { out.push(`${o.d}: ${o.n} → ${entrou[j].n}`); entrou.splice(j, 1); } else out.push(`${o.n} saiu de ${o.d}`);
+    });
+    entrou.forEach(e => out.push(`${e.n} entrou: ${e.d}`));
+    return out;
   }
 
   function renderMapa(ctx) {
@@ -178,6 +233,7 @@ window.Piso = (() => {
   }
 
   function drawMapa() {
+    syncVer();
     const m = ui.main, L = st.map.layout, v = cur();
     const tabs = subTabs([['mapa', 'Mapa do turno'], ['dash', 'Dashboard']], ls.mview === 'dash' ? 'dash' : 'mapa', 'data-pz-view');
     if (ls.mview === 'dash') {
@@ -203,19 +259,21 @@ window.Piso = (() => {
         </div>
       </div>
       <div class="pz-vers">
-        <span class="muted small">Mudanças no turno:</span>
-        ${vers.map(x => `<button class="chip ${x.i === st.ver ? 'active' : ''}" data-pz-ver="${x.i}">${esc(verChip(x))}</button>`).join('')}
-        <button class="tool" data-pz="add-ver" title="Nova mudança: copia o mapa atual e você altera só quem mudou de função">+ Mudança</button>
-        ${saved ? `<label class="pz-auto" title="Depois de salvo, cada alteração vira uma mudança com o horário. Desligue para corrigir a mudança aberta.">
-          <input type="checkbox" id="pzAuto" ${ls.autoVer !== false ? 'checked' : ''}> ⏱ Registrar horário das alterações
-          ${ls.autoVer !== false ? `<span>às <input type="time" id="pzMT" value="${esc(st.mt || '')}" title="Em branco = agora"></span>` : ''}</label>` : ''}
-        ${st.ver > 0 ? `<label class="pz-from">Vale a partir das <input type="time" id="pzFrom" value="${esc(v.from || '')}"></label>
-          <button class="tool danger" data-pz="del-ver">Excluir esta mudança</button>` : ''}
+        <div class="pz-mode" role="radiogroup" aria-label="Modo de edição">
+          <button role="radio" aria-checked="${!modoTroca()}" class="${modoTroca() ? '' : 'on'}" data-pz-modo="fix" title="Arrumar o mapa sem registrar troca (ex.: nome errado, montagem do início)">✏️ Corrigir</button>
+          <button role="radio" aria-checked="${modoTroca()}" class="${modoTroca() ? 'on' : ''}" data-pz-modo="troca" title="Quem mudou de função durante o turno: a alteração vale a partir do horário">⏱ Troca de função</button>
+        </div>
+        ${modoTroca() ? `<label class="pz-from">às <input type="time" id="pzMT" value="${esc(st.mt || '')}" title="Em branco = agora"></label>
+          ${st.mt ? '<button class="link" data-pz="mt-now">usar agora</button>' : `<span class="muted small">(agora · ${nowHm()})</span>`}` : ''}
         <span class="pz-sep"></span>
         <button class="btn-ghost" data-pz="intervalo" title="Sugere quem vai para o intervalo e cria a mudança">☕ Intervalo</button>
         <button class="btn-ghost" data-pz="rodizio" title="Coloca as pessoas em funções diferentes das que fizeram nos últimos ${HIST_DAYS} dias">🔄 Rodízio</button>
         ${st.undo ? '<button class="tool" data-pz="undo">Desfazer</button>' : ''}
       </div>
+      <div class="pz-mode-hint ${modoTroca() ? 'troca' : ''}">${modoTroca()
+        ? `Cada alteração é registrada como <b>troca às ${esc(peekWhen())}</b> e vale daí em diante. Mostrando o mapa que vale nesse horário.`
+        : `Alterações <b>corrigem ${esc(verLabel(v))}</b>${vers.length > 1 ? ' e as mudanças seguintes que tinham o mesmo nome' : ''}. Não registra horário.`}</div>
+      ${timeline(vers, L)}
       ${v.tipo === 'intervalo' ? `<div class="pz-int-hint">☕ <b>Mudança de intervalo (${esc(v.from)})</b>: ${vacMap.size} vaga(s) ficaram livres (em destaque). Você pode mudar a função de quem não foi para o intervalo para cobrir essas vagas — vale a partir das ${esc(v.from)}.
         ${st.map.versions.some(x => x.tipo === 'volta') ? 'Na <b>Volta</b>, todos retornam às funções de antes do intervalo; se alguma troca deve continuar, ajuste também a Volta.' : ''}</div>` : ''}
       <datalist id="pzPeople"><option value="${DIARISTA}">${people().map(n => `<option value="${esc(n)}">`).join('')}</datalist>
@@ -231,6 +289,33 @@ window.Piso = (() => {
     drawSide();
   }
 
+  // Linha do tempo do turno: cada mudança com o horário e quem trocou de função; clicar abre a mudança (para corrigir).
+  // Os movimentos do quadro do 2º Sorting / Auditoria aparecem junto, pelo horário.
+  function timeline(vers, L) {
+    const rows = vers.map((x, j) => {
+      const diff = j ? verDiff(vers[j - 1], x, L) : [];
+      const n = new Set(Object.values(x.slots).filter(y => y && !isDw(y)).map(nk)).size;
+      const txt = j ? (diff.length ? diff.slice(0, 3).join(' · ') + (diff.length > 3 ? ` · +${diff.length - 3}` : '') : 'sem troca') : `${n} pessoa(s) em função`;
+      const on = x.i === st.ver;
+      return { t: x.from || '', html: `<div class="pz-tl-row ${on ? 'on' : ''} ${x.tipo || ''}">
+        <button class="pz-tl-main" data-pz-ver="${x.i}" title="${esc(diff.join('\n') || verLabel(x))}"><b>${esc(verChip(x))}</b><span>${esc(txt)}</span></button>
+        ${on && j && !modoTroca() ? `<label class="pz-from">horário <input type="time" id="pzFrom" value="${esc(x.from || '')}"></label>
+          <button class="tool danger" data-pz="del-ver">Excluir</button>` : ''}</div>` };
+    });
+    const b = boardOf();
+    ['s2', 'aud'].forEach(f => {
+      const g = new Map();
+      b[f].forEach(e => { if (!e.t) return; const k = e.t; (g.get(k) || g.set(k, []).get(k)).push(e); });
+      g.forEach((es, t) => {
+        const dest = to => (to === 'pool' ? 'Disponíveis' : to === 'int' ? 'Intervalo' : !to ? 'saiu' : to);
+        const txt = es.length > 3 ? `${es.length} movimento(s)` : es.map(e => `${e.n} → ${dest(e.to)}`).join(' · ');
+        rows.push({ t, html: `<div class="pz-tl-row board"><span class="pz-tl-main"><b>${esc(t)}</b><span>${BF[f]}: ${esc(txt)}</span></span></div>` });
+      });
+    });
+    rows.sort((x, y) => x.t.localeCompare(y.t));
+    return `<details class="pz-tline" ${ls.tlOff ? '' : 'open'}><summary data-tl="1">Linha do tempo do turno <span class="muted">(${vers.length} mudança(s))</span></summary>
+      <div class="pz-tl-list">${rows.map(r => r.html).join('')}</div></details>`;
+  }
   // Na mudança de intervalo: vagas que ficaram livres porque a pessoa foi para o intervalo (nome de quem saiu).
   function vacated() {
     const v = cur(), out = new Map();
@@ -278,7 +363,7 @@ window.Piso = (() => {
   }
   const bPeople = (f, T) => [...bStateAt(boardOf()[f], T).values()].filter(x => x.to);
   function bMove(f, names, to, t) {
-    const ev = boardOf()[f], when = t || st.bt || nowHm();
+    const ev = boardOf()[f], when = t || (modoTroca() ? useWhen() : nowHm());
     names.forEach(n => ev.push({ t: when, n, to }));
     touch();
   }
@@ -334,10 +419,9 @@ window.Piso = (() => {
       <div class="pz-card-head"><div class="pz-title">Você está no quadro: <span class="pz-bf-name">${BF[f]}</span></div>
         <div class="pz-board-tools">
           <button class="tool" data-board-toggle="1" title="Recolher o quadro">Recolher ▴</button>
-          <label class="pz-bt" title="Deixe em branco para usar o horário de agora">Movimentos às <input type="time" id="pzBT" value="${esc(st.bt)}"></label>
           <button class="tool pz-clear" data-pz-clear="board:${f}" title="Tirar todos do ${BF[f]}">Limpar</button>
         </div></div>
-      <div class="muted small">Em "Disponíveis" já aparecem, tracejados, todos que têm alguma função no mapa do dia; "+ Adicionar pessoas" é para quem estiver de fora. Arraste os cartões entre as colunas, ou clique para selecionar e depois em "Mover aqui". "Mover todos ▸" passa a coluna inteira para outra letra. Cada movimento grava o horário${isToday() ? '' : ' (dia que não é hoje: mostra como terminou o turno)'}.</div>
+      <div class="muted small">Em "Disponíveis" já aparecem, tracejados, todos que têm alguma função no mapa do dia; "+ Adicionar pessoas" é para quem estiver de fora. Arraste os cartões entre as colunas, ou clique para selecionar e depois em "Mover aqui". "Mover todos ▸" passa a coluna inteira para outra letra. Cada movimento grava o horário: ${modoTroca() ? `o da troca (${esc(peekWhen())})` : 'agora'}${isToday() ? '' : ' (dia que não é hoje: mostra como terminou o turno)'}.</div>
       ${sel ? `<div class="pz-bsel">${sel} selecionado(s) — clique em "Mover ${sel} aqui" na coluna de destino. <button class="link" data-bclear="1">Desmarcar</button></div>` : ''}
       <div class="pz-cols">${cols.map(col).join('')}</div>
       ${groups.length ? `<details class="pz-tl"><summary>Linha do tempo do ${BF[f]} (${groups.length} movimento(s))</summary>
@@ -418,16 +502,14 @@ window.Piso = (() => {
     if (!keys.length) return ui.toast('Essa área já está vazia.');
     const nome = kind === 'mesa' ? (L.mesas.find(m => m.id === id) || {}).nome : kind === 'letras' ? '2º Sorting e Auditoria (todas as letras)'
       : kind === 'letra' ? `letra ${id} (2º Sorting e Auditoria)` : FUNCS[id];
-    if (!(await uiConfirm(`Limpar ${nome}? Sai(em) ${keys.length} pessoa(s)${autoOn() ? ' (registrado como mudança com horário)' : ` desta mudança (${verLabel(v)})`}.`, { ok: 'Limpar' }))) return;
-    const ev = editVersion().v;
-    st.undo = clone(ev.slots);
-    keys.forEach(k => delete ev.slots[k]);
-    touch(); drawMapa();
+    if (!(await uiConfirm(`Limpar ${nome}? Sai(em) ${keys.length} pessoa(s)${modoTroca() ? ` (troca às ${peekWhen()})` : ` (correção de ${verLabel(v)})`}.`, { ok: 'Limpar' }))) return;
+    const ed = beginEdit();
+    keys.forEach(k => delete ed.v.slots[k]);
+    endEdit(ed, true); drawMapa();
     ui.toast(`${nome}: ${keys.length} vaga(s) limpa(s). Use "Desfazer" se foi sem querer.`);
   }
   // Grava a lista de uma letra (s2.C.0, s2.C.1…) na mudança atual.
-  function setList(f, l, names) {
-    const v = editVersion().v;
+  function setList(f, l, names, v) {
     listKeys(v, f, l).forEach(k => delete v.slots[k]);
     Object.keys(v.slots).filter(k => k.startsWith(`${f}.${l}.`)).forEach(k => delete v.slots[k]);
     names.forEach((n, i) => { v.slots[`${f}.${l}.${i}`] = n; });
@@ -465,35 +547,51 @@ window.Piso = (() => {
     const keep = mine.filter(n => !isDw(n) && pickedSet.has(nk(n)));
     const added = r.data.picked.filter(n => !mineSet.has(nk(n)));
     const busy = added.filter(n => where.has(nk(n)));
+    let q = { btn: 'keep' };
     if (busy.length) {
-      const q = await modal('Colaborador já está em outra função', `<p>${busy.map(n => `<b>${esc(n)}</b> está em <b>${esc(where.get(nk(n)))}</b>`).join('<br>')}</p>
-        <p class="muted">Deseja retirá-los de lá? Se a troca é só a partir de um horário, cancele e use <b>+ Mudança</b>.</p>`,
+      q = await modal('Colaborador já está em outra função', `<p>${busy.map(n => `<b>${esc(n)}</b> está em <b>${esc(where.get(nk(n)))}</b>`).join('<br>')}</p>
+        <p class="muted">Deseja retirá-los de lá?${modoTroca() ? '' : ' Se a pessoa trocou de função durante o turno, cancele e use <b>⏱ Troca de função</b>.'}</p>`,
         [['cancel', 'Cancelar', 'btn-ghost'], ['keep', 'Manter nas duas', 'btn-ghost'], ['move', 'Retirar de lá', 'btn-primary solid']]);
       if (q.btn === 'cancel') return;
-      if (q.btn === 'move') {
-        const out = new Set(busy.map(nk));
-        // Tira das outras vagas; as listas (sorting/auditoria) são reorganizadas sem buracos.
-        Object.keys(v.slots).forEach(k => { if (v.slots[k] && out.has(nk(v.slots[k])) && !k.startsWith(`${f}.${l}.`)) delete v.slots[k]; });
-        L.letras.forEach(x => ['s2', 'aud'].forEach(g => { if (g === f && x === l) return; const ns = Object.keys(v.slots).filter(k => k.startsWith(`${g}.${x}.`)).sort((a, b) => +a.split('.')[2] - +b.split('.')[2]).map(k => v.slots[k]).filter(Boolean); setList(g, x, ns); }));
-      }
     }
-    setList(f, l, [...keep, ...added, ...Array(r.data.dw).fill(DIARISTA)]);
-    touch(); drawMapa();
+    const ed = beginEdit(), ev = ed.v;
+    if (q.btn === 'move') {
+      const out = new Set(busy.map(nk));
+      // Tira das outras vagas; as listas (sorting/auditoria) são reorganizadas sem buracos.
+      Object.keys(ev.slots).forEach(k => { if (ev.slots[k] && out.has(nk(ev.slots[k])) && !k.startsWith(`${f}.${l}.`)) delete ev.slots[k]; });
+      L.letras.forEach(x => ['s2', 'aud'].forEach(g => { if (g === f && x === l) return; const ns = Object.keys(ev.slots).filter(k => k.startsWith(`${g}.${x}.`)).sort((a, b) => +a.split('.')[2] - +b.split('.')[2]).map(k => ev.slots[k]).filter(Boolean); setList(g, x, ns, ev); }));
+    }
+    setList(f, l, [...keep, ...added, ...Array(r.data.dw).fill(DIARISTA)], ev);
+    endEdit(ed); drawMapa();
   }
   const intCard = () => { const ks = intKeys(cur()); return ks.length ? `<section class="card pz-card pz-int">${cardHead('☕ Intervalo', 'func:int')}${ks.map(k => slotInput(k)).join('')}</section>` : ''; };
   // XPT: cada vaga é um XPT (destino) para o turno inteiro; quem está na vaga bipa os pacotes daquele XPT.
   const xptDest = () => (st.map.xptDest = st.map.xptDest || {});
+  // XPTs de uma vaga: lista (mapas antigos guardavam um texto só).
+  const destsOf = (map, k) => { const d = (map.xptDest || {})[k]; return [...new Set((Array.isArray(d) ? d : d ? [d] : []).map(x => xptBase(x)).filter(Boolean))]; };
+  const allDests = map => Object.keys(map.xptDest || {}).flatMap(k => destsOf(map, k));
+  // Nome do XPT só com o começo: "XPT-SMD-01-X" → "XPT-SMD"; "smd" → "XPT-SMD".
+  function xptBase(d) {
+    const t = String(d || '').toUpperCase().trim().replace(/[\s_]+/g, '-');
+    if (!t) return '';
+    const m = t.match(/^XPT-?([A-Z]+)/) || t.match(/^([A-Z]+)/);
+    return m ? `XPT-${m[1]}` : t;
+  }
   function knownXpts() {
     const set = new Set();
-    (baseOn() ? B().mapaList() : []).forEach(r => Object.values((r.map && r.map.xptDest) || {}).forEach(d => d && set.add(d)));
-    (baseOn() ? B().parcelList() : []).forEach(p => p.items.forEach(x => x.dest && /^XPT/i.test(x.dest) && set.add(x.dest)));
-    Object.values(xptDest()).forEach(d => d && set.add(d));
+    (baseOn() ? B().mapaList() : []).forEach(r => r.map && allDests(r.map).forEach(d => set.add(d)));
+    (baseOn() ? B().parcelList() : []).forEach(p => p.items.forEach(x => x.dest && /^XPT/i.test(x.dest) && set.add(xptBase(x.dest))));
+    allDests(st.map).forEach(d => set.add(d));
     return [...set].sort();
   }
-  const xptCard = n => (n ? `<section class="card pz-card pz-xpt">${cardHead('XPT', 'func:xpt')}
-      <div class="muted small">Cada vaga é um XPT do turno: escolha o XPT (como no Sort Code, ex.: XPT-JRU-01) e quem vai bipar os pacotes dele.</div>
+  // Uma linha por colaborador: o nome e, na frente, quantos XPTs ele fizer (só o começo do nome, ex.: XPT-SMD).
+  const xptCard = n => `<section class="card pz-card pz-xpt">${cardHead('XPT', 'func:xpt')}
+      <div class="muted small">Escolha o colaborador e coloque na frente quantos XPTs ele fizer, só pelo começo do nome (XPT-SMD vale para XPT-SMD-01, XPT-SMD-01-X…).</div>
       <datalist id="pzXptList">${knownXpts().map(d => `<option value="${esc(d)}">`).join('')}</datalist>
-      ${range(n).map(k => `<div class="pz-xpt-row"><input class="pz-xpt-dest" list="pzXptList" data-xptd="xpt.${k}" value="${esc(xptDest()[`xpt.${k}`] || '')}" placeholder="XPT (ex.: XPT-JRU-01)" autocomplete="off">${slotInput(`xpt.${k}`, 'Colaborador')}</div>`).join('')}</section>` : '');
+      ${range(n).map(k => { const key = `xpt.${k}`; return `<div class="pz-xpt-row">${slotInput(key, 'Colaborador')}
+        <div class="pz-xpt-tags">${destsOf(st.map, key).map(d => `<span class="pz-tag">${esc(d)}<button data-xrm="${key}|${esc(d)}" title="Tirar ${esc(d)}" aria-label="Tirar ${esc(d)}">×</button></span>`).join('')}
+          <input class="pz-xpt-add" list="pzXptList" data-xadd="${key}" placeholder="+ XPT" aria-label="Adicionar XPT" autocomplete="off"></div></div>`; }).join('')}
+      <button class="tool" data-pz="xpt-row">+ Colaborador no XPT</button></section>`;
   const simpleCard = (f, title, n) => (n ? `<section class="card pz-card">${cardHead(title, `func:${f}`)}${range(n).map(k => slotInput(`${f}.${k}`)).join('')}</section>` : '');
 
   function layoutEditor() {
@@ -561,7 +659,9 @@ window.Piso = (() => {
     const byName = new Map();
     const nDw = filled.filter(s => isDw(v.slots[s.key])).length;
     filled.filter(s => !isDw(v.slots[s.key])).forEach(s => { const k = nk(v.slots[s.key]); byName.set(k, [...(byName.get(k) || []), s]); });
-    const dup = [...byName.entries()].filter(([, a]) => a.length > 1);
+    // Vários XPTs com a mesma pessoa contam como uma função só (uma pessoa pode fazer mais de um XPT).
+    const multi = a => a.filter(s => s.func !== 'xpt').length + (a.some(s => s.func === 'xpt') ? 1 : 0) > 1;
+    const dup = [...byName.entries()].filter(([, a]) => multi(a));
     const inInt = new Set(intKeys(v).map(k => nk(v.slots[k])));
     const onBoard = ['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to !== 'int' && !isDw(x.n)));
     onBoard.forEach(x => { const k = nk(x.n); byName.set(k, [...(byName.get(k) || []), { func: x.to === 'pool' ? 's2' : 's2', board: true }]); });
@@ -570,7 +670,7 @@ window.Piso = (() => {
     const perFunc = Object.keys(FUNCS).map(f => [f, filled.filter(s => s.func === f).length, slots.filter(s => s.func === f).length]).filter(x => x[2]);
     document.querySelectorAll('.pz-slot input').forEach(i => {
       const k = nk(i.value);
-      i.classList.toggle('dup', !!k && !isDw(i.value) && (byName.get(k) || []).length > 1);
+      i.classList.toggle('dup', !!k && !isDw(i.value) && multi(byName.get(k) || []));
     });
     // Painel recolhido: só uma faixa com o botão para abrir (a escolha fica salva no aparelho).
     if (ls.sideOff) {
@@ -589,7 +689,7 @@ window.Piso = (() => {
       </section>
       ${dup.length ? `<section class="card pz-card"><div class="pz-title">Em mais de uma vaga</div>
         ${dup.map(([, a]) => `<div class="pz-warn">⚠ ${esc(v.slots[a[0].key])} <span class="muted small">(${a.map(s => FUNCS[s.func]).join(', ')})</span></div>`).join('')}
-        <div class="muted small">Se a pessoa mudou de função durante o turno, use <b>+ Mudança</b> com o horário.</div></section>` : ''}
+        <div class="muted small">Se a pessoa mudou de função durante o turno, use <b>⏱ Troca de função</b> com o horário.</div></section>` : ''}
       <section class="card pz-card"><div class="pz-title">Sem função <span class="muted">(${free.length})</span></div>
         <input class="search" id="pzFree" type="search" placeholder="Buscar…">
         <div class="pz-free" id="pzFreeList">${free.map(n => `<div>${esc(n)}</div>`).join('') || '<span class="muted small">Todos da lista HSE estão no mapa.</span>'}</div>
@@ -659,14 +759,13 @@ window.Piso = (() => {
     return true;
   }
 
-  // Quem fez um XPT num dia (todas as mudanças e turnos do dia, ou só um turno). Compara o código sem pontuação e aceita
-  // um contido no outro (ex.: "XPT-JRU-01" e "JRU").
-  const xk = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const sameXpt = (a, b) => { const x = xk(a), y = xk(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+  // Quem fez um XPT num dia (todas as mudanças e turnos do dia, ou só um turno). O XPT vale pelo começo do nome
+  // (xptBase): quem fez o XPT-SMD responde pelos pacotes do XPT-SMD-01, XPT-SMD-01-X, XPT-SMD-02…
+  const sameXpt = (a, b) => { const x = xptBase(a), y = xptBase(b); return !!x && x === y; };
   function xptWho(iso, dest, turno) {
     const out = new Map();
     (baseOn() ? B().mapaList() : []).filter(r => r.date === iso && (!turno || r.turno === turno) && r.map).forEach(r => {
-      const keys = Object.entries(r.map.xptDest || {}).filter(([, d]) => sameXpt(d, dest)).map(([k]) => k);
+      const keys = Object.keys(r.map.xptDest || {}).filter(k => destsOf(r.map, k).some(d => sameXpt(d, dest)));
       r.map.versions.forEach(v => keys.forEach(k => { const n = v.slots[k]; if (n && !out.has(nk(n))) out.set(nk(n), n); }));
     });
     return [...out.values()];
@@ -730,7 +829,7 @@ window.Piso = (() => {
     if (target.length < 1) return ui.toast('Não há vagas livres para o rodízio (solte as vagas com 🔒).', true);
     if (!(await reviewSex(pool, mode === 'preencher' ? `Rodízio — ${pool.length} pessoa(s) do turno ${st.turno} (últimos ${HIST_DAYS} dias)` : `Rodízio — ${pool.length} pessoa(s) desta mudança`))) return;
     const now = new Map(target.filter(s => v.slots[s.key]).map(s => [nk(v.slots[s.key]), s.func]));
-    st.undo = clone(v.slots);
+    const ed = beginEdit(), ev = ed.v;
     const left = new Set(pool);
     // Descarga, Indução e mesa de volumoso só com homens (cadastro de Colaboradores). Essas vagas são preenchidas primeiro.
     const volum = new Set(st.map.layout.mesas.filter(m => /volum/i.test(m.nome)).map(m => m.id));
@@ -745,10 +844,10 @@ window.Piso = (() => {
         const score = ((cnt.get(k) || {})[s.func] || 0) * 2 + (last.get(k) === s.func ? 6 : 0) + (now.get(k) === s.func ? 3 : 0) + Math.random() * 0.5;
         if (score < bestScore) { bestScore = score; best = n; }
       });
-      if (best != null) { v.slots[s.key] = best; left.delete(best); } else { delete v.slots[s.key]; if (useSex && heavy(s)) semHomem++; }
+      if (best != null) { ev.slots[s.key] = best; left.delete(best); } else { delete ev.slots[s.key]; if (useSex && heavy(s)) semHomem++; }
     });
-    const changed = target.filter(s => nk(st.undo[s.key]) !== nk(v.slots[s.key])).length;
-    touch(); drawMapa();
+    const changed = target.filter(s => nk(ed.before[s.key]) !== nk(ev.slots[s.key])).length;
+    endEdit(ed, true); drawMapa();
     if (semHomem) ui.toast(`Rodízio: ${semHomem} vaga(s) de Descarga/Indução/volumoso ficaram vazias por falta de homens. Preencha à mão.`, true);
     else ui.toast(mode === 'preencher'
       ? `Rodízio: ${target.length - left.size} pessoa(s) do turno ${st.turno} (últimos ${HIST_DAYS} dias) colocadas em funções diferentes. Confira quem veio hoje e salve.`
@@ -823,8 +922,10 @@ window.Piso = (() => {
       dlg => ({ names: [...dlg.querySelectorAll('#pzIntList input:checked')].map(i => i.dataset.intName), at: dlg.querySelector('#pzIntAt').value || nowHm(),
         dur: Math.max(10, parseInt(dlg.querySelector('#pzIntDur').value, 10) || 60), back: dlg.querySelector('#pzIntBack').checked }));
     if (!r || r.btn !== 'ok' || !r.data.names.length) return;
+    const taken = hm => st.map.versions.some(x => x.from === hm);
+    if (taken(r.data.at) || (r.data.back && taken(end(r.data.at, r.data.dur)))) return ui.toast(`Já existe uma mudança às ${taken(r.data.at) ? r.data.at : end(r.data.at, r.data.dur)}. Escolha outro horário para o intervalo.`, true);
     const go = new Set(r.data.names.map(nk));
-    const base = clone(v.slots);
+    const base = clone(versionAt(st.map, r.data.at).slots);
     const slotsInt = {};
     Object.entries(base).forEach(([k, name]) => { if (!go.has(nk(name)) && !k.startsWith('int.')) slotsInt[k] = name; });
     r.data.names.forEach((name, i) => { slotsInt[`int.${i}`] = name; });
@@ -878,7 +979,7 @@ window.Piso = (() => {
       lines.push('AUDITORIA'); L.letras.forEach(l => lines.push(`${l}: ${lst('aud', l)}`)); lines.push('');
     }
     if (L.desc) lines.push(`Descarga: ${list(range(L.desc).map(k => `desc.${k}`))}`);
-    if (L.xpt) range(L.xpt).forEach(k => { const d2 = xptDest()[`xpt.${k}`]; if (d2 || v.slots[`xpt.${k}`]) lines.push(`${d2 || 'XPT ' + (k + 1)}: ${get(`xpt.${k}`)}`); });
+    if (L.xpt) range(L.xpt).forEach(k => { const ds = destsOf(st.map, `xpt.${k}`); if (ds.length || v.slots[`xpt.${k}`]) lines.push(`XPT ${get(`xpt.${k}`)}: ${ds.join(', ') || '—'}`); });
     if (L.s5) lines.push(`5S: ${list(range(L.s5).map(k => `s5.${k}`))}`);
     const disp = ['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to === 'pool').map(x => x.n));
     if (disp.length) lines.push(`Disponíveis (2º Sorting/Auditoria): ${disp.join(', ')}`);
@@ -895,17 +996,20 @@ window.Piso = (() => {
     if (!baseOn()) return;
     // Só grava as vagas que existem no layout atual.
     st.map.versions.forEach(v => { const keys = new Set(slotsOf(st.map.layout, v).map(s => s.key)); Object.keys(v.slots).forEach(k => { if ((!keys.has(k) && !k.startsWith('int.')) || !v.slots[k]) delete v.slots[k]; }); });
+    const first = !B().mapaGet(st.date, st.turno);
     try {
       await B().mapaSave(st.date, st.turno, clone(st.map));
       if (ls.drafts) { delete ls.drafts[`${st.date}|${st.turno}`]; lsSave(); }
       st.dirty = false;
-      ui.toast(`Mapa de ${brShort(st.date)} · ${st.turno} salvo`);
+      // Primeiro salvamento do mapa de hoje: o turno começou, então passa para Troca de função (dá para voltar a Corrigir).
+      if (first && isToday() && !modoTroca()) { st.modo = 'troca'; st.mt = ''; st.undo = null; }
+      ui.toast(`Mapa de ${brShort(st.date)} · ${st.turno} salvo${st.modo === 'troca' && first ? '. Agora as alterações viram troca de função com horário (use ✏️ Corrigir para arrumar erros).' : ''}`);
       drawMapa();
     } catch (e) { ui.toast(String(e.message || e), true); }
   }
 
   async function onMapaClick(e) {
-    const t = e.target.closest('[data-pz],[data-pz-ver],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear],[data-bf],[data-bcard],[data-brm],[data-bpick],[data-bdw],[data-bto],[data-bclear],[data-pz-view],[data-board-toggle],[data-legacy-toggle],[data-pd-t],[data-pd-f]');
+    const t = e.target.closest('[data-pz],[data-pz-ver],[data-pz-modo],[data-tl],[data-xrm],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear],[data-bf],[data-bcard],[data-brm],[data-bpick],[data-bdw],[data-bto],[data-bclear],[data-pz-view],[data-board-toggle],[data-legacy-toggle],[data-pd-t],[data-pd-f]');
     if (!t) return;
     const d = t.dataset;
     if (d.lock) { if (!st.locks.delete(d.lock)) st.locks.add(d.lock); t.classList.toggle('on', st.locks.has(d.lock)); t.textContent = st.locks.has(d.lock) ? '🔒' : '🔓'; return; }
@@ -930,11 +1034,27 @@ window.Piso = (() => {
     }
     if (d.pzPick) { const [f, l] = d.pzPick.split('.'); openPicker(f, l); return; }
     if (d.pzRm) {
-      const [f, l] = d.pzRm.split('.'), v = cur();
-      setList(f, l, listKeys(v, f, l).filter(k => k !== d.pzRm).map(k => v.slots[k]));
+      const [f, l] = d.pzRm.split('.'), v = cur(), names = listKeys(v, f, l).filter(k => k !== d.pzRm).map(k => v.slots[k]);
+      const ed = beginEdit(); setList(f, l, names, ed.v); endEdit(ed);
       touch(); drawMapa(); return;
     }
-    if (d.pzVer != null) { st.ver = +d.pzVer; st.undo = null; drawMapa(); return; }
+    if (d.tl) { ls.tlOff = !ls.tlOff; lsSave(); return; }
+    if (d.xrm) {
+      const [key, dest] = d.xrm.split('|'), ds = destsOf(st.map, key).filter(x => x !== dest);
+      if (ds.length) xptDest()[key] = ds; else delete xptDest()[key];
+      touch(); drawMapa(); return;
+    }
+    if (d.pzModo) {
+      st.modo = d.pzModo; st.undo = null;
+      if (st.modo === 'troca') st.mt = '';
+      drawMapa(); return;
+    }
+    // Abrir uma mudança da linha do tempo é para olhar ou corrigir: passa para o modo Corrigir.
+    if (d.pzVer != null) {
+      st.ver = +d.pzVer; st.undo = null;
+      if (modoTroca()) { st.modo = 'fix'; ui.toast(`Modo Corrigir: alterações agora corrigem ${verLabel(cur())}.`); }
+      drawMapa(); return;
+    }
     const a = d.pz;
     if (a === 'save') saveMap();
     else if (a === 'text') copyText(mapText(), 'Mapa copiado');
@@ -946,10 +1066,8 @@ window.Piso = (() => {
       st.ver = 0; loadMap(); drawMapa(); ui.toast('Voltou ao mapa salvo.');
     }
     else if (a === 'versions') openVersions();
-    else if (a === 'add-ver') {
-      st.map.versions.push({ from: nowHm(), slots: clone(cur().slots) });
-      st.ver = st.map.versions.length - 1; st.undo = null; touch(); drawMapa();
-      ui.toast('Mudança criada com o horário de agora: ajuste o horário e quem mudou de função.');
+    else if (a === 'xpt-row') { st.map.layout.xpt = (st.map.layout.xpt || 0) + 1; touch(); drawMapa(); }
+    else if (a === 'mt-now') { st.mt = ''; drawMapa();
     } else if (a === 'del-ver') {
       if (st.ver === 0) return;   // o início do turno não pode ser excluído
       if (!(await uiConfirm(`Excluir a mudança "${verLabel(cur())}"?`))) return;
@@ -959,7 +1077,7 @@ window.Piso = (() => {
       // A confirmação é a própria revisão do sexo (lista de quem entra no rodízio).
       void vazio; rodizio();
     } else if (a === 'intervalo') { intervalo();
-    } else if (a === 'undo') { if (st.undo) { cur().slots = st.undo; st.undo = null; touch(); drawMapa(); } }
+    } else if (a === 'undo') { if (st.undo) { st.map.versions = st.undo.versions; st.ver = st.undo.ver; st.undo = null; touch(); drawMapa(); } }
     else if (a === 'copy-last') {
       const last = baseOn() ? B().mapaList().filter(r => r.turno === st.turno && `${r.date}|${r.turno}` !== `${st.date}|${st.turno}`).pop() : null;
       if (!last) return ui.toast(`Nenhum mapa salvo do turno ${st.turno} para copiar.`, true);
@@ -980,34 +1098,48 @@ window.Piso = (() => {
       const from = d.bmove, to = t.value === '__out' ? '' : t.value;
       bMove(st.bf, boardAll(st.bf).filter(x => x.to === from && (to !== '' || !x.sug)).map(x => x.n), to); st.bsel.clear(); drawMapa(); return;
     }
-    if (t.id === 'pzBT') { st.bt = t.value; return; }
-    if (d.xptd) { const val = t.value.trim().toUpperCase(); if (val) xptDest()[d.xptd] = val; else delete xptDest()[d.xptd]; t.value = val; touch(); return; }
-    if (t.id === 'pzAuto') { ls.autoVer = t.checked; lsSave(); drawMapa(); return; }
-    if (t.id === 'pzMT') { st.mt = t.value; return; }
-    if (t.id === 'pzFrom') { if (st.ver === 0) return; cur().from = t.value; touch(); drawMapa(); return; }
+    if (d.xadd) {
+      const add = t.value.split(/[,;\s]+/).map(xptBase).filter(Boolean);
+      if (!add.length) { t.value = ''; return; }
+      xptDest()[d.xadd] = [...new Set([...destsOf(st.map, d.xadd), ...add])];
+      touch(); drawMapa();
+      const el = document.querySelector(`[data-xadd="${d.xadd}"]`); if (el) el.focus();
+      return;
+    }
+    if (t.id === 'pzMT') { st.mt = t.value; st.mtUsed = Date.now(); st.undo = null; drawMapa(); return; }
+    if (t.id === 'pzFrom') {
+      if (st.ver === 0 || !t.value) return;
+      if (st.map.versions.some((x, i) => i !== st.ver && x.from === t.value)) { t.value = cur().from; return ui.toast(`Já existe uma mudança às ${t.value}.`, true); }
+      cur().from = t.value; touch(); drawMapa(); return;
+    }
     if (d.slot) { setSlot(t, d.slot); return; }
   }
   // Colocar alguém numa vaga. Se a pessoa já está em outra vaga desta mudança, pergunta se é para tirar de lá.
   async function setSlot(input, key) {
     const name = canon(input.value), prev = cur().slots[key] || '';
     if (nk(name) === nk(prev)) { input.value = prev; return; }
-    const { v, created } = editVersion();
+    let btn = 'keep';
     if (name && !isDw(name)) {
-      const other = Object.keys(v.slots).filter(k => k !== key && v.slots[k] && nk(v.slots[k]) === nk(name));
+      const isX = k => k.startsWith('xpt.');
+      const other = Object.keys(cur().slots).filter(k => k !== key && !(isX(k) && isX(key)) && cur().slots[k] && nk(cur().slots[k]) === nk(name));
       if (other.length) {
         const where = other.map(k => slotDesc(k, st.map.layout)).join(', ');
-        const r = await modal('Colaborador já está em outra função', `<p><b>${esc(name)}</b> está em <b>${esc(where)}</b> nesta mudança (${esc(verLabel(v))}).</p>
-          <p class="muted">Deseja retirá-lo de lá e colocar aqui? Se a troca é só a partir de um horário, cancele e use <b>+ Mudança</b>.</p>`,
+        const r = await modal('Colaborador já está em outra função', `<p><b>${esc(name)}</b> está em <b>${esc(where)}</b> (${esc(modoTroca() ? `mapa das ${peekWhen()}` : verLabel(cur()))}).</p>
+          <p class="muted">Deseja retirá-lo de lá e colocar aqui?${modoTroca() ? '' : ' Se a pessoa trocou de função durante o turno, cancele e use <b>⏱ Troca de função</b>.'}</p>`,
           [['cancel', 'Cancelar', 'btn-ghost'], ['keep', 'Manter nas duas', 'btn-ghost'], ['move', 'Retirar de lá', 'btn-primary solid']]);
-        if (r.btn === 'cancel') { input.value = prev; if (created) { st.map.versions.pop(); st.ver = st.map.versions.length - 1; drawMapa(); } return; }
-        if (r.btn === 'move') other.forEach(k => { delete v.slots[k]; const el = document.querySelector(`[data-slot="${k}"]`); if (el) el.value = ''; });
+        if (r.btn === 'cancel') { input.value = prev; return; }
+        btn = r.btn;
+        if (btn === 'move') other.forEach(k => { const el = document.querySelector(`[data-slot="${k}"]`); if (el) el.value = ''; });
       }
     }
+    const ed = beginEdit(), v = ed.v;
+    if (btn === 'move') Object.keys(v.slots).forEach(k => { if (k !== key && !(k.startsWith('xpt.') && key.startsWith('xpt.')) && v.slots[k] && nk(v.slots[k]) === nk(name)) delete v.slots[k]; });
     if (name) v.slots[key] = name; else delete v.slots[key];
     const wasDirty = st.dirty;
-    input.value = name; touch();
-    // Primeira alteração ou mudança nova: redesenha; depois, só o painel lateral.
-    if (!wasDirty || created) { drawMapa(); if (created) ui.toast(`Alteração registrada na mudança das ${cur().from}.`); } else drawSide();
+    input.value = name; endEdit(ed);
+    // Primeira alteração, mudança nova ou correção que passou adiante: redesenha (linha do tempo); senão só o painel.
+    const spread = sortedVers(st.map).some(x => (x.from || '') > (v.from || ''));
+    if (!wasDirty || ed.created || spread || modoTroca()) { drawMapa(); if (ed.created) ui.toast(`Troca registrada às ${cur().from}.`); } else drawSide();
   }
   function onMapaInput(e) {
     if (e.target.id !== 'pzFree') return;
@@ -1050,10 +1182,11 @@ window.Piso = (() => {
     const at = `mapa ${verLabel(v)}`;
     if (e.tipo === 'xpt') {
       // XPT: quem estava na vaga daquele XPT no turno (ou, sem ninguém no turno, em qualquer turno do dia).
-      if (!e.rota) return { resp: [], note: 'Informe o XPT do pacote (ex.: XPT-JRU-01).' };
-      let resp = xptWho(e.date, e.rota, e.turno), onde = `turno ${e.turno}`;
-      if (!resp.length) { resp = xptWho(e.date, e.rota); onde = 'dia'; }
-      return { resp, note: resp.length ? `Quem bipava o ${e.rota} no ${onde} (vaga XPT do mapa de piso).` : `Ninguém com o ${e.rota} no mapa de piso de ${brShort(e.date)}.` };
+      if (!e.rota) return { resp: [], note: 'Informe o XPT do pacote (ex.: XPT-SMD).' };
+      const xb = xptBase(e.rota);
+      let resp = xptWho(e.date, xb, e.turno), onde = `turno ${e.turno}`;
+      if (!resp.length) { resp = xptWho(e.date, xb); onde = 'dia'; }
+      return { resp, note: resp.length ? `Quem fez o ${xb} no ${onde} (vagas XPT do mapa de piso).` : `Ninguém com o ${xb} no mapa de piso de ${brShort(e.date)}.` };
     }
     if (e.tipo === 'sort') {
       const l = rotaLetra(e.rota);
@@ -1078,7 +1211,7 @@ window.Piso = (() => {
   }
   const responsaveis = () => respFor(se);
   // XPTs do mapa de piso de um dia (todas as vagas e turnos).
-  const xptOfDay = iso => [...new Set((baseOn() ? B().mapaList() : []).filter(r => r.date === iso && r.map).flatMap(r => Object.values(r.map.xptDest || {})).filter(Boolean))].sort();
+  const xptOfDay = iso => [...new Set((baseOn() ? B().mapaList() : []).filter(r => r.date === iso && r.map).flatMap(r => allDests(r.map)))].sort();
   // Quem recebeu o pacote no hub, pelo rastreio do SPX (só no PC, com a Sessão SPX ativa).
   // Só vale o operador que bipou dentro da janela (22:00 da véspera até 05:30 do dia do erro):
   // antes = backlog; depois ou nunca = não recebido (nos dois casos não há etiquetador do turno).
@@ -1128,7 +1261,7 @@ window.Piso = (() => {
             <div class="chips">${[['sort', 'Erro de sorting'], ['etiq', 'Erro de etiquetagem'], ['xpt', 'Erro de XPT']].map(([k, l]) => `<button class="chip ${se.tipo === k ? 'active' : ''}" data-pe-tipo="${k}">${l}</button>`).join('')}</div>
             <label>Código do pacote (BR) <input id="peCode" type="text" value="${esc(se.code)}" placeholder="BR264457056294A" autocomplete="off"></label>
             ${se.tipo === 'xpt' ? `
-              <label>XPT do pacote <input id="peRota" list="peXptList" type="text" value="${esc(se.rota)}" placeholder="XPT-JRU-01" autocomplete="off"></label>
+              <label>XPT do pacote <input id="peRota" list="peXptList" type="text" value="${esc(se.rota)}" placeholder="XPT-SMD" autocomplete="off"></label>
               <datalist id="peXptList">${xptOfDay(se.date).map(d => `<option value="${esc(d)}">`).join('')}</datalist>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
               <div class="muted small">Pacote do XPT com erro (principalmente o que foi sem bipar): o responsável é quem estava na vaga desse XPT no mapa de piso.</div>` : se.tipo === 'sort' ? `
@@ -1475,7 +1608,7 @@ window.Piso = (() => {
     const r = responsaveis();
     if (!r.resp.length && !r.classe && !(await uiConfirm(`Nenhum responsável foi encontrado (${r.note}) Salvar mesmo assim?`))) return;
     try {
-      await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo !== 'etiq' ? se.rota.trim().toUpperCase() : '', time: se.time,
+      await B().erroSave({ date: se.date, turno: se.turno, tipo: se.tipo, code, rota: se.tipo === 'xpt' ? xptBase(se.rota) : se.tipo !== 'etiq' ? se.rota.trim().toUpperCase() : '', time: se.time,
         resp: r.resp, detail: { letra: r.letra || '', recebeu: se.tipo === 'etiq' ? se.recv : '', operadorSpx: se.tipo === 'etiq' ? (se.opSpx || se.recv) : '', mapa: r.verFrom || '', posto: r.posto || '', classe: se.tipo === 'etiq' ? (se.classe || 'etiq') : '',
           obs: r.classe ? (se.spxMsg || r.note) : [se.tipo === 'etiq' && se.spxMsg ? se.spxMsg : '', r.note].filter((t, i, a) => t && a.indexOf(t) === i).join(' ') } });
       ui.toast(`Erro de ${se.tipo === 'sort' ? 'sorting' : 'etiquetagem'} salvo · ${code}`);
@@ -1574,7 +1707,7 @@ window.Piso = (() => {
       el.querySelectorAll('.kiosk-types button').forEach(b => b.classList.toggle('on', b.dataset.k === K.tipo));
       q('kSortBox').hidden = K.tipo !== 'sort' && K.tipo !== 'xpt';
       q('kRotaLbl').textContent = K.tipo === 'xpt' ? '3. XPT do pacote' : '3. Gaiola certa do pacote';
-      q('kRota').placeholder = K.tipo === 'xpt' ? 'XPT-JRU-01' : 'C-12';
+      q('kRota').placeholder = K.tipo === 'xpt' ? 'XPT-SMD' : 'C-12';
       q('kXptList').innerHTML = K.tipo === 'xpt' ? xptOfDay(K.date).map(d => `<option value="${esc(d)}">`).join('') : '';
       el.querySelector('[data-k="save"]').disabled = !ready() || K.busy;
     };
@@ -1583,7 +1716,7 @@ window.Piso = (() => {
     async function save() {
       if (!ready() || K.busy) return;
       K.busy = true; sync(); say('Registrando…', true);
-      const c = code(), tipo = K.tipo, rota = tipo !== 'etiq' ? q('kRota').value.trim().toUpperCase() : '';
+      const c = code(), tipo = K.tipo, rota = tipo === 'xpt' ? xptBase(q('kRota').value) : tipo !== 'etiq' ? q('kRota').value.trim().toUpperCase() : '';
       let time = nowHm(), recv = '';
       let classe = '';
       let spx = '';
@@ -1651,13 +1784,13 @@ window.Piso = (() => {
 
   return {
     // Usado pela tela Recebimento por hora para desenhar as bancadas do mapa.
-    helpers: { slotsOf, bancadaNo, sameName, sortedVers, isDw, listKeys, xptWho },
+    helpers: { slotsOf, bancadaNo, sameName, sortedVers, isDw, listKeys, xptWho, xptBase, destsOf },
     _board: { bStateAt },
     // Ao sair da tela (o app chama), o próximo acesso volta com o quadro recolhido.
     leave: () => { st.inMapa = false; },
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.
-    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT },
+    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf },
   };
 })();

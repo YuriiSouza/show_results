@@ -413,3 +413,41 @@ test('módulo da planilha-base carrega e expõe as funções principais', () => 
   ['load', 'mapaList', 'mapaGet', 'mapaSave', 'mapaHistory', 'erroList', 'erroSave', 'recebList', 'parcelList', 'auditList']
     .forEach(f => assert.equal(typeof global.window.Base[f], 'function', f));
 });
+
+test('mapa de piso: correção passa para as mudanças seguintes e resumo do que mudou', () => {
+  global.window = { Charts: { esc: x => x }, ParcelCore: Core };
+  delete require.cache[require.resolve('../js/piso.js')];
+  require('../js/piso.js');
+  const P = global.window.Piso._;
+  const map = { versions: [
+    { from: '', slots: { 'desc.0': 'ANA', 'desc.1': 'BIA' } },
+    { from: '12:00', tipo: 'intervalo', slots: { 'desc.1': 'BIA', 'int.0': 'ANA' } },
+    { from: '13:00', tipo: 'volta', slots: { 'desc.0': 'ANA', 'desc.1': 'BIA' } },
+    { from: '14:00', slots: { 'desc.0': 'CAIO', 'desc.1': 'BIA' } },
+    { from: '15:00', slots: { 'desc.0': 'ANA', 'desc.1': 'BIA' } },
+  ] };
+  // Corrige ANA → DORA no início: passa pelo intervalo (vaga vazia nele), corrige a Volta e para na troca das 14:00.
+  const before = { ...map.versions[0].slots };
+  map.versions[0].slots['desc.0'] = 'DORA';
+  P.propagate(map, map.versions[0], before);
+  assert.deepEqual(map.versions.map(v => v.slots['desc.0'] || ''), ['DORA', '', 'DORA', 'CAIO', 'ANA']);
+  assert.equal(map.versions[1].slots['int.0'], 'ANA');
+  const L = P.DEFAULT_LAYOUT;
+  assert.deepEqual(P.verDiff(map.versions[2], map.versions[3], L), ['Descarga: DORA → CAIO']);
+  assert.deepEqual(P.verDiff({ slots: { 'desc.0': 'ANA' } }, { slots: { 'xpt.0': 'ANA' } }, L), ['ANA: Descarga → XPT']);
+});
+
+test('XPT: vale pelo começo do nome (XPT-SMD responde por XPT-SMD-01, XPT-SMD-01-X…)', () => {
+  const P = global.window.Piso._;
+  assert.equal(P.xptBase('XPT-SMD-01'), 'XPT-SMD');
+  assert.equal(P.xptBase('xpt_smd-01-x'), 'XPT-SMD');
+  assert.equal(P.xptBase('SOC-GO2--HUB-LGO-03--XPT-JRU-01'.split('--').pop()), 'XPT-JRU');
+  assert.equal(P.xptBase('smd'), 'XPT-SMD');
+  assert.ok(P.sameXpt('XPT-SMD', 'XPT-SMD-01-X') && P.sameXpt('XPT-SMD-02', 'XPT-SMD-01'));
+  assert.ok(!P.sameXpt('XPT-SMD-01', 'XPT-JRU-01') && !P.sameXpt('', 'XPT-SMD'));
+  // Vários XPTs na mesma vaga (lista) e mapas antigos com um texto só.
+  const map = { xptDest: { 'xpt.0': ['XPT-SMD-01', 'xpt-smd-02', 'XPT-JRU'], 'xpt.1': 'XPT-CRX-01' } };
+  assert.deepEqual(P.destsOf(map, 'xpt.0'), ['XPT-SMD', 'XPT-JRU']);
+  assert.deepEqual(P.destsOf(map, 'xpt.1'), ['XPT-CRX']);
+  assert.deepEqual(P.destsOf(map, 'xpt.2'), []);
+});

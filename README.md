@@ -318,19 +318,27 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 
 - **Mapa de piso**: quem está em cada função por **dia e turno (AM / PM1 / PM2)** — mesas (indução, postos de
   recebimento/etiquetagem com 2 pessoas, sorting), 2º sorting e auditoria por letra, descarga e 5S.
-  - **Mudanças no turno**: "+ Mudança" copia o mapa com um horário ("a partir das 09:30"); cada mudança é um retrato completo.
+  - **Mudanças no turno** — chave de modo na barra:
+    - **✏️ Corrigir**: arruma a mudança aberta (montagem do início, nome errado) sem registrar horário. A correção passa para
+      as mudanças seguintes que ainda tinham o mesmo nome na vaga (para na primeira troca feita de propósito; o intervalo não para).
+    - **⏱ Troca de função às HH:MM** (em branco = agora; um horário escolhido volta para "agora" após 10 min sem uso): cada
+      alteração usa a mudança daquele horário ou cria uma nova a partir do mapa que valia ali, e vale daí em diante. A tela
+      mostra o mapa do horário da troca. Os movimentos do quadro do 2º Sorting/Auditoria usam o mesmo horário.
+    - O primeiro salvamento do mapa de hoje passa para **Troca de função**; mapa novo ou de outro dia começa em **Corrigir**.
+    - **Linha do tempo do turno**: cada mudança com o que mudou ("Mesa 1 · Indução: ANA → BIA") e os movimentos do quadro;
+      clicar abre a mudança em modo Corrigir (dá para mudar o horário ou excluir). **Desfazer** volta todas as mudanças.
   - **Rodízio** (últimos 10 dias): com o mapa vazio, preenche com quem trabalhou no turno nos últimos 10 dias, cada um
     numa função diferente das que fez; com o mapa preenchido, redistribui as mesmas pessoas. 🔒 fixa uma vaga; **Desfazer** volta.
   - Colocar numa vaga alguém que já está em outra função abre um aviso: **Retirar de lá**, **Manter nas duas** ou **Cancelar**.
   - **Intervalo**: informa quantos estão em função, você diz quantos vão, e o app sugere quem (1ª leva: volumoso, descarga
     e 1º sorting; 2ª leva: recebimento/etiquetagem; uma vez por dia por pessoa). Vira uma mudança "☕ Intervalo HH:MM",
     com a volta criada automaticamente.
-  - **XPT por destino**: cada vaga de XPT tem o XPT (ex.: XPT-JRU-01, como no Sort Code) e quem bipa os pacotes dele no turno.
-    Erros de piso tem o tipo **Erro de XPT** (responsável = quem estava na vaga daquele XPT), também no modo tela cheia; no Parcel,
+  - **XPT**: uma linha por colaborador, com **quantos XPTs ele fizer** na frente do nome ("+ XPT"; × tira; dá para colar
+    vários separados por vírgula). O XPT vale pelo **começo do nome** (XPT-SMD vale para XPT-SMD-01, XPT-SMD-01-X…).
+    "+ Colaborador no XPT" abre mais uma linha.
+    Erros de piso tem o tipo **Erro de XPT** (responsáveis = todos que fizeram aquele XPT no turno), também no modo tela cheia; no Parcel,
     pacote de outro XPT mostra "🗺 Mapa de piso DD/MM: NOME" — quem estava na vaga daquele XPT no **dia do relatório**
     (a data mais antiga da coluna Scanned Time do relatório de contagem) — e isso sai no CSV.
-  - **Horário automático das alterações**: depois que o mapa do turno é salvo, cada alteração vira uma mudança com o horário
-    (alterações seguidas em até 10 min entram na mesma). Dá para informar outro horário ("às") ou desligar para corrigir a mudança aberta.
   - **Descartar alterações** volta ao mapa salvo na planilha; **Versões salvas** lista todos os salvamentos do dia/turno e
     restaura qualquer um (vira o mapa em edição; confirme com Salvar mapa).
   - **Rodízio e sexo**: Descarga, Indução e a mesa de volumoso só recebem homens. O app presume o sexo pelo primeiro nome e,

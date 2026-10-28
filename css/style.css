@@ -737,6 +737,25 @@ dialog.login-gate { width: min(460px, calc(100vw - 32px)); }
 .pz-vers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
 .pz-vers .pz-sep { flex: 1; }
 .pz-from { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.pz-from input { padding: 4px 6px; }
+/* Modo de edição do mapa: Corrigir | Troca de função */
+.pz-mode { display: inline-flex; border: 2px solid var(--border); border-radius: 10px; overflow: hidden; }
+.pz-mode button { border: 0; padding: 8px 14px; font-size: 14px; font-weight: 800; background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+.pz-mode button.on { background: var(--text); color: var(--surface); }
+.pz-mode button[data-pz-modo="troca"].on { background: var(--shopee); color: #fff; }
+.pz-mode-hint { margin: -6px 0 12px; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: var(--surface-2); border: 1px solid var(--border); }
+.pz-mode-hint.troca { background: var(--shopee-soft); border-color: var(--shopee); }
+/* Linha do tempo do turno */
+.pz-tline { margin-bottom: 14px; }
+.pz-tline summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.pz-tl-list { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.pz-tl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px; border-radius: 8px; border: 1px solid transparent; }
+.pz-tl-row.on { border-color: var(--shopee); background: var(--shopee-soft); }
+.pz-tl-main { display: flex; gap: 10px; align-items: baseline; flex: 1 1 260px; min-width: 0; padding: 4px 6px; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.pz-tl-main b { flex: 0 0 auto; min-width: 92px; }
+.pz-tl-main span { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.pz-tl-row.board .pz-tl-main { cursor: default; }
+.pz-tl-row.board b { color: var(--text-2); font-weight: 600; }
 .pz-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
 .pz-main { display: grid; gap: 16px; min-width: 0; }
 .pz-mesas { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
@@ -881,8 +900,6 @@ td.pe-obs { min-width: 260px; max-width: 420px; white-space: normal; font-size: 
 .pz-board { gap: 10px; }
 .pz-board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pz-board-tools .chip b { margin-left: 4px; }
-.pz-bt { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); }
-.pz-bt input { padding: 4px 6px; }
 .pz-bsel { padding: 8px 12px; border-radius: 10px; background: var(--shopee-soft); border: 1px solid var(--shopee); font-size: 13px; }
 .pz-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 6px; }
 .pz-col { display: grid; grid-template-rows: auto 1fr auto; gap: 6px; min-height: 160px; padding: 8px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
@@ -938,11 +955,12 @@ select.unk { border-color: var(--warn, #A15C00); }
 .pz-board.bf-aud .pz-bf-name { color: #3B6FD8; }
 .pz-board.bf-aud .pz-col.pool { border-color: #3B6FD8; }
 .pz-board.bf-aud .pz-col-n { background: #3B6FD8; }
-/* Mudanças automáticas */
-.pz-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
-.pz-auto input[type="time"] { padding: 3px 6px; }
 /* XPT por destino */
-.pz-xpt-row { display: grid; grid-template-columns: 130px 1fr; gap: 6px; align-items: center; }
-.pz-xpt-dest { padding: 6px 8px; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+.pz-xpt-row { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.pz-xpt-row:last-of-type { border-bottom: 0; }
+.pz-xpt-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pz-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--shopee-soft); border: 1px solid var(--shopee); font-size: 12px; font-weight: 800; }
+.pz-tag button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
+.pz-xpt-add { width: 96px; padding: 4px 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
 .pc-xpt-by { color: var(--shopee); font-weight: 600; }
 .kiosk-types { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
