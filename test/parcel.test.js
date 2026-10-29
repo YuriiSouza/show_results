@@ -513,3 +513,22 @@ test('rotas do turno: AM A-1 a E-6 (86 rotas) e PM1 E-7 a H-2; auditoria divide 
   assert.deepEqual(P.audWho(pm1, 'E', 14, '10:00'), ['BIA']);
   assert.equal(P.parseRota('e 7').l, 'E');
 });
+
+test('audit: rota noshow = AT sem pacote escaneado (coluna E vazia ou 0)', () => {
+  global.window = { Charts: { esc: x => x, fmt: {} }, APP_CONFIG: { METAS: {} } };
+  delete require.cache[require.resolve('../js/parser.js')];
+  require('../js/parser.js');
+  delete require.cache[require.resolve('../js/audit.js')];
+  require('../js/audit.js');
+  const header = ['AT/TO', 'Corridor/Cage', 'Total Initial Orders Inside AT/TO', 'Total Final Orders Inside AT/TO', 'Total Scanned Orders', 'Missorted Orders',
+    'Missing Orders', 'Validation Start Time', 'Validation End Time', 'Validation Operator', 'Revalidation Operator', 'Revalidated Count', 'AT/TO Validation Status', 'Remark'];
+  const rows = [
+    ['AT1', 'A-1', '100', '100', '100', '0', '0', '2026-10-29 07:00:00', '2026-10-29 07:05:00', '[ops1]ANA', '', '0', 'Validated', ''],
+    ['AT2', 'A-2', '80', '80', '', '0', '0', '', '', '', '', '0', 'Pending', ''],
+    ['AT3', 'A-3', '90', '90', '0', '0', '0', '', '', '', '', '0', 'Pending', ''],
+  ];
+  const s = global.window.Audit.summarize(header, rows);
+  assert.equal(s.ats, 3);
+  assert.equal(s.noshow, 2);
+  assert.deepEqual(s.noshowList.map(x => x.corridor), ['A-2', 'A-3']);
+});

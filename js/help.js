@@ -10,6 +10,10 @@ window.Help = (() => {
       t: 'Pacotes de outra rota',
       d: 'Pacotes <b>bipados na conferência de uma rota, mas que são de outra rota</b> (no relatório: <i>Missorted Orders</i>). Ex.: na conferência da rota A-1 foi bipado um pacote da A-2. Não dá para saber se foi erro de etiquetagem ou de separação — só que o pacote não deveria estar ali.',
     },
+    noshow: {
+      t: 'Rotas noshow',
+      d: 'Rotas que aparecem no relatório com AT, mas <b>sem nenhum pacote escaneado</b> (coluna E "Total Scanned Orders" vazia ou 0) — a rota não foi conferida. Conta para o Report geral do dia.',
+    },
     pctNaoBipados: {
       t: '% não bipados',
       d: 'Pacotes não bipados na conferência divididos pelo total de pedidos das rotas (inicial). É o número comparado com a meta.',

@@ -80,12 +80,9 @@ window.buildModel = function buildModel(raw) {
     dsD0: pick(g('transporte', 'DS D0'), g('gerencial', 'DS D0')),
   };
 
-  // ---- Missing ----
-  const missing = {};
-  for (const [k, name] of [['T3', S.missingT3], ['T1', S.missingT1]]) missing[k] = P.auditRows(P.table(sheet(name), 'AT/TO'));
 
   return {
-    raw, dates, rec, hc, phd, inv, rev, tr, missing,
+    raw, dates, rec, hc, phd, inv, rev, tr,
     hse: parseHSE(sheet(S.hse)),
     sheetsFound: Object.fromEntries(Object.entries(S).map(([k, n]) => [k, !!(raw.sheets || {})[n]])),
   };
@@ -176,7 +173,7 @@ window.buildModel = function buildModel(raw) {
 
 // Junta os modelos de vários meses (uma planilha por mês) num período contínuo.
 // Séries diárias são concatenadas na ordem das datas; o que é "retrato do momento"
-// (Report T3, Missing, PHD semanal) vem do mês mais recente; o HSE fica guardado mês a mês.
+// (Report T3, PHD semanal) vem do mês mais recente; o HSE fica guardado mês a mês.
 window.mergeModels = function mergeModels(models) {
   const toKey = d => d.split('/').reverse().join('');
   const list = models.filter(m => m && m.dates.length)
@@ -184,9 +181,7 @@ window.mergeModels = function mergeModels(models) {
   if (!list.length) return models[0] || null;
   // A guia HSE é diferente em cada planilha mensal: fica guardada por mês, para a tela de HSE escolher.
   const hseByMonth = Object.fromEntries(list.filter(m => m.monthKey && m.hse).map(m => [m.monthKey, m.hse]));
-  // As guias Missing T1/T3 também são de cada planilha mensal: a tela Missing escolhe o mês.
-  const missingByMonth = Object.fromEntries(list.filter(m => m.monthKey && m.missing).map(m => [m.monthKey, m.missing]));
-  if (list.length === 1) return { ...list[0], hseByMonth, missingByMonth };
+  if (list.length === 1) return { ...list[0], hseByMonth };
 
   // Mantém cada data uma vez só (se duas planilhas repetirem dias, vale a do mês mais recente).
   const seen = new Map();
@@ -215,11 +210,7 @@ window.mergeModels = function mergeModels(models) {
     ...latest,
     ...merged,
     dates,
-    // Missing T1/T3 é o retrato de um dia: vale o mês mais recente em que a guia está preenchida
-    // (as planilhas dos meses futuros já existem, mas com essas guias vazias).
-    missing: Object.fromEntries(['T3', 'T1'].map(k => [k, ([...list].reverse().find(m => m.missing && (m.missing[k] || []).length) || latest).missing[k] || []])),
     hseByMonth,
-    missingByMonth,
     months: list.map(m => m.monthKey).filter(Boolean),
   };
 };
