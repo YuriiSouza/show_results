@@ -7,16 +7,18 @@ A planilha continua sendo **só para digitação**; o app apenas lê. Clique em 
 com a API do Google em nome dela. A planilha continua privada: só é lida por quem estiver compartilhado nela.
 
 Menu lateral retrátil (☰ no topo ou **Recolher** no rodapé do menu) com as seções:
-**Visão geral · Recebimento · HC & PHD · Inventário · Reversa · Transporte · Audit de gestão · Missing (planilha) · HSE · Report T3**,
+**Visão geral · Recebimento · HC & PHD · Inventário · Reversa · Transporte · Audit de gestão · HSE · Report T3**,
 com filtro de período, dia de referência, metas (✓/⚠), botão **Tabela** em cada gráfico, **Modo TV** e tema claro/escuro.
 
 ## Audit de gestão (relatórios LMHub)
 
-> **Nomes das colunas do relatório** (nas telas **Audit de gestão** e **Missing**; o **?** ao lado do número explica):
+> **Nomes das colunas do relatório** (o **?** ao lado do número explica):
 > - **Não bipados na conferência** (*Missing Orders*): pacotes da rota que não foram bipados na conferência — o pacote
 >   estava ali e não foi bipado, ou nem estava fisicamente na rota.
 > - **Pacotes de outra rota** (*Missorted Orders*): pacotes bipados na conferência de uma rota, mas que são de outra
 >   (ex.: na conferência da A-1 apareceu um da A-2). Não dá para saber se foi erro de etiquetagem ou de separação.
+> - **Rotas noshow**: linhas com AT mas **sem pacote escaneado** (coluna E, *Total Scanned Orders*, vazia ou 0) — a rota
+>   não foi conferida. Card com a contagem e a lista das ATs (relatórios importados antes desta versão: reimportar).
 
 Todo dia são gerados três relatórios de Audit, um por turno (**AM, PM1, PM2**). Para analisar:
 
@@ -122,7 +124,7 @@ Como o app usa os meses:
 - Todos os meses são juntados num período contínuo: o seletor **Período** navega entre os meses (‹ ›) e
   aceita intervalos que cruzam meses (ex.: 15/08 → 15/09). Atalhos: últimos 7/30 dias, mês atual, mês anterior, tudo.
 - Ao abrir, o período padrão é o **mês atual** (ou o último intervalo escolhido).
-- **Report T3, HSE e Missing (planilha)** vêm da planilha do mês mais recente.
+- **Report T3 e HSE** vêm da planilha do mês mais recente.
 - Meses fechados ficam guardados no aparelho: o **Atualizar** busca de novo só o mês atual e o anterior.
   Se uma planilha antiga for corrigida, use **Recarregar todos os meses** na tela de conexão.
 - Se um mês falhar (ex.: sem permissão), os outros continuam aparecendo e o erro é mostrado ao lado do mês.
@@ -148,8 +150,12 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
   (o rascunho de quem está editando continua por cima).
 - **"* N sem valor"** leva ao primeiro campo vazio; **Fontes** mostra de onde veio cada valor; **Limpar edições** volta
   tudo às guias (também só vale depois de Salvar).
-- O **Report Geral** reaproveita o que foi preenchido nos fechamentos: atestado soma T1 + T3,
-  Carregamento T1/T3 vêm de cada fechamento e o Carregamento médio é calculado. Nos fechamentos, **Carregamento XPT · Planejados** já vem com **4** (editável). O **Macro Aging** é só o do T1 (o título fica só "Macro Aging").
+- O **Report Geral** reaproveita o que foi preenchido nos fechamentos (atestado soma T1 + T3) e puxa do **Audit de gestão**
+  do dia (AM = T3; PM = T1 = PM1 + PM2):
+  - **Conferência**: Status AM (T3), Status PM (T1) e **Status geral** no formato `conferidas/total - %`
+    (conferida = AT com pacote escaneado; noshow não conta).
+  - **Expedição**: **Rotas do dia** = ATs validadas do dia; **NoShow** = rotas noshow do dia; **Carregamento T1/T3** =
+    tempo médio por AT do PM/AM (`mm:ss`); **Carregamento médio** = média dos dois. O campo D-0 saiu. Nos fechamentos, **Carregamento XPT · Planejados** já vem com **4** (editável). O **Macro Aging** é só o do T1 (o título fica só "Macro Aging").
 - No computador o report é ajustado para caber na tela. No celular ele vira uma **coluna única com rolagem**,
   com campos grandes e o botão **Salvar** fixo no rodapé quando há alterações.
 

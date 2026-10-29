@@ -62,6 +62,9 @@ window.Audit = (() => {
       v: 1, ats: rows.length, initial: sum('initial'), scanned: sum('scanned'), missing: sum('missing'), missorted: sum('missorted'),
       atsMissing: rows.filter(r => r.missing > 0).length, atsDiv: rows.filter(r => r.missing > 0 || r.missorted > 0).length,
       revalidated: rows.filter(r => r.revalidated > 0).length,
+      // Rota noshow: linha com AT mas sem pacotes escaneados (coluna E "Total Scanned Orders" vazia ou 0).
+      noshow: rows.filter(r => r.at && !r.scanned).length,
+      noshowList: rows.filter(r => r.at && !r.scanned).map(r => ({ at: r.at, corridor: r.corridor, initial: r.initial })),
       notValidated: rows.filter(r => r.status && !/^validated$/i.test(r.status)).length,
       mins: timed.map(r => +r.minutes.toFixed(4)), pedidosTimed: timed.reduce((s, r) => s + r.initial, 0),
       t0: starts.length ? new Date(Math.min(...starts)).toISOString() : null, t1: ends.length ? new Date(Math.max(...ends)).toISOString() : null,
@@ -119,6 +122,9 @@ window.Audit = (() => {
     return {
       ats: sum('ats'), initial: sum('initial'), scanned: sum('scanned'), missing: sum('missing'), missorted: sum('missorted'),
       atsMissing: sum('atsMissing'), atsDiv: sum('atsDiv'), revalidated: sum('revalidated'), notValidated: sum('notValidated'),
+      // Relatórios importados antes da contagem de noshow não têm o número (null = reimportar).
+      noshow: reps.length && reps.every(r => r.s.noshow != null) ? sum('noshow') : null,
+      noshowList: reps.flatMap(r => (r.s.noshowList || []).map(x => ({ ...x, shift: r.shift }))),
       avgMin: mins.length ? minSum / mins.length : null, maxMin: mins.length ? Math.max(...mins) : null, timed: mins.length,
       over: mins.filter(v => v > T).length, excess: mins.reduce((x, v) => x + Math.max(0, v - T), 0),
       secPerOrder: sum('pedidosTimed') ? minSum * 60 / sum('pedidosTimed') : null,
@@ -295,6 +301,8 @@ window.Audit = (() => {
         ui.kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(a.missing), [statusPill(pctMiss, meta), deltaTxt(a.missing, pa && pa.missing)]),
         ui.kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
         ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com não bipados</span>`]),
+        ui.kpi(`Rotas noshow ${HT('noshow')}`, a.noshow == null ? '—' : f.int(a.noshow), [a.noshow == null ? '<span>reimporte o relatório para calcular</span>'
+          : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`]),
         ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), `<span>${a.ops} operadores</span>`]),
         ui.kpi(`ATs acima de ${fmtDur(TMAX())}`, f.int(a.over), [a.timed ? `<span class="pill ${a.over ? 'bad' : 'good'}">${a.over ? '⚠' : '✓'} ${f.pct(ratio(a.over, a.timed), 0)} das ATs</span>` : '',
           `<span>+${fmtDur(a.excess)} acima da meta</span>`]),
@@ -303,6 +311,10 @@ window.Audit = (() => {
         ${cmpTable}
         ${multi ? ui.card('auTrendPct', '% de não bipados por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}
         ${multi ? ui.card('auTrendOver', `% de ATs acima de ${fmtDur(TMAX())} por dia`, 'Por turno', { w: 6 }) : ''}
+        ${a.noshowList.length ? ui.card('', 'Rotas noshow', `${a.noshowList.length} rota(s) com AT e nenhum pacote escaneado (coluna E vazia ou 0)`, { w: 12, body: `
+          <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th><th>Pedidos (inicial)</th></tr></thead><tbody>
+          ${a.noshowList.map(r => `<tr><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}<td class="left">${esc(r.corridor)}</td><td>${r.initial}</td></tr>`).join('')}
+          </tbody></table></div>` }) : ''}
         ${ui.card('auCorr', 'Não bipados e pacotes de outra rota por corredor', st.shift === 'ALL' ? 'Soma dos turnos do dia' : 'Cada barra = um corredor/gaiola', { w: 12 })}
         ${ui.card('auRua', 'Por rua', 'Letra do corredor', { w: 4 })}
         ${ui.card('auHour', 'ATs validadas por hora', 'Hora de início da validação', { w: 4 })}
@@ -569,5 +581,12 @@ window.Audit = (() => {
   }
   const invalidate = () => { savedCache = null; };
 
-  return { render, openImport, getSaved, invalidate, summarize: (header, rows) => summarize(rowsOf(header, rows)) };
+  // Resumo de um dia para os reports: turnos pedidos juntos (ex.: PM1 + PM2). null = nenhum relatório importado.
+  async function daySummary(date, shifts) {
+    const reps = [];
+    for (const sh of shifts) { const r = await getSaved(date, sh); if (r && r.s && r.s.ats) reps.push(r); }
+    return reps.length ? { ...agg(reps), shifts: reps.map(r => r.shift) } : null;
+  }
+
+  return { render, openImport, getSaved, invalidate, daySummary, fmtDur, summarize: (header, rows) => summarize(rowsOf(header, rows)) };
 })();

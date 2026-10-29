@@ -50,8 +50,6 @@ window.APP_CONFIG = {
     transporte: 'Transporte',
     hse: 'HSE',
     gerencial: 'Gerencial',
-    missingT3: 'Missing T3',
-    missingT1: 'Missing T1',
   },
 
   // Reports de turno.

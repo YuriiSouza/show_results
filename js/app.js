@@ -13,7 +13,7 @@
   const state = {
     model: null, sheetName: '', demo: false, updatedAt: null, loading: false,
     from: 0, to: 0, ref: 0,
-    tab: LS.get('tab', 'overview'), maMode: 'T1', missMode: 'T3', hseSearch: '', hseMonth: '', missMonth: '',
+    tab: LS.get('tab', 'overview'), maMode: 'T1', hseSearch: '', hseMonth: '',
     timer: null, tvTimer: null,
   };
 
@@ -26,7 +26,6 @@
     transporte: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/>',
     audit: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
     parcel: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
-    qualidade: '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/>',
     hse: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
     mapa: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M15 9v12"/>',
     rechora: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M3 20l4-4"/>',
@@ -44,7 +43,6 @@
     { id: 'reversa', group: 'Operação', label: 'Reversa', daily: true, render: renderReversa },
     { id: 'transporte', group: 'Operação', label: 'Transporte', daily: true, render: renderTransporte },
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
-    { id: 'qualidade', group: 'Qualidade', label: 'Missing (planilha)', daily: false, render: renderQualidade },
     { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: true, render: () => window.Parcel.render(pcCtx) },
     { id: 'mapa', group: 'Piso', label: 'Mapa de piso', daily: true, render: () => window.Piso.renderMapa(pisoCtx) },
     { id: 'rechora', group: 'Piso', label: 'Recebimento por hora', daily: true, render: () => window.Receb.render(rhCtx) },
@@ -301,7 +299,6 @@
     `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value" title="${esc(value)}">${value}</div>
      <div class="kpi-sub">${subs.filter(Boolean).join('')}</div></div>`;
   const sub = t => `<span>${t}</span>`;
-  const HT = k => window.Help.tip(k);
 
   function card(id, title, subtitle = '', { w = 6, h = '', tools = '', body = null } = {}) {
     const canvas = body == null
@@ -317,15 +314,12 @@
 
   // ================= Render =================
   function renderTabs() {
-    const m = state.model;
-    const miss = m && m.missing.T3 ? m.missing.T3.reduce((s, r) => s + r.missing, 0) : 0;
     let group = '';
     $('tabs').innerHTML = TABS.map(t => {
       const g = t.group !== group ? `<div class="nav-group">${t.group}</div>` : '';
       group = t.group;
       return `${g}<button class="nav-item" data-tab="${t.id}" aria-current="${t.id === state.tab ? 'page' : 'false'}" title="${t.label}">
-        <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[t.id] || ICONS[{ rpP3: 'rpP1', rpF3: 'rpF1' }[t.id]]}</svg><span class="nav-label">${t.label}</span>
-        ${t.id === 'qualidade' && miss ? `<span class="badge" title="Missing T3">${miss}</span>` : ''}</button>`;
+        <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[t.id] || ICONS[{ rpP3: 'rpP1', rpF3: 'rpF1' }[t.id]]}</svg><span class="nav-label">${t.label}</span></button>`;
     }).join('');
   }
 
@@ -702,78 +696,6 @@
     ] });
   }
 
-  // ---------- Missing ----------
-  function renderQualidade() {
-    // Cada planilha mensal tem as suas guias Missing: o seletor de mês diz de qual planilha puxar.
-    // Padrão: mês atual, se a guia estiver preenchida; senão, o mês mais recente com dados.
-    const byMonth = state.model.missingByMonth || {}, mKeys = Object.keys(byMonth).sort();
-    const has = k => ((byMonth[k] || {})[state.missMode] || []).length > 0;
-    const nowKey = ym(new Date());
-    const mk = mKeys.includes(state.missMonth) ? state.missMonth : has(nowKey) ? nowKey : [...mKeys].reverse().find(has) || (mKeys.includes(nowKey) ? nowKey : mKeys[mKeys.length - 1]);
-    const rows = (mk ? (byMonth[mk] || {})[state.missMode] : state.model.missing[state.missMode]) || [];
-    const monthSel = mKeys.length ? `<label class="hse-month">Mês <select id="missMonth" aria-label="Mês da planilha">${mKeys.map(k => `<option value="${k}" ${k === mk ? 'selected' : ''}>${monthName(k)}${has(k) ? '' : ' (vazio)'}</option>`).join('')}</select></label>` : '';
-    const bindMonth = () => { const s = $('missMonth'); if (s) s.addEventListener('change', e => { state.missMonth = e.target.value; renderQualidade(); }); };
-    const toggle = monthSel + ['T3', 'T1'].map(k => `<button class="chip ${state.missMode === k ? 'active' : ''}" data-miss="${k}">Missing ${k}</button>`).join('');
-    if (!rows.length) {
-      main.innerHTML = head('Missing', `<div class="chips">${toggle}</div>`) + empty(`Guia ${C.SHEETS['missing' + state.missMode]} sem dados${mk ? ` na planilha de ${monthName(mk)}` : ''}.`);
-      bindMonth(); return;
-    }
-    const tot = k => rows.reduce((s, r) => s + r[k], 0);
-    const initial = tot('initial'), missing = tot('missing'), missorted = tot('missorted');
-    const pctMiss = ratio(missing, initial);
-    const mins = rows.map(r => r.minutes).filter(v => v != null);
-    const avgMin = mins.length ? mins.reduce((a, b) => a + b, 0) / mins.length : null;
-    const starts = rows.map(r => r.start).filter(Boolean), ends = rows.map(r => r.end).filter(Boolean);
-    const t0 = starts.length ? new Date(Math.min(...starts)) : null, t1 = ends.length ? new Date(Math.max(...ends)) : null;
-    const hhmm = d => d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
-    const day = t0 ? t0.toLocaleDateString('pt-BR') : '';
-
-    const byCorr = [...rows].sort((a, b) => a.corridor.localeCompare(b.corridor, 'pt-BR', { numeric: true }));
-    const ops = new Map();
-    rows.forEach(r => {
-      const o = ops.get(r.operator) || { nome: r.operator, ats: 0, pedidos: 0, missing: 0, missorted: 0, min: 0, nMin: 0 };
-      o.ats++; o.pedidos += r.initial; o.missing += r.missing; o.missorted += r.missorted;
-      if (r.minutes != null) { o.min += r.minutes; o.nMin++; }
-      ops.set(r.operator, o);
-    });
-    const opList = [...ops.values()].sort((a, b) => b.missing - a.missing || b.ats - a.ats);
-    const byHour = new Map();
-    rows.forEach(r => { if (!r.start) return; const h = r.start.getHours(); byHour.set(h, (byHour.get(h) || 0) + 1); });
-    const hours = [...byHour.keys()].sort((a, b) => a - b);
-
-    main.innerHTML = head(`Missing ${state.missMode}`, `<div class="chips">${toggle}</div>`) +
-      `<div class="kpis">${[
-        kpi('ATs validadas', f.int(rows.length), [sub(`${day} · ${hhmm(t0)} → ${hhmm(t1)}`)]),
-        kpi('Pedidos (inicial)', f.int(initial), [sub(`${f.int(tot('scanned'))} escaneados`)]),
-        kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(missing), [status(pctMiss <= META.missingMax, `${f.pct(pctMiss, 2)} dos pedidos`), sub('Missing Orders')]),
-        kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(missorted), [sub(`${f.pct(ratio(missorted, initial), 2)} dos pedidos · Missorted Orders`)]),
-        kpi(`ATs com não bipados ${HT('atsNaoBipados')}`, f.int(rows.filter(r => r.missing > 0).length), [sub(`de ${rows.length} ATs`)]),
-        kpi('Tempo médio / AT', avgMin == null ? '—' : f.dec(avgMin, 1) + ' min', [sub(`${ops.size} operadores`)]),
-      ].join('')}</div>
-      <div class="grid">
-        ${card('msCorr', 'Não bipados e pacotes de outra rota por corredor', 'Cada barra = uma AT/corredor', { w: 12 })}
-        ${card('msOps', 'Operadores', 'Ordenado por não bipados', { w: 8, body: `<div class="table-wrap"><table><thead><tr>
-          <th>Operador</th><th>ATs</th><th>Pedidos</th><th>Não bipados ${HT('naoBipados')}</th><th>De outra rota ${HT('outraRota')}</th><th>% Não bipados ${HT('pctNaoBipados')}</th><th>Min/AT</th></tr></thead><tbody>
-          ${opList.map(o => `<tr><td>${esc(o.nome)}</td><td>${o.ats}</td><td>${f.int(o.pedidos)}</td><td>${o.missing}</td><td>${o.missorted}</td>
-          <td>${f.pct(ratio(o.missing, o.pedidos), 2)}</td><td>${o.nMin ? f.dec(o.min / o.nMin, 1) : '—'}</td></tr>`).join('')}
-          </tbody></table></div>` })}
-        ${card('msHour', 'ATs validadas por hora', 'Hora de início da validação', { w: 4 })}
-        ${card('msList', 'Todas as ATs', 'Linhas destacadas têm pacotes não bipados', { w: 12, body: `<div class="table-wrap"><table><thead><tr>
-          <th>AT/TO</th><th class="left">Corredor</th><th>Inicial</th><th>Final</th><th>Escaneado</th><th>De outra rota ${HT('outraRota')}</th><th>Não bipados ${HT('naoBipados')}</th>
-          <th>Início</th><th>Fim</th><th>Min</th><th class="left">Operador</th><th class="left">Status</th></tr></thead><tbody>
-          ${[...rows].sort((a, b) => b.missing - a.missing || (a.start || 0) - (b.start || 0)).map(r => `<tr class="${r.missing ? 'hl' : ''}">
-            <td>${esc(r.at)}</td><td class="left">${esc(r.corridor)}</td><td>${r.initial}</td><td>${r.final}</td><td>${r.scanned}</td>
-            <td>${r.missorted}</td><td><b>${r.missing}</b></td><td>${hhmm(r.start)}</td><td>${hhmm(r.end)}</td>
-            <td>${r.minutes == null ? '—' : f.dec(r.minutes, 1)}</td><td class="left">${esc(r.operator)}</td><td class="left">${esc(r.status)}</td></tr>`).join('')}
-          </tbody></table></div>` })}
-      </div>`;
-    H.render('msCorr', { labels: byCorr.map(r => r.corridor), stacked: true, datasets: [
-      H.bar('Não bipados', byCorr.map(r => r.missing), H.color(1)), H.bar('De outra rota', byCorr.map(r => r.missorted), H.color(2)),
-    ] });
-    H.render('msHour', { labels: hours.map(h => `${String(h).padStart(2, '0')}h`), datasets: [H.bar('ATs', hours.map(h => byHour.get(h)), H.color(1))] });
-    bindMonth();
-  }
-
   // ---------- HSE ----------
   function renderHSE() {
     // Cada planilha mensal tem a sua guia HSE: a tela mostra um mês por vez (padrão: mês atual, se conectado).
@@ -979,8 +901,6 @@
       }
       const ma = e.target.closest('[data-ma]');
       if (ma) { state.maMode = ma.dataset.ma; renderAll(); }
-      const ms = e.target.closest('[data-miss]');
-      if (ms) { state.missMode = ms.dataset.miss; renderAll(); }
     });
 
     // Configurações

@@ -48,14 +48,14 @@ window.Reports = (() => {
   const src = (v, s, how, fmt = f.int) => (empty(v) ? null : { v: typeof v === 'number' ? fmt(v) : String(v).trim(), src: s, how });
   const firstOf = (...xs) => xs.find(Boolean) || null;
   const toIso = d => d.split('/').reverse().join('-');
-  const sameDay = (date, d) => date && `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` === d;
   const longDate = d => {
     const [dd, mm, yy] = d.split('/').map(Number);
     return new Date(yy, mm - 1, dd).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
   };
   const num = v => window.Parser.num(v);
-  const toMin = t => { const m = String(t || '').match(/(\d{1,2})\s*:\s*(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
-  const fromMin = n => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(Math.round(n % 60)).padStart(2, '0')}`;
+  // Duração "mm:ss" ou "h:mm:ss" (tempo médio por AT) -> minutos.
+  const durMin = t => { const p = String(t || '').trim().split(':').map(Number); if (p.some(isNaN) || p.length < 2) return null; return p.length === 3 ? p[0] * 60 + p[1] + p[2] / 60 : p[0] + p[1] / 60; };
+  const dmyIso = iso => iso.split('-').reverse().join('/');
 
   // Conferência do turno: Audit importado do dia; senão a guia Missing, se for do mesmo dia.
   async function conference(m, d, turno) {
@@ -64,11 +64,6 @@ window.Reports = (() => {
     if (rep && rep.s && rep.s.ats) {
       const x = rep.s;
       return { total: x.ats, ok: x.ats - (x.notValidated || 0), pct: (x.ats - (x.notValidated || 0)) / x.ats, missing: x.missing, how: `Relatório Audit ${sh} de ${d}` };
-    }
-    const mr = (m.missing || {})[turno] || [];
-    if (mr.length && mr.every(r => sameDay(r.start, d))) {
-      const total = mr.length, ok = mr.filter(r => /^validated$/i.test(r.status)).length;
-      return { total, ok, pct: ok / total, missing: mr.reduce((s, r) => s + r.missing, 0), how: `Guia ${turno === 'T1' ? S.missingT1 : S.missingT3} de ${d}` };
     }
     return null;
   }
@@ -218,6 +213,17 @@ window.Reports = (() => {
     };
     const fromShift = (kind2, id, label) => { const v = shiftVal(kind2, id); return v ? src(v, 'calc', `Valor do ${label}`) : null; };
     const t = m.hc.total;
+    // Audit de gestão do dia: AM = T3; PM = T1 (PM1 + PM2); geral = os três turnos.
+    const A = window.Audit, iso = toIso(d);
+    const [auAM, auPM, auAll] = A && A.daySummary ? [await A.daySummary(iso, ['AM']), await A.daySummary(iso, ['PM1', 'PM2']), await A.daySummary(iso, ['AM', 'PM1', 'PM2'])] : [null, null, null];
+    const auHow = (a, lbl) => `Audit de gestão ${dmyIso(iso)} · ${lbl} (${a.shifts.join(' + ')})`;
+    // Status da conferência: rotas conferidas / total de rotas - % (conferida = AT com pacote escaneado; noshow não conta).
+    const confTxt = (a, lbl) => {
+      if (!a || a.noshow == null) return null;
+      const ok = a.ats - a.noshow;
+      return src(`${ok}/${a.ats} - ${f.pct(ok / a.ats, 1)}`, 'auto', `${auHow(a, lbl)}: rotas conferidas / total de ATs (noshow = coluna E vazia ou 0)`);
+    };
+    const durTxt = (a, lbl) => (a && a.avgMin != null ? src(A.fmtDur(a.avgMin), 'auto', `${auHow(a, lbl)}: tempo médio por AT`) : null);
     return {
       title: 'Report geral do dia', sub: 'Acumulado do dia · T1 (PM) + T3 (AM)',
       layout: 'cols',
@@ -241,8 +247,9 @@ window.Reports = (() => {
           F('dsr', 'DSR', g(t.dsr, `Guia ${S.hc} · HC TOTAL · DSR`)),
         ]),
         sec('conf', '🔢', 'Conferência', [
-          F('conf_am_status', 'Status AM (T3)', firstOf(confStatus(c3), fromShift('rpF3', 'conf_status', 'Fechamento T3')), { options: STATUS_OPTS }),
-          F('conf_pm_status', 'Status PM (T1)', firstOf(confStatus(c1), fromShift('rpF1', 'conf_status', 'Fechamento T1')), { options: STATUS_OPTS }),
+          F('conf_am', 'Status AM (T3)', confTxt(auAM, 'AM'), { hint: 'conferidas/total - %' }),
+          F('conf_pm', 'Status PM (T1)', confTxt(auPM, 'PM'), { hint: 'conferidas/total - %' }),
+          F('conf_all', 'Status geral', confTxt(auAll, 'dia'), { hint: 'conferidas/total - %' }),
         ]),
         sec('erros', '❌', 'Erros operacionais', [
           F('missing_t1', 'Missing T1', firstOf(c1 && src(c1.missing, 'auto', `${c1.how}: soma de Missing Orders`), fromShift('rpF1', 'missing', 'Fechamento T1'))),
@@ -250,17 +257,16 @@ window.Reports = (() => {
           F('missing_all', 'Missing total', null, { calc: v => { const a = num(v.missing_t1), b = num(v.missing_t3); return a != null && b != null ? src(a + b, 'calc', 'Missing T1 + Missing T3') : null; } }),
         ]),
         sec('exp', '🚗', 'Expedição', [
-          F('rotas', 'Rotas do dia', g(m.tr.rotas, `Guia ${S.transporte} · Rotas`)),
-          F('noshow', 'NoShow', g(m.tr.ats, `Guia ${S.transporte} · ATs no piso`)),
-          F('carr_t1', 'Carregamento T1', fromShift('rpF1', 'carregamento', 'Fechamento T1'), { hint: 'hh:mm' }),
-          F('carr_t3', 'Carregamento T3', fromShift('rpF3', 'carregamento', 'Fechamento T3'), { hint: 'hh:mm' }),
-          F('carr_all', 'Carregamento médio', null, { hint: 'hh:mm', calc: v => { const a = toMin(v.carr_t1), b = toMin(v.carr_t3); return a != null && b != null ? src(fromMin((a + b) / 2), 'calc', 'Média de Carregamento T1 e T3') : null; } }),
+          F('rotas', 'Rotas do dia', firstOf(auAll && src(auAll.ats, 'auto', `${auHow(auAll, 'dia')}: ATs validadas`), g(m.tr.rotas, `Guia ${S.transporte} · Rotas`))),
+          F('noshow', 'NoShow', auAll && auAll.noshow != null ? src(auAll.noshow, 'auto', `${auHow(auAll, 'dia')}: ATs sem pacote escaneado (coluna E vazia ou 0)`) : null),
+          F('carr_t1', 'Carregamento T1', durTxt(auPM, 'PM'), { hint: 'mm:ss' }),
+          F('carr_t3', 'Carregamento T3', durTxt(auAM, 'AM'), { hint: 'mm:ss' }),
+          F('carr_all', 'Carregamento médio', null, { hint: 'mm:ss', calc: v => { const a = durMin(v.carr_t1), b = durMin(v.carr_t3); return a != null && b != null ? src(A.fmtDur((a + b) / 2), 'calc', 'Média do tempo médio por AT do AM e do PM') : null; } }),
         ]),
         sec('xpt', '🚚', 'XPT', [
           F('xpt_plan', 'Carregamentos planejados', firstOf(fromShift('rpF3', 'xpt_plan', 'Fechamento T3'), fromShift('rpF1', 'xpt_plan', 'Fechamento T1'))),
           F('xpt_done', 'Carregamentos realizados', g(m.rec.xptCarregado, `Guia ${S.recebimento} · Xpt carregado`)),
           F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT`)),
-          F('d0', 'D-0 (dia zero)', null),
         ], { summary: v => (v.xpt_done !== '' && v.xpt_plan !== '' ? `${v.xpt_done} / ${v.xpt_plan}` : '') }),
         sec('ma', '📦', 'Macro Aging', maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma.T1[key], `Guia ${S.inventario} · MA T1 · ${l}`)))),
         sec('stuck', '⏳', 'Stucks (inventário)', m.inv.aging.map(a => F(`st_${a.name}`, a.name === '15+ dias' ? 'Acima de 15 dias' : a.name, g(a.data, `Guia ${S.inventario} · ${a.name}`)))),
