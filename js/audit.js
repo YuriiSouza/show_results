@@ -6,6 +6,7 @@ window.Audit = (() => {
   const H = window.Charts;
   const f = H.fmt;
   const esc = H.esc;
+  const HT = k => window.Help.tip(k);
   const api = window.hubApi || null;
   const SHIFTS = ['AM', 'PM1', 'PM2'];
   const SHIFT_COLOR = { AM: 2, PM1: 1, PM2: 3 };
@@ -252,8 +253,8 @@ window.Audit = (() => {
       .sort((x, y) => y.reports.size - x.reports.size || y.missing - x.missing).slice(0, 20);
 
     const cmpTable = st.shift === 'ALL' && avail.size > 1 ? ui.card('', 'Comparativo dos turnos', periodLabel(per), { w: 12, body: `
-      <div class="table-wrap full"><table><thead><tr><th>Turno</th><th>ATs</th><th>Pedidos</th><th>Missing</th><th>% Missing</th>
-        <th>Missorted</th><th>% Missorted</th><th>ATs c/ missing</th><th>Tempo médio</th><th>&gt; ${fmtDur(TMAX())}</th><th>Janela</th><th>Operadores</th></tr></thead><tbody>
+      <div class="table-wrap full"><table><thead><tr><th>Turno</th><th>ATs</th><th>Pedidos</th><th>Não bipados ${HT('naoBipados')}</th><th>% Não bipados ${HT('pctNaoBipados')}</th>
+        <th>De outra rota ${HT('outraRota')}</th><th>% De outra rota</th><th>ATs c/ não bipados ${HT('atsNaoBipados')}</th><th>Tempo médio</th><th>&gt; ${fmtDur(TMAX())}</th><th>Janela</th><th>Operadores</th></tr></thead><tbody>
         ${SHIFTS.filter(s => avail.has(s)).map(s => {
           const x = agg(inPeriod.filter(r => r.shift === s));
           const p = ratio(x.missing, x.initial);
@@ -268,10 +269,10 @@ window.Audit = (() => {
     const opsTime = ops.filter(o => o.nMin).sort((x, y) => y.over - x.over || y.excess - x.excess);
     const topCorr = corrKeys.map(k => ({ k, v: corr.get(k).missing })).sort((x, y) => y.v - x.v)[0];
     const insights = [
-      pctMiss != null ? `${pctMiss <= meta ? '✓' : '⚠'} Missing em <b>${f.pct(pctMiss, 2)}</b> dos pedidos (meta ≤ ${f.pct(meta, 1)}).` : '',
-      pa ? `${a.missing > pa.missing ? '▲' : a.missing < pa.missing ? '▼' : '='} ${f.int(a.missing)} missing contra ${f.int(pa.missing)} em ${esc(prev.label)}.` : '',
-      topCorr && topCorr.v ? `Corredor com mais missing: <b>${esc(topCorr.k)}</b> (${topCorr.v}).` : '',
-      ops[0] && ops[0].missing ? `Operador com mais missing: <b>${esc(ops[0].nome)}</b> (${ops[0].missing} em ${ops[0].ats} ATs).` : '',
+      pctMiss != null ? `${pctMiss <= meta ? '✓' : '⚠'} Não bipados em <b>${f.pct(pctMiss, 2)}</b> dos pedidos (meta ≤ ${f.pct(meta, 1)}).` : '',
+      pa ? `${a.missing > pa.missing ? '▲' : a.missing < pa.missing ? '▼' : '='} ${f.int(a.missing)} não bipados contra ${f.int(pa.missing)} em ${esc(prev.label)}.` : '',
+      topCorr && topCorr.v ? `Corredor com mais não bipados: <b>${esc(topCorr.k)}</b> (${topCorr.v}).` : '',
+      ops[0] && ops[0].missing ? `Operador com mais não bipados: <b>${esc(ops[0].nome)}</b> (${ops[0].missing} em ${ops[0].ats} ATs).` : '',
       a.timed ? `${a.over ? '⏱' : '✓'} <b>${a.over}</b> de ${a.timed} ATs (${f.pct(ratio(a.over, a.timed), 0)}) passaram da meta de conferência de <b>${fmtDur(TMAX())}</b>` +
         (slowest ? ` · mais lenta: <b>${esc(slowest.at)}</b> (${esc(slowest.corridor)}) com <b>${fmtDur(slowest.minutes)}</b>, ${esc(slowest.operator)}.` : '.') : '',
       opsTime[0] && opsTime[0].over ? `Maior ofensor de tempo: <b>${esc(opsTime[0].nome)}</b> (${opsTime[0].over} de ${opsTime[0].nMin} ATs acima de ${fmtDur(TMAX())}, média ${fmtDur(opsTime[0].min / opsTime[0].nMin)}).` : '',
@@ -291,18 +292,18 @@ window.Audit = (() => {
       <div class="kpis au-kpis">${[
         ui.kpi('ATs validadas', f.int(a.ats), [deltaTxt(a.ats, pa && pa.ats), `<span>${hhmm(a.t0)} → ${hhmm(a.t1)}</span>`]),
         ui.kpi('Pedidos (inicial)', f.int(a.initial), [`<span>${f.int(a.scanned)} escaneados</span>`]),
-        ui.kpi('Missing', f.int(a.missing), [statusPill(pctMiss, meta), deltaTxt(a.missing, pa && pa.missing)]),
-        ui.kpi('Missorted', f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
-        ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com missing</span>`]),
+        ui.kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(a.missing), [statusPill(pctMiss, meta), deltaTxt(a.missing, pa && pa.missing)]),
+        ui.kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
+        ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com não bipados</span>`]),
         ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), `<span>${a.ops} operadores</span>`]),
         ui.kpi(`ATs acima de ${fmtDur(TMAX())}`, f.int(a.over), [a.timed ? `<span class="pill ${a.over ? 'bad' : 'good'}">${a.over ? '⚠' : '✓'} ${f.pct(ratio(a.over, a.timed), 0)} das ATs</span>` : '',
           `<span>+${fmtDur(a.excess)} acima da meta</span>`]),
       ].join('')}${insights.length ? `<div class="au-insights">${insights.map(t => `<div>${t}</div>`).join('')}</div>` : ''}</div>
       <div class="grid">
         ${cmpTable}
-        ${multi ? ui.card('auTrendPct', '% de missing por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}
+        ${multi ? ui.card('auTrendPct', '% de não bipados por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}
         ${multi ? ui.card('auTrendOver', `% de ATs acima de ${fmtDur(TMAX())} por dia`, 'Por turno', { w: 6 }) : ''}
-        ${ui.card('auCorr', 'Missing e missorted por corredor', st.shift === 'ALL' ? 'Soma dos turnos do dia' : 'Cada barra = um corredor/gaiola', { w: 12 })}
+        ${ui.card('auCorr', 'Não bipados e pacotes de outra rota por corredor', st.shift === 'ALL' ? 'Soma dos turnos do dia' : 'Cada barra = um corredor/gaiola', { w: 12 })}
         ${ui.card('auRua', 'Por rua', 'Letra do corredor', { w: 4 })}
         ${ui.card('auHour', 'ATs validadas por hora', 'Hora de início da validação', { w: 4 })}
         ${ui.card('auTime', 'Tempo de conferência', `ATs por faixa · meta ${fmtDur(TMAX())}`, { w: 4 })}
@@ -312,15 +313,15 @@ window.Audit = (() => {
           ${overRows.map(r => `<tr><td>${esc(r.at)}${st.shift === 'ALL' ? ` <span class="shift-tag s-${r.shift}">${r.shift}</span>` : ''}</td><td class="left">${esc(r.corridor)}</td><td>${r.initial}</td>
             <td class="over"><b>${fmtDur(r.minutes)}</b></td><td class="over">+${fmtDur(r.minutes - TMAX())}</td><td class="left">${esc(r.operator)}</td></tr>`).join('')}
           </tbody></table></div>` : ui.empty(`Nenhuma AT acima de ${fmtDur(TMAX())}. ✓`) })}
-        ${ui.card('', 'Operadores', 'Ordenado por missing', { w: multi ? 7 : 12, body: opsTable(ops, st.shift === 'ALL') })}
-        ${multi ? ui.card('', 'Corredores reincidentes', 'Com missing em 2 ou mais relatórios do período', { w: 5, body: recurrent.length ? `
-          <div class="table-wrap"><table><thead><tr><th>Corredor</th><th>Relatórios</th><th>Missing</th><th>Último</th></tr></thead><tbody>
+        ${ui.card('', 'Operadores', 'Ordenado por não bipados', { w: multi ? 7 : 12, body: opsTable(ops, st.shift === 'ALL') })}
+        ${multi ? ui.card('', 'Corredores reincidentes', 'Com não bipados em 2 ou mais relatórios do período', { w: 5, body: recurrent.length ? `
+          <div class="table-wrap"><table><thead><tr><th>Corredor</th><th>Relatórios</th><th>Não bipados ${HT('naoBipados')}</th><th>Último</th></tr></thead><tbody>
           ${recurrent.map(c => `<tr><td>${esc(c.corridor)}</td><td>${c.reports.size}</td><td><b>${c.missing}</b></td><td>${esc(fmtDay(c.last.slice(0, 10)) + c.last.slice(10))}</td></tr>`).join('')}
-          </tbody></table></div>` : ui.empty('Nenhum corredor com missing repetido no período.') }) : ''}
-        ${ui.card('', 'ATs de atenção', `${atRows.length} de ${a.ats} ATs · com missing, missorted ou acima de ${fmtDur(TMAX())} (as demais não são guardadas)`, { w: 12, body: `
+          </tbody></table></div>` : ui.empty('Nenhum corredor com não bipados repetidos no período.') }) : ''}
+        ${ui.card('', 'ATs de atenção', `${atRows.length} de ${a.ats} ATs · com não bipados, pacotes de outra rota ou acima de ${fmtDur(TMAX())} (as demais não são guardadas)`, { w: 12, body: `
           <input class="search" id="auSearch" type="search" placeholder="Buscar AT, corredor, operador…" value="${esc(st.search)}">
           <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th>
-            <th>Inicial</th><th>Final</th><th>Escaneado</th><th>Missorted</th><th>Missing</th><th>Início</th><th>Fim</th><th>Duração</th>
+            <th>Inicial</th><th>Final</th><th>Escaneado</th><th>De outra rota ${HT('outraRota')}</th><th>Não bipados ${HT('naoBipados')}</th><th>Início</th><th>Fim</th><th>Duração</th>
             <th class="left">Operador</th><th class="left">Status</th></tr></thead><tbody>
             ${atRows.map(r => `<tr class="${r.missing ? 'hl' : ''}"><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}
               <td class="left">${esc(r.corridor)}</td><td>${r.initial}</td><td>${r.final}</td><td>${r.scanned}</td><td>${r.missorted}</td><td><b>${r.missing}</b></td>
@@ -331,7 +332,7 @@ window.Audit = (() => {
 
       <div class="grid au-imported">
         ${ui.card('', 'Relatórios importados', `${inPeriod.length} no período · ${st.reports.length} no total`, { w: 12, body: `
-          <div class="table-wrap"><table><thead><tr><th>Dia</th><th class="left">Turno</th><th class="left">Arquivo</th><th>ATs</th><th>Missing</th><th>% Missing</th><th>Importado em</th><th class="left">Por</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table><thead><tr><th>Dia</th><th class="left">Turno</th><th class="left">Arquivo</th><th>ATs</th><th>Não bipados ${HT('naoBipados')}</th><th>% Não bipados ${HT('pctNaoBipados')}</th><th>Importado em</th><th class="left">Por</th><th></th></tr></thead><tbody>
           ${inPeriod.map(r => { const x = agg([r]); return `<tr><td>${fmtDay(r.date)}</td><td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>
             <td class="left file-cell" title="${esc(r.fileName)}">${esc(r.fileName || '—')}</td><td>${x.ats}</td><td>${x.missing}</td><td>${f.pct(ratio(x.missing, x.initial), 2)}</td>
             <td>${r.importedAt ? new Date(r.importedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
@@ -343,12 +344,12 @@ window.Audit = (() => {
     // Gráficos do dia/turno
     const shiftSets = st.shift === 'ALL' ? SHIFTS.filter(s => avail.has(s)) : [st.shift];
     H.render('auCorr', { labels: corrKeys, stacked: true, datasets: [
-      H.bar('Missing', corrKeys.map(k => corr.get(k).missing), H.color(1)),
-      H.bar('Missorted', corrKeys.map(k => corr.get(k).missorted), H.color(2)),
+      H.bar('Não bipados', corrKeys.map(k => corr.get(k).missing), H.color(1)),
+      H.bar('De outra rota', corrKeys.map(k => corr.get(k).missorted), H.color(2)),
     ] });
     H.render('auRua', { labels: ruaKeys, datasets: [
-      H.bar('Missing', ruaKeys.map(k => rua.get(k).missing), H.color(1)),
-      H.bar('Missorted', ruaKeys.map(k => rua.get(k).missorted), H.color(2)),
+      H.bar('Não bipados', ruaKeys.map(k => rua.get(k).missing), H.color(1)),
+      H.bar('De outra rota', ruaKeys.map(k => rua.get(k).missorted), H.color(2)),
     ] });
     const hours = [...new Set(reps.flatMap(r => Object.keys(r.s.hours).map(Number)))].sort((x, y) => x - y);
     H.render('auHour', { labels: hours.map(h => `${String(h).padStart(2, '0')}h`), stacked: true, totals: shiftSets.length > 1,
@@ -399,7 +400,7 @@ window.Audit = (() => {
   function opsTable(list, showShift, compact = false) {
     if (!list.length) return ui.empty('Sem dados.');
     return `<div class="table-wrap"><table><thead><tr><th>#</th><th class="left">Operador</th>${showShift ? '<th class="left">Turno</th>' : ''}
-      <th>ATs</th><th>Pedidos</th><th>Missing</th><th>% Missing</th><th>Missorted</th>${compact ? '' : '<th>ATs c/ missing</th>'}<th>Tempo médio</th></tr></thead><tbody>
+      <th>ATs</th><th>Pedidos</th><th>Não bipados ${HT('naoBipados')}</th><th>% Não bipados</th><th>De outra rota ${HT('outraRota')}</th>${compact ? '' : '<th>ATs c/ não bipados</th>'}<th>Tempo médio</th></tr></thead><tbody>
       ${list.map((o, i) => `<tr><td>${i + 1}</td><td class="left">${esc(o.nome)}</td>${showShift ? `<td class="left">${[...o.shifts].map(s => `<span class="shift-tag s-${s}">${s}</span>`).join(' ')}</td>` : ''}
         <td>${o.ats}</td><td>${f.int(o.pedidos)}</td><td><b>${o.missing}</b></td><td>${f.pct(ratio(o.missing, o.pedidos), 2)}</td><td>${o.missorted}</td>
         ${compact ? '' : `<td>${o.atsMissing}</td>`}<td>${o.nMin ? fmtDur(o.min / o.nMin) : '—'}</td></tr>`).join('')}
@@ -440,7 +441,7 @@ window.Audit = (() => {
     const fromRows = a.t0 ? `${a.t0.getFullYear()}-${String(a.t0.getMonth() + 1).padStart(2, '0')}-${String(a.t0.getDate()).padStart(2, '0')}` : '';
     const fromName = (file.name.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
     $('auDate').value = fromRows || fromName;
-    $('auPreview').innerHTML = `<b>${esc(file.name)}</b><br>${a.ats} ATs · ${f.int(a.initial)} pedidos · <b>${a.missing}</b> missing · ${a.missorted} missorted ·
+    $('auPreview').innerHTML = `<b>${esc(file.name)}</b><br>${a.ats} ATs · ${f.int(a.initial)} pedidos · <b>${a.missing}</b> não bipados · ${a.missorted} de outra rota ·
       validações de ${hhmm(a.t0)} a ${hhmm(a.t1)}${a.t0 ? ` em ${a.t0.toLocaleDateString('pt-BR')}` : ''}`;
     auMsg('Confira o dia e escolha o turno do relatório.', true);
     checkExisting();

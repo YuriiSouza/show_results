@@ -12,7 +12,6 @@ window.Reports = (() => {
   const api = window.hubApi || null;
 
   let ui = null;
-  let zoom = false;
   let bound = false;
   let seq = 0;
   let current = null; // { kind, iso, fields: Map(id -> field), sections }
@@ -176,7 +175,8 @@ window.Reports = (() => {
             F('phd', 'PHD do turno', i >= 0 && m.phd.phd[i] != null ? src(m.phd.phd[i], 'calc', 'PHD do dia: pacotes recebidos ÷ (pessoas + diaristas). Edite se o turno for diferente') : null),
           ]),
           sec('xpt', '🚚', 'Carregamento XPT', [
-            F('xpt_plan', 'Planejados', null),
+            // Planejados: sempre 4 carregamentos de XPT por turno (dá para editar no dia que for diferente).
+            F('xpt_plan', 'Planejados', src(4, 'calc', 'Valor padrão: 4 carregamentos XPT planejados. Edite se o turno for diferente')),
             F('xpt_done', 'Carregados', g(m.rec.xptCarregado, `Guia ${S.recebimento} · Xpt carregado`)),
           ], { summary: v => (v.xpt_done !== '' && v.xpt_plan !== '' ? `${v.xpt_done} / ${v.xpt_plan}` : '') }),
           sec('hc', '👥', 'HC', [
@@ -262,10 +262,7 @@ window.Reports = (() => {
           F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT`)),
           F('d0', 'D-0 (dia zero)', null),
         ], { summary: v => (v.xpt_done !== '' && v.xpt_plan !== '' ? `${v.xpt_done} / ${v.xpt_plan}` : '') }),
-        sec('ma', '📦', 'Macro Aging (T1 + T3)', maFields().map(([key, l]) => {
-          const a = i >= 0 ? m.inv.ma.T1[key][i] : null, b = i >= 0 ? m.inv.ma.T3[key][i] : null;
-          return F(`ma_${key}`, l, a != null || b != null ? src((a || 0) + (b || 0), 'calc', `Guia ${S.inventario} · MA T1 + MA T3 · ${l}`) : null);
-        })),
+        sec('ma', '📦', 'Macro Aging', maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma.T1[key], `Guia ${S.inventario} · MA T1 · ${l}`)))),
         sec('stuck', '⏳', 'Stucks (inventário)', m.inv.aging.map(a => F(`st_${a.name}`, a.name === '15+ dias' ? 'Acima de 15 dias' : a.name, g(a.data, `Guia ${S.inventario} · ${a.name}`)))),
         sec('rev', '↩️', 'Reversa do dia', [['onHold', 'On hold'], ['avariaHub', 'Avaria HUB'], ['avariaSoc', 'Avaria SOC'], ['retornoSoc', 'Retorno SOC']]
           .map(([key, l]) => F(`rev_${key}`, l, g(m.rev[key], `Guia ${S.reversa} · ${l}`)))),
@@ -348,7 +345,7 @@ window.Reports = (() => {
         : `<div class="rpx-body rpx-colgrid" style="grid-template-columns: repeat(${n}, minmax(0, 1fr))">${cols.map(c => `<div class="rcol">${c.items.join('')}</div>`).join('')}</div>${obsHtml}`;
     }
     return `<div class="rpx rpx-${def.layout}">
-      <div class="rpx-head"><div><div class="rpx-title">${esc(def.title)} · ${esc(C.HUB_NAME)}</div><div class="rpx-sub">${esc(def.sub)}</div></div>
+      <div class="rpx-head"><div><div class="rpx-title"><span class="rpx-saved" id="rpSavedDot" hidden title="Report salvo"></span>${esc(def.title)} · ${esc(C.HUB_NAME)}</div><div class="rpx-sub">${esc(def.sub)}</div></div>
         <div class="rpx-date">${esc(longDate(day.d))}</div></div>
       ${body}
     </div>`;
@@ -366,7 +363,7 @@ window.Reports = (() => {
       <span class="lg lg-auto"><i></i>das guias</span><span class="lg lg-calc"><i></i>calculado</span><span class="lg"><b class="req">*</b> sem valor</span>`;
   }
 
-  // Ajusta o report ao espaço livre (sem rolagem). "Ampliar" encaixa só pela largura.
+  // Ajusta o report ao espaço livre (sem rolagem).
   function fit() {
     const stage = document.getElementById('rpStage');
     const rp = stage && stage.querySelector('.rpx');
@@ -376,7 +373,7 @@ window.Reports = (() => {
     const availW = stage.clientWidth;
     const availH = Math.max(220, window.innerHeight - stage.getBoundingClientRect().top - 12);
     const w = rp.offsetWidth, h = rp.offsetHeight;
-    const sc = zoom ? availW / w : Math.min(availW / w, availH / h, 1.35);
+    const sc = Math.min(availW / w, availH / h, 1.35);
     rp.style.transform = `scale(${sc})`;
     stage.style.height = `${Math.ceil(h * sc)}px`;
     rp.style.left = `${Math.max(0, (availW - w * sc) / 2)}px`;
@@ -401,7 +398,7 @@ window.Reports = (() => {
     const iso = toIso(d);
     let saved, meta = {};
     if (shared()) {
-      // Só busca na planilha se ainda não buscou; o resto vem do botão Atualizar.
+      // Só busca na planilha se ainda não buscou; o resto vem do botão Atualizar do topo.
       if (!window.Base.loadedAt()) await window.Base.load(true);
       ({ vals: saved, meta } = window.Base.reportDay(iso));
     } else saved = await store.get(iso);
@@ -457,10 +454,8 @@ window.Reports = (() => {
         <div class="rp-tools">
           ${flow ? '' : `<span class="rp-unsaved" id="rpUnsaved"></span>
           <button class="btn-primary solid rp-save" data-rp-save id="rpSave" disabled>Salvar</button>`}
-          <button class="tool" data-rp-refresh title="Buscar na planilha-base o que outros usuários salvaram">↻ Atualizar</button>
           <button class="tool" data-rp-sources>Fontes</button>
           <button class="tool" data-rp-clear title="Voltar todos os campos aos valores das guias (vale depois de Salvar)">Limpar edições</button>
-          ${flow ? '' : `<button class="tool ${zoom ? 'active' : ''}" data-rp-zoom>${zoom ? 'Ajustar à tela' : 'Ampliar'}</button>`}
         </div>
       </div>
       <div class="rp-stage ${flow ? 'flow' : ''}" id="rpStage">${reportHtml(def, r, day, flow)}</div>
@@ -478,6 +473,9 @@ window.Reports = (() => {
     if (btn) btn.disabled = !n;
     const bar = document.getElementById('rpSavebar');
     if (bar) bar.hidden = !n;
+    // Ponto verde no cabeçalho: o report deste dia já foi salvo e não há alteração pendente.
+    const dot = document.getElementById('rpSavedDot');
+    if (dot) dot.hidden = !!n || !Object.keys(current.day.saved[current.kind] || {}).length;
   }
   const isFlow = () => ui.main.clientWidth < 760;
 
@@ -571,17 +569,11 @@ window.Reports = (() => {
         document.getElementById('rpCal').innerHTML = calHtml(current.day.d);
         return;
       }
-      if (e.target.closest('[data-rp-zoom]')) { zoom = !zoom; render(kind, ui); return; }
       if (e.target.closest('[data-rp-sources]')) { showSources(); return; }
       if (e.target.closest('[data-rp-save]')) { await saveDraft(); return; }
-      if (e.target.closest('[data-rp-refresh]')) {
-        if (shared()) { await window.Base.load(true); ui.toast('Report atualizado com a planilha-base'); }
-        render(kind, ui);
-        return;
-      }
       if (e.target.closest('[data-rp-next]')) {
         const first = document.querySelector('#rpStage .st-missing .rf-in');
-        if (first) { if (!zoom && !current.flow) { zoom = true; await render(kind, ui); } const el = document.querySelector('#rpStage .st-missing .rf-in'); el.scrollIntoView({ block: 'center' }); el.focus(); }
+        if (first) { first.scrollIntoView({ block: 'center' }); first.focus(); }
         return;
       }
       if (e.target.closest('[data-rp-clear]') && current) {
