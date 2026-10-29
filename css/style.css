@@ -964,3 +964,17 @@ select.unk { border-color: var(--warn, #A15C00); }
 .pz-xpt-add { width: 96px; padding: 4px 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
 .pc-xpt-by { color: var(--shopee); font-weight: 600; }
 .kiosk-types { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+/* Ícone "?" ao lado de um número: clicando, explica o que ele é */
+.help-tip { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 4px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--muted); background: transparent; color: var(--muted); font-size: 10px; font-weight: 800;
+  line-height: 1; vertical-align: middle; cursor: pointer; text-transform: none; letter-spacing: 0; }
+.help-tip:hover, .help-tip:focus-visible { border-color: var(--shopee); color: var(--shopee); outline: none; }
+.help-pop { position: fixed; z-index: 2000; width: min(320px, calc(100vw - 16px)); padding: 12px 14px; border-radius: 12px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  font-size: 13px; font-weight: 400; line-height: 1.45; text-transform: none; letter-spacing: 0; text-align: left; }
+.help-pop > b { display: block; margin-bottom: 4px; font-size: 14px; }
+
+/* Report salvo: ponto verde antes do título */
+.rpx-saved { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: var(--good); vertical-align: middle; box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+.rpx-saved[hidden] { display: none; }

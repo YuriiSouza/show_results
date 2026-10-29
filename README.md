@@ -12,6 +12,12 @@ com filtro de período, dia de referência, metas (✓/⚠), botão **Tabela** e
 
 ## Audit de gestão (relatórios LMHub)
 
+> **Nomes das colunas do relatório** (nas telas **Audit de gestão** e **Missing**; o **?** ao lado do número explica):
+> - **Não bipados na conferência** (*Missing Orders*): pacotes da rota que não foram bipados na conferência — o pacote
+>   estava ali e não foi bipado, ou nem estava fisicamente na rota.
+> - **Pacotes de outra rota** (*Missorted Orders*): pacotes bipados na conferência de uma rota, mas que são de outra
+>   (ex.: na conferência da A-1 apareceu um da A-2). Não dá para saber se foi erro de etiquetagem ou de separação.
+
 Todo dia são gerados três relatórios de Audit, um por turno (**AM, PM1, PM2**). Para analisar:
 
 1. Abra **Audit de gestão** no menu e clique em **Importar relatório** (ou arraste o `.csv` para a tela).
@@ -136,14 +142,15 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
 - **Todos os campos são editáveis.** O valor inicial vem só das guias de dados (as guias Report T1/T3/All **não** são usadas).
   Campos sem informação ficam vazios com um ***** ao lado do nome. O que foi digitado fica salvo por dia.
   O que é digitado fica salvo por dia, só no aparelho.
+- **Ponto verde** antes do título do report: aquele report do dia já foi salvo e não há alteração pendente.
 - **Salvar / Atualizar:** editar não grava nada — as alterações ficam como rascunho no aparelho ("● N alterações não salvas").
-  **Salvar** envia tudo de uma vez para a planilha-base (uma requisição); **↻ Atualizar** busca o que os outros salvaram
+  **Salvar** envia tudo de uma vez para a planilha-base (uma requisição); o **Atualizar** do topo busca o que os outros salvaram
   (o rascunho de quem está editando continua por cima).
 - **"* N sem valor"** leva ao primeiro campo vazio; **Fontes** mostra de onde veio cada valor; **Limpar edições** volta
   tudo às guias (também só vale depois de Salvar).
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos: atestado soma T1 + T3,
-  Carregamento T1/T3 vêm de cada fechamento e o Carregamento médio é calculado.
-- No computador o report é ajustado para caber na tela (**Ampliar** encaixa pela largura). No celular ele vira uma **coluna única com rolagem**,
+  Carregamento T1/T3 vêm de cada fechamento e o Carregamento médio é calculado. Nos fechamentos, **Carregamento XPT · Planejados** já vem com **4** (editável). O **Macro Aging** é só o do T1 (o título fica só "Macro Aging").
+- No computador o report é ajustado para caber na tela. No celular ele vira uma **coluna única com rolagem**,
   com campos grandes e o botão **Salvar** fixo no rodapé quando há alterações.
 
 ## Planilha-base compartilhada (reports e Audit de todos os usuários)

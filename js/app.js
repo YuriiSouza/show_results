@@ -301,6 +301,7 @@
     `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value" title="${esc(value)}">${value}</div>
      <div class="kpi-sub">${subs.filter(Boolean).join('')}</div></div>`;
   const sub = t => `<span>${t}</span>`;
+  const HT = k => window.Help.tip(k);
 
   function card(id, title, subtitle = '', { w = 6, h = '', tools = '', body = null } = {}) {
     const canvas = body == null
@@ -744,21 +745,21 @@
       `<div class="kpis">${[
         kpi('ATs validadas', f.int(rows.length), [sub(`${day} · ${hhmm(t0)} → ${hhmm(t1)}`)]),
         kpi('Pedidos (inicial)', f.int(initial), [sub(`${f.int(tot('scanned'))} escaneados`)]),
-        kpi('Etiqueta errada', f.int(missing), [status(pctMiss <= META.missingMax, `${f.pct(pctMiss, 2)} dos pedidos`), sub('Missing Orders')]),
-        kpi('Sorting errado', f.int(missorted), [sub(`${f.pct(ratio(missorted, initial), 2)} dos pedidos · Missorted Orders`)]),
-        kpi('ATs com etiqueta errada', f.int(rows.filter(r => r.missing > 0).length), [sub(`de ${rows.length} ATs`)]),
+        kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(missing), [status(pctMiss <= META.missingMax, `${f.pct(pctMiss, 2)} dos pedidos`), sub('Missing Orders')]),
+        kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(missorted), [sub(`${f.pct(ratio(missorted, initial), 2)} dos pedidos · Missorted Orders`)]),
+        kpi(`ATs com não bipados ${HT('atsNaoBipados')}`, f.int(rows.filter(r => r.missing > 0).length), [sub(`de ${rows.length} ATs`)]),
         kpi('Tempo médio / AT', avgMin == null ? '—' : f.dec(avgMin, 1) + ' min', [sub(`${ops.size} operadores`)]),
       ].join('')}</div>
       <div class="grid">
-        ${card('msCorr', 'Etiqueta errada e sorting errado por corredor', 'Cada barra = uma AT/corredor', { w: 12 })}
-        ${card('msOps', 'Operadores', 'Ordenado por etiqueta errada', { w: 8, body: `<div class="table-wrap"><table><thead><tr>
-          <th>Operador</th><th>ATs</th><th>Pedidos</th><th>Etiqueta errada</th><th>Sorting errado</th><th>% Etiqueta errada</th><th>Min/AT</th></tr></thead><tbody>
+        ${card('msCorr', 'Não bipados e pacotes de outra rota por corredor', 'Cada barra = uma AT/corredor', { w: 12 })}
+        ${card('msOps', 'Operadores', 'Ordenado por não bipados', { w: 8, body: `<div class="table-wrap"><table><thead><tr>
+          <th>Operador</th><th>ATs</th><th>Pedidos</th><th>Não bipados ${HT('naoBipados')}</th><th>De outra rota ${HT('outraRota')}</th><th>% Não bipados ${HT('pctNaoBipados')}</th><th>Min/AT</th></tr></thead><tbody>
           ${opList.map(o => `<tr><td>${esc(o.nome)}</td><td>${o.ats}</td><td>${f.int(o.pedidos)}</td><td>${o.missing}</td><td>${o.missorted}</td>
           <td>${f.pct(ratio(o.missing, o.pedidos), 2)}</td><td>${o.nMin ? f.dec(o.min / o.nMin, 1) : '—'}</td></tr>`).join('')}
           </tbody></table></div>` })}
         ${card('msHour', 'ATs validadas por hora', 'Hora de início da validação', { w: 4 })}
-        ${card('msList', 'Todas as ATs', 'Linhas destacadas têm etiqueta errada', { w: 12, body: `<div class="table-wrap"><table><thead><tr>
-          <th>AT/TO</th><th class="left">Corredor</th><th>Inicial</th><th>Final</th><th>Escaneado</th><th>Sorting errado</th><th>Etiqueta errada</th>
+        ${card('msList', 'Todas as ATs', 'Linhas destacadas têm pacotes não bipados', { w: 12, body: `<div class="table-wrap"><table><thead><tr>
+          <th>AT/TO</th><th class="left">Corredor</th><th>Inicial</th><th>Final</th><th>Escaneado</th><th>De outra rota ${HT('outraRota')}</th><th>Não bipados ${HT('naoBipados')}</th>
           <th>Início</th><th>Fim</th><th>Min</th><th class="left">Operador</th><th class="left">Status</th></tr></thead><tbody>
           ${[...rows].sort((a, b) => b.missing - a.missing || (a.start || 0) - (b.start || 0)).map(r => `<tr class="${r.missing ? 'hl' : ''}">
             <td>${esc(r.at)}</td><td class="left">${esc(r.corridor)}</td><td>${r.initial}</td><td>${r.final}</td><td>${r.scanned}</td>
@@ -767,7 +768,7 @@
           </tbody></table></div>` })}
       </div>`;
     H.render('msCorr', { labels: byCorr.map(r => r.corridor), stacked: true, datasets: [
-      H.bar('Etiqueta errada', byCorr.map(r => r.missing), H.color(1)), H.bar('Sorting errado', byCorr.map(r => r.missorted), H.color(2)),
+      H.bar('Não bipados', byCorr.map(r => r.missing), H.color(1)), H.bar('De outra rota', byCorr.map(r => r.missorted), H.color(2)),
     ] });
     H.render('msHour', { labels: hours.map(h => `${String(h).padStart(2, '0')}h`), datasets: [H.bar('ATs', hours.map(h => byHour.get(h)), H.color(1))] });
     bindMonth();
