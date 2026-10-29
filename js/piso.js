@@ -18,7 +18,7 @@ window.Piso = (() => {
       { id: 'm3', nome: 'Mesa 3', ind: 2, rec: 2, sort: 2 },
       { id: 'm4', nome: 'Mesa 4 (Volumoso)', ind: 2, rec: 2, sort: 2 },
     ],
-    letras: 'ABCDEFGHIJKL'.split(''), s2: 2, aud: 2, desc: 4, xpt: 2, s5: 2,
+    letras: 'ABCDEFGHIJKL'.split(''), s2: 2, aud: 2, desc: 4, xpt: 2, s5: 2, rotas: 20, rotasLetra: {},
   };
   const $ = id => document.getElementById(id);
   const api = () => window.hubApi || null;
@@ -254,7 +254,12 @@ window.Piso = (() => {
       const seen = new Set();
       board[f] = [...((theirs.board || {})[f] || []), ...((ours.board || {})[f] || [])].filter(e => { const id = JSON.stringify([e.t, e.n, e.to]); return !seen.has(id) && seen.add(id); });
     });
-    return { ...theirs, ...ours, layout: clone(pick(b.layout, ours.layout, theirs.layout) || ours.layout), xptDest, board, versions: versions.length ? versions : [{ from: '', slots: {} }] };
+    const audFaixas = {};
+    new Set([...Object.keys(theirs.audFaixas || {}), ...Object.keys(ours.audFaixas || {})]).forEach(l => {
+      const seen = new Set();
+      audFaixas[l] = [...((theirs.audFaixas || {})[l] || []), ...((ours.audFaixas || {})[l] || [])].filter(a => { const id = JSON.stringify(a); return !seen.has(id) && seen.add(id); });
+    });
+    return { ...theirs, ...ours, layout: clone(pick(b.layout, ours.layout, theirs.layout) || ours.layout), xptDest, board, audFaixas, versions: versions.length ? versions : [{ from: '', slots: {} }] };
   }
 
   function renderMapa(ctx) {
@@ -397,6 +402,49 @@ window.Piso = (() => {
     return m;
   }
   const bPeople = (f, T) => [...bStateAt(boardOf()[f], T).values()].filter(x => x.to);
+  // ---------- Auditoria por rota ----------
+  // Cada rota é auditada por uma pessoa só. A letra tem N rotas (layout: rotas por letra, com exceções por letra) e o app
+  // divide 1..N em faixas iguais entre quem está auditando a letra naquele horário (ordem de chegada na letra). O líder
+  // pode ajustar as faixas (map.audFaixas[letra] = [{ t, faixas: [{ n, de, ate }] }]); o ajuste vale enquanto o grupo da
+  // letra for o mesmo — se alguém entra ou sai, volta a divisão automática.
+  const rotasDe = (L, letra) => { const x = ((L && L.rotasLetra) || {})[letra]; return x > 0 ? x : (L && L.rotas > 0 ? L.rotas : 20); };
+  // Rotas do turno (map.rotas = { de: 'E-7', ate: 'H-2' }): as letras do quadro vão da letra inicial à final; a primeira
+  // letra começa no número inicial e a última termina no número final (as do meio vão de 1 a N).
+  const parseRota = r => { const m = String(r || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z])-?(\d+)$/); return m ? { l: m[1], n: +m[2] } : null; };
+  const letrasEntre = (a, b) => Array.from({ length: Math.max(0, b.charCodeAt(0) - a.charCodeAt(0) + 1) }, (_, i) => String.fromCharCode(a.charCodeAt(0) + i));
+  function faixaLetra(map, letra) {
+    const N = rotasDe(map.layout, letra), R = map.rotas || {}, a = parseRota(R.de), b = parseRota(R.ate);
+    return [a && a.l === letra ? a.n : 1, b && b.l === letra ? Math.min(b.n, N) : N];
+  }
+  function totalRotas(map) {
+    const a = parseRota((map.rotas || {}).de), b = parseRota((map.rotas || {}).ate);
+    if (!a || !b) return 0;
+    return letrasEntre(a.l, b.l).reduce((t, l) => { const [lo, hi] = faixaLetra(map, l); return t + Math.max(0, hi - lo + 1); }, 0);
+  }
+  function dividir(names, N, lo = 1) {
+    const total = N - lo + 1, k = names.length, out = [];
+    let de = lo;
+    names.forEach((n, i) => { const q = Math.floor(total / k) + (i < total % k ? 1 : 0); if (q > 0) out.push({ n, de, ate: de + q - 1 }); de += q; });
+    return out;
+  }
+  function audGroup(map, letra, T) {
+    const ev = ((map.board || {}).aud) || [];
+    if (ev.length) {
+      return [...bStateAt(ev, T).values()].filter(x => x.to === letra).sort((a, b) => (a.t || '').localeCompare(b.t || '') || a.n.localeCompare(b.n, 'pt-BR')).map(x => x.n);
+    }
+    // Mapas antigos: lista da Auditoria da letra na mudança daquele horário.
+    const v = versionAt(map, T || '99:99');
+    return v ? listKeys(v, 'aud', letra).map(k => v.slots[k]) : [];
+  }
+  function audRoutes(map, letra, T) {
+    const names = audGroup(map, letra, T), [lo, N] = faixaLetra(map, letra);
+    if (!names.length || N < lo) return [];
+    const at = T || (map === st.map && isToday() ? nowHm() : '99:99');
+    const adj = (((map.audFaixas || {})[letra]) || []).filter(a => (a.t || '') <= at).pop();
+    const same = adj && adj.faixas && adj.faixas.length === names.length && adj.faixas.every(f => names.some(n => nk(n) === nk(f.n)));
+    return same ? adj.faixas.map(f => ({ ...f })) : dividir(names, N, lo);
+  }
+  const audWho = (map, letra, num, T) => audRoutes(map, letra, T).filter(f => num >= f.de && num <= f.ate).map(f => f.n);
   function bMove(f, names, to, t) {
     const ev = boardOf()[f], when = t || (modoTroca() ? useWhen() : nowHm());
     names.forEach(n => ev.push({ t: when, n, to }));
@@ -416,22 +464,91 @@ window.Piso = (() => {
   // Pessoas do quadro + sugeridas (para mostrar e mover).
   const boardAll = f => [...bPeople(f), ...boardSuggest(f)];
   const legacyLetters = () => Object.keys(cur().slots).some(k => /^(s2|aud)\./.test(k) && cur().slots[k]);
+  // Ajuste manual das faixas de rotas de uma letra (vale a partir do horário: o da troca ou agora).
+  async function ajustarRotas(letra) {
+    const [lo, N] = faixaLetra(st.map, letra), cur0 = audRoutes(st.map, letra);
+    if (!cur0.length) return ui.toast(`Ninguém auditando a letra ${letra}.`, true);
+    const row = (x, i) => `<div class="pz-faixa"><b>${esc(x.n)}</b><label>de ${letra}-<input type="number" min="${lo}" max="${N}" data-fde="${i}" value="${x.de}"></label><label>até ${letra}-<input type="number" min="${lo}" max="${N}" data-fate="${i}" value="${x.ate}"></label></div>`;
+    const r = await modal(`Rotas da letra ${letra} (${letra}-${lo} a ${letra}-${N})`, `<p class="muted">Cada rota é auditada por uma pessoa só. Ajuste as faixas; vale a partir das ${esc(modoTroca() ? peekWhen() : nowHm())}. Se alguém entrar ou sair da letra, o app volta a dividir igualmente.</p>
+      <div id="pzFaixas">${cur0.map(row).join('')}</div><div class="muted small" id="pzFaixaMsg"></div>`,
+      [['cancel', 'Cancelar', 'btn-ghost'], ['auto', 'Dividir igualmente', 'btn-ghost'], ['ok', 'Salvar faixas', 'btn-primary solid']],
+      dlg => {
+        const check = () => {
+          const fx = cur0.map((x, i) => ({ de: +dlg.querySelector(`[data-fde="${i}"]`).value, ate: +dlg.querySelector(`[data-fate="${i}"]`).value }));
+          const cnt = Array(N + 1).fill(0);
+          fx.forEach(f => { for (let k = Math.max(lo, f.de); k <= Math.min(N, f.ate); k++) cnt[k]++; });
+          const sem = cnt.map((c, k) => (k >= lo && !c ? k : 0)).filter(Boolean), dup = cnt.map((c, k) => (c > 1 ? k : 0)).filter(Boolean);
+          dlg.querySelector('#pzFaixaMsg').innerHTML = [sem.length ? `⚠ Sem auditor: ${sem.map(k => `${letra}-${k}`).join(', ')}` : '', dup.length ? `⚠ Com mais de um auditor: ${dup.map(k => `${letra}-${k}`).join(', ')}` : ''].filter(Boolean).join('<br>') || '✓ Todas as rotas com um auditor.';
+        };
+        dlg.addEventListener('input', check); check();
+      },
+      dlg => cur0.map((x, i) => ({ n: x.n, de: +dlg.querySelector(`[data-fde="${i}"]`).value, ate: +dlg.querySelector(`[data-fate="${i}"]`).value })));
+    if (!r || r.btn === 'cancel') return;
+    if (r.btn === 'ok') {
+      const bad = r.data.filter(f => !(f.de >= lo && f.ate <= N && f.de <= f.ate));
+      if (bad.length) return ui.toast(`Faixa inválida para ${bad.map(f => f.n).join(', ')}: use rotas entre ${letra}-${lo} e ${letra}-${N}, com "de" menor ou igual a "até".`, true);
+    }
+    const t = modoTroca() ? useWhen() : nowHm();
+    st.map.audFaixas = st.map.audFaixas || {};
+    const list = (st.map.audFaixas[letra] = (st.map.audFaixas[letra] || []).filter(a => a.t !== t));
+    list.push({ t, faixas: r.btn === 'auto' ? dividir(cur0.map(x => x.n), N, lo) : r.data.filter(f => f.de > 0 && f.ate >= f.de) });
+    touch(); drawMapa();
+    ui.toast(`Rotas da letra ${letra} ${r.btn === 'auto' ? 'divididas igualmente' : 'ajustadas'} a partir das ${t}.`);
+  }
+  // Rotas do turno (de / até), rotas por letra e exceções: ficam no quadro do 2º Sorting e Auditoria.
+  function rotasCfg() {
+    const R = st.map.rotas || {}, L = st.map.layout, tot = totalRotas(st.map), sug = rotaSugerida();
+    return `<div class="pz-rotas-cfg">
+      <b>Rotas do turno</b>
+      <label>de <input type="text" data-rt="de" value="${esc(R.de || '')}" placeholder="${esc(sug || 'A-1')}" autocomplete="off"></label>
+      <label>até <input type="text" data-rt="ate" value="${esc(R.ate || '')}" placeholder="E-6" autocomplete="off"></label>
+      ${tot ? `<span class="pill good">${tot} rotas · letras ${esc(L.letras[0])} a ${esc(L.letras[L.letras.length - 1])}</span>` : '<span class="pill bad">Defina a primeira e a última rota do turno</span>'}
+      ${!R.de && sug ? `<button class="link" data-rt-sug="${esc(sug)}">usar ${esc(sug)}</button>` : ''}
+      <label title="Cada letra tem rotas de 1 até N">Rotas por letra <input type="number" min="1" max="99" data-rt="n" value="${L.rotas || 20}"></label>
+      <label title="Letras com outra quantidade de rotas, ex.: C=18, F=15">Exceções <input type="text" data-rt="exc" value="${esc(Object.entries(L.rotasLetra || {}).map(([k, v]) => `${k}=${v}`).join(', '))}" placeholder="C=18" autocomplete="off"></label>
+    </div>`;
+  }
+  // Sugestão da primeira rota: a seguinte à última rota do turno anterior do mesmo dia (AM → PM1 → PM2).
+  function rotaSugerida() {
+    if (!baseOn()) return '';
+    const i = TURNOS.indexOf(st.turno);
+    const prev = B().mapaList().filter(r => r.date === st.date && TURNOS.indexOf(r.turno) < i && r.map && r.map.rotas && parseRota(r.map.rotas.ate)).pop();
+    if (!prev) return '';
+    const b = parseRota(prev.map.rotas.ate), N = rotasDe(prev.map.layout, b.l);
+    return b.n < N ? `${b.l}-${b.n + 1}` : `${String.fromCharCode(b.l.charCodeAt(0) + 1)}-1`;
+  }
+  function setRotas(field, value) {
+    const L = st.map.layout, R = (st.map.rotas = st.map.rotas || {});
+    if (field === 'n') L.rotas = Math.max(1, Math.min(99, parseInt(value, 10) || 20));
+    else if (field === 'exc') L.rotasLetra = Object.fromEntries((String(value).toUpperCase().match(/[A-Z]\s*[=:]\s*\d+/g) || []).map(x => { const [k, v] = x.split(/\s*[=:]\s*/); return [k, Math.max(1, Math.min(99, +v))]; }));
+    else {
+      const v = String(value || '').trim();
+      if (v && !parseRota(v)) return ui.toast('Rota inválida: use letra-número, ex.: E-7.', true);
+      if (v) R[field] = `${parseRota(v).l}-${parseRota(v).n}`; else delete R[field];
+    }
+    const a = parseRota(R.de), b = parseRota(R.ate);
+    if (a && b && (a.l > b.l || (a.l === b.l && a.n > b.n))) { ui.toast('A primeira rota tem que vir antes da última.', true); delete R[field]; }
+    if (a && b && R.de && R.ate) L.letras = letrasEntre(a.l, b.l);
+    touch(); drawMapa();
+  }
   function boardCard() {
     const L = st.map.layout;
-    if (!L.letras.length) return '';
     const f = st.bf, all = boardAll(f);
     const cols = [['pool', 'Disponíveis'], ...L.letras.map(l => [l, `Letra ${l}`])];
     const byCol = id => all.filter(x => x.to === id).sort((a, b) => a.n.localeCompare(b.n, 'pt-BR'));
     const targets = from => cols.filter(([id]) => id !== from).map(([id, lb]) => `<option value="${id}">${esc(lb)}</option>`).join('');
     const sel = st.bsel.size;
+    const faixa = new Map();
+    if (f === 'aud') L.letras.forEach(l => audRoutes(st.map, l).forEach(x => faixa.set(`${l}|${nk(x.n)}`, x)));
     const col = ([id, label]) => {
       const ps = byCol(id);
       return `<div class="pz-col ${id === 'pool' ? 'pool' : ''} ${ps.length ? '' : 'empty'}" data-bcol="${id}">
         <div class="pz-col-head"><b>${esc(label)}</b><span class="pz-col-n">${ps.length}</span>
           ${ps.length ? `<select class="pz-col-move" data-bmove="${id}" title="Mover todos desta coluna" aria-label="Mover todos de ${esc(label)}"><option value="">Mover todos ▸</option>${targets(id)}<option value="">──────</option><option value="__out">Tirar todos da função</option></select>` : ''}</div>
         <div class="pz-col-body">${ps.map(x => `<div class="pz-pcard ${st.bsel.has(nk(x.n)) ? 'sel' : ''} ${isDw(x.n) ? 'dw' : ''} ${x.sug ? 'sug' : ''}" draggable="true" data-bcard="${esc(x.n)}" title="${x.sug ? 'Já tem função no mapa do dia' : `Desde ${esc(x.t || '')}`} · clique para selecionar, arraste para mover">
-          <span>${esc(x.n)}</span>${x.sug ? '' : `<button data-brm="${esc(x.n)}" title="Tirar da função" aria-label="Tirar ${esc(x.n)}">×</button>`}</div>`).join('')}
+          <span>${esc(x.n)}${(fx => (fx ? `<small class="pz-rotas">rotas ${id}-${fx.de} a ${id}-${fx.ate}</small>` : ''))(faixa.get(`${id}|${nk(x.n)}`))}</span>${x.sug ? '' : `<button data-brm="${esc(x.n)}" title="Tirar da função" aria-label="Tirar ${esc(x.n)}">×</button>`}</div>`).join('')}
           ${sel && !ps.some(x => st.bsel.has(nk(x.n))) ? `<button class="pz-col-drop" data-bto="${id}">Mover ${sel} aqui</button>` : ''}</div>
+        ${f === 'aud' && id !== 'pool' && ps.length ? `<div class="pz-col-foot"><button class="tool" data-baj="${id}" title="Mudar quais rotas cada auditor confere">Ajustar rotas (${(([a, b]) => `${id}-${a} a ${id}-${b}`)(faixaLetra(st.map, id))})</button></div>` : ''}
         ${id === 'pool' ? `<div class="pz-col-foot"><button class="tool" data-bpick="1">+ Adicionar pessoas</button><button class="tool" data-bdw="1" title="Adiciona um diarista">+ Diarista</button></div>` : ''}
       </div>`;
     };
@@ -442,9 +559,10 @@ window.Piso = (() => {
     const n2 = bPeople('s2').length, nA = bPeople('aud').length;
     if (!st.boardOpen) {
       const lets = st => [...new Set(bPeople(st).filter(x => x.to && x.to !== 'pool' && x.to !== 'int').map(x => x.to))].sort().join(', ') || '—';
+      const R = st.map.rotas || {}, tot = totalRotas(st.map);
       return `<section class="card pz-card pz-board off"><div class="pz-card-head"><div class="pz-title">2º Sorting e Auditoria</div>
         <button class="tool" data-board-toggle="1" title="Mostrar o quadro">Expandir ▾</button></div>
-        <div class="muted small">2º Sorting: <b>${n2Of()}</b> pessoa(s) · letras ${esc(lets('s2'))} &nbsp;·&nbsp; Auditoria: <b>${nAOf()}</b> · letras ${esc(lets('aud'))}</div></section>`;
+        <div class="muted small">${tot ? `Rotas <b>${esc(R.de)} a ${esc(R.ate)}</b> (${tot}) · ` : '<b class="bad">⚠ Rotas do turno não definidas (expanda o quadro)</b> · '}2º Sorting: <b>${n2Of()}</b> pessoa(s) · letras ${esc(lets('s2'))} &nbsp;·&nbsp; Auditoria: <b>${nAOf()}</b> · letras ${esc(lets('aud'))}</div></section>`;
     }
     return `<section class="card pz-card pz-board bf-${f}">
       <div class="pz-seg" role="tablist" aria-label="Quadro">
@@ -457,6 +575,7 @@ window.Piso = (() => {
           <button class="tool pz-clear" data-pz-clear="board:${f}" title="Tirar todos do ${BF[f]}">Limpar</button>
         </div></div>
       <div class="muted small">Em "Disponíveis" já aparecem, tracejados, todos que têm alguma função no mapa do dia; "+ Adicionar pessoas" é para quem estiver de fora. Arraste os cartões entre as colunas, ou clique para selecionar e depois em "Mover aqui". "Mover todos ▸" passa a coluna inteira para outra letra. Cada movimento grava o horário: ${modoTroca() ? `o da troca (${esc(peekWhen())})` : 'agora'}${isToday() ? '' : ' (dia que não é hoje: mostra como terminou o turno)'}.</div>
+      ${rotasCfg()}
       ${sel ? `<div class="pz-bsel">${sel} selecionado(s) — clique em "Mover ${sel} aqui" na coluna de destino. <button class="link" data-bclear="1">Desmarcar</button></div>` : ''}
       <div class="pz-cols">${cols.map(col).join('')}</div>
       ${groups.length ? `<details class="pz-tl"><summary>Linha do tempo do ${BF[f]} (${groups.length} movimento(s))</summary>
@@ -640,9 +759,9 @@ window.Piso = (() => {
       </tbody></table></div>
       <div class="pz-lay-row">
         <button class="tool" data-pz="add-mesa">+ Mesa</button>
-        <label>Letras <input type="text" data-lay="letras" value="${esc(L.letras.length > 2 && L.letras.join('') === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(L.letras[0].charCodeAt(0) - 65, L.letras[0].charCodeAt(0) - 65 + L.letras.length) ? `${L.letras[0]}-${L.letras[L.letras.length - 1]}` : L.letras.join(', '))}" placeholder="A-L ou A, B, C"></label>
         <label title="Quantas pessoas o rodízio coloca por letra (a lista aceita de 0 a 50)">2º Sorting por letra (rodízio) ${num('s2', L.s2)}</label>
         <label title="Quantas pessoas o rodízio coloca por letra (a lista aceita de 0 a 50)">Auditoria por letra (rodízio) ${num('aud', L.aud)}</label>
+        <span class="muted small">As letras e as rotas do turno ficam no quadro do 2º Sorting e Auditoria.</span>
         <label>Descarga ${num('desc', L.desc)}</label>
         <label>XPT ${num('xpt', L.xpt || 0)}</label>
         <label>5S ${num('s5', L.s5)}</label>
@@ -679,6 +798,8 @@ window.Piso = (() => {
       const n = Math.max(0, Math.min(20, parseInt(t.value, 10) || 0));
       if (p[0] === 'mesa') { if (p[2] === 'nome') L.mesas[+p[1]].nome = t.value.trim() || L.mesas[+p[1]].nome; else L.mesas[+p[1]][p[2]] = n; }
       else if (p[0] === 'letras') L.letras = parseLetras(t.value);
+      else if (p[0] === 'rotas') L.rotas = Math.max(1, Math.min(99, parseInt(t.value, 10) || 20));
+      else if (p[0] === 'rotasLetra') L.rotasLetra = Object.fromEntries((t.value.toUpperCase().match(/[A-Z]{1,2}\s*[=:]\s*\d+/g) || []).map(x => { const [k, v] = x.split(/\s*[=:]\s*/); return [k, Math.max(1, Math.min(99, +v))]; }));
       else L[p[0]] = n;
       redraw();
     });
@@ -1062,7 +1183,7 @@ window.Piso = (() => {
   }
 
   async function onMapaClick(e) {
-    const t = e.target.closest('[data-pz],[data-pz-ver],[data-pz-modo],[data-tl],[data-xrm],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear],[data-bf],[data-bcard],[data-brm],[data-bpick],[data-bdw],[data-bto],[data-bclear],[data-pz-view],[data-board-toggle],[data-legacy-toggle],[data-pd-t],[data-pd-f]');
+    const t = e.target.closest('[data-pz],[data-pz-ver],[data-pz-modo],[data-tl],[data-xrm],[data-baj],[data-rt-sug],[data-lock],[data-pz-pick],[data-pz-rm],[data-pz-clear],[data-bf],[data-bcard],[data-brm],[data-bpick],[data-bdw],[data-bto],[data-bclear],[data-pz-view],[data-board-toggle],[data-legacy-toggle],[data-pd-t],[data-pd-f]');
     if (!t) return;
     const d = t.dataset;
     if (d.lock) { if (!st.locks.delete(d.lock)) st.locks.add(d.lock); t.classList.toggle('on', st.locks.has(d.lock)); t.textContent = st.locks.has(d.lock) ? '🔒' : '🔓'; return; }
@@ -1092,6 +1213,8 @@ window.Piso = (() => {
       touch(); drawMapa(); return;
     }
     if (d.tl) { ls.tlOff = !ls.tlOff; lsSave(); return; }
+    if (d.baj) { ajustarRotas(d.baj); return; }
+    if (d.rtSug) { setRotas('de', d.rtSug); return; }
     if (d.xrm) {
       const [key, dest] = d.xrm.split('|'), ds = destsOf(st.map, key).filter(x => x !== dest);
       if (ds.length) xptDest()[key] = ds; else delete xptDest()[key];
@@ -1159,6 +1282,7 @@ window.Piso = (() => {
       const el = document.querySelector(`[data-xadd="${d.xadd}"]`); if (el) el.focus();
       return;
     }
+    if (d.rt) { setRotas(d.rt, t.value); return; }
     if (t.id === 'pzMT') { st.mt = t.value; st.mtUsed = Date.now(); st.undo = null; drawMapa(); return; }
     if (t.id === 'pzFrom') {
       if (st.ver === 0 || !t.value) return;
@@ -1219,6 +1343,7 @@ window.Piso = (() => {
   const janelaDe = turno => { const J = (window.APP_CONFIG && window.APP_CONFIG.RECEB_JANELAS) || { AM: { inicio: '22:00', fim: '05:30' } }; return J[turno] || null; };
   const janTxt = w => (w ? `${w.inicio}${w.inicio > w.fim ? ' da véspera' : ''} às ${w.fim}` : 'sem janela');
   const rotaLetra = r => { const m = String(r || '').toUpperCase().trim().match(/^([A-Z]{1,2})\s*-?\s*\d*/); return m ? m[1] : ''; };
+  const rotaNum = r => { const m = String(r || '').toUpperCase().trim().match(/^[A-Z]{1,2}\s*-?\s*(\d+)/); return m ? +m[1] : 0; };
   const mapOfDay = (iso, turno) => (baseOn() ? B().mapaGet(iso, turno) : null);
 
   // Responsáveis pelo erro, a partir do mapa que valia no horário.
@@ -1242,14 +1367,12 @@ window.Piso = (() => {
       return { resp, note: resp.length ? `Quem fez o ${xb} no ${onde} (vagas XPT do mapa de piso).` : `Ninguém com o ${xb} no mapa de piso de ${brShort(e.date)}.` };
     }
     if (e.tipo === 'sort') {
-      const l = rotaLetra(e.rota);
-      if (!l) return { resp: [], note: 'Informe a rota do pacote (ex.: C-12).' };
-      // Todos que passaram pelo 2º Sorting ou pela Auditoria da letra em qualquer mudança do turno.
-      const seen = new Map();
-      rec.map.versions.forEach(x => ['s2', 'aud'].forEach(f => listKeys(x, f, l).forEach(k => { const n = x.slots[k]; if (n && !seen.has(nk(n))) seen.set(nk(n), n); })));
-      ['s2', 'aud'].forEach(f => ((rec.map.board || {})[f] || []).forEach(e => { if (e.to === l && !seen.has(nk(e.n))) seen.set(nk(e.n), e.n); }));
-      const resp = [...seen.values()];
-      return { resp, letra: l, verFrom: '', note: resp.length ? `Possíveis responsáveis: todos que passaram pelo 2º Sorting ou pela Auditoria da letra ${l} no turno (${rec.map.versions.length} mudança(s)).` : `Ninguém no 2º Sorting nem na Auditoria da letra ${l} no turno.` };
+      const l = rotaLetra(e.rota), num = rotaNum(e.rota);
+      if (!l || !num) return { resp: [], letra: l, note: 'Informe a rota do pacote com o número (ex.: C-12).' };
+      // Responsável: quem auditava aquela rota (faixa de rotas da letra) no horário do erro.
+      const T = e.time || '99:99';
+      const resp = audWho(rec.map, l, num, T);
+      return { resp, letra: l, verFrom: '', note: resp.length ? `Auditor da rota ${l}-${num} às ${e.time || 'fim do turno'} (faixas de rotas da Auditoria no mapa de piso).` : `Ninguém auditando a rota ${l}-${num} às ${e.time || 'fim do turno'} no mapa de piso.` };
     }
     if (!e.recv) return { resp: [], note: 'Informe o operador que bipou o pacote (ou busque no SPX).' };
     // Responsável = quem está na vaga "Etiqueta" da bancada onde aparece o operador do SPX. Se o próprio operador
@@ -1320,7 +1443,7 @@ window.Piso = (() => {
               <div class="muted small">Pacote do XPT com erro (principalmente o que foi sem bipar): o responsável é quem estava na vaga desse XPT no mapa de piso.</div>` : se.tipo === 'sort' ? `
               <label>Rota certa do pacote <input id="peRota" type="text" value="${esc(se.rota)}" placeholder="C-12" autocomplete="off"></label>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
-              <div class="muted small">O pacote foi para a gaiola errada: os possíveis responsáveis são todos que passaram pelo 2º Sorting ou pela Auditoria da letra da rota no turno (em qualquer mudança do mapa).</div>` : `
+              <div class="muted small">O pacote foi para a gaiola errada: o responsável é quem auditava essa rota (ex.: C-12) no horário do erro, pelas faixas de rotas da Auditoria no mapa de piso.</div>` : `
               <div class="pe-row">
                 <button class="tool" data-pe="spx" ${canSpx && !se.busy ? '' : 'disabled'} title="${canSpx ? 'Busca no rastreio do SPX quem recebeu o pacote no hub' : 'A busca no SPX só funciona no app do computador'}">${se.busy ? 'Buscando…' : 'Buscar operador no SPX'}</button>
                 ${se.spxMsg ? `<span class="muted small">${esc(se.spxMsg)}</span>` : ''}
@@ -1338,7 +1461,7 @@ window.Piso = (() => {
             ${today.map(x => { const c = catOf(x), dash = '<span class="muted">—</span>'; return `<tr><td class="left">${esc(x.time) || '—'}</td><td class="left"><span class="pill ${CATS[c][1]}">${CATS[c][0]}</span>${x.detail.origem === 'quiosque' ? ' <span class="muted small">· registro</span>' : ''}</td>
               <td class="left pc-code">${esc(x.code)}</td><td class="left">${x.tipo !== 'etiq' ? `<b>${esc(x.rota)}</b>` : dash}</td>
               <td class="left">${x.tipo !== 'etiq' ? dash : esc(x.detail.recebeu || x.detail.operadorSpx || '') || dash}</td>
-              <td class="left">${c === 'backlog' || c === 'naorec' || semResp(x) ? dash : x.resp.length ? (x.tipo === 'sort' ? `<span class="muted small">sorting/auditoria:</span> ${x.resp.map(esc).join(', ')}` : x.tipo === 'xpt' ? `<span class="muted small">XPT:</span> ${x.resp.map(esc).join(', ')}` : x.resp.map(esc).join(', ')) : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca o operador no SPX e quem estava no mapa">Buscar responsável</button>`}</td>
+              <td class="left">${c === 'backlog' || c === 'naorec' || semResp(x) ? dash : x.resp.length ? (x.tipo === 'sort' ? `<span class="muted small">auditor:</span> ${x.resp.map(esc).join(', ')}` : x.tipo === 'xpt' ? `<span class="muted small">XPT:</span> ${x.resp.map(esc).join(', ')}` : x.resp.map(esc).join(', ')) : `<button class="tool" data-pe-fix="${esc(x.id)}" title="Busca o operador no SPX e quem estava no mapa">Buscar responsável</button>`}</td>
               <td class="left pc-obs pe-obs">${esc(obsOf(x)) || dash}</td>
               <td><button class="tool danger" data-pe-del="${esc(x.id)}" title="Excluir este registro">Excluir</button></td></tr>`; }).join('')}
           </tbody></table></div>` : ui.empty('Nenhum erro registrado neste turno.')}</section>
@@ -1372,7 +1495,7 @@ window.Piso = (() => {
       ${Object.entries(CATS).map(([k, [l]]) => `<button class="chip ${se.cats.has(k) ? 'active' : ''}" data-pe-cat="${k}">${l} <b>${all.filter(x => catOf(x) === k).length}</b></button>`).join('')}</div>`;
     if (!list.length) { el.innerHTML = chips + ui.empty('Nenhum erro desse tipo no período.'); return; }
 
-    // Pessoas (sorting: possíveis; etiquetagem: etiquetador). Diaristas ficam fora do ranking.
+    // Pessoas (sorting: auditor da rota; etiquetagem: etiquetador). Diaristas ficam fora do ranking.
     const ppl = new Map();
     list.filter(x => ['sort', 'etiq', 'xpt'].includes(catOf(x))).forEach(x => x.resp.filter(nm => !isDw(nm)).forEach(nm => {
       const k = nk(nm), o = ppl.get(k) || { nome: nm, sort: 0, etiq: 0, xpt: 0, days: new Set(), turnos: new Set() };
@@ -1411,15 +1534,15 @@ window.Piso = (() => {
         ${ui.card('peCh5', 'Taxa por dia', 'Erros por mil pacotes recebidos', { w: 6 })}
         ${ui.card('peCh2', 'Sorting por letra', 'Letra da gaiola certa do pacote', { w: 6 })}
         ${ui.card('peCh6', 'Etiquetagem por bancada', 'Bancada de quem bipou o pacote', { w: 6 })}
-        ${ui.card('peCh7', 'Pessoas com mais erros', 'Sorting (possível) e etiquetagem · nome completo na tabela "Pessoas"', { w: 12, h: 'tall' })}
+        ${ui.card('peCh7', 'Pessoas com mais erros', 'Sorting, etiquetagem e XPT · nome completo na tabela "Pessoas"', { w: 12, h: 'tall' })}
         ${ui.card('', 'Gaiolas com mais erros de sorting', `${byRota.length} gaiola(s)`, { w: 4, body: byRota.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Gaiola</th><th>Erros</th></tr></thead><tbody>
           ${byRota.slice(0, 15).map(([k, v]) => `<tr><td class="left"><b>${esc(k)}</b></td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ui.empty('Sem erros de sorting.') })}
         ${ui.card('', 'Operadores SPX dos pacotes com erro', 'Quem bipou (etiquetagem, backlog, não recebido)', { w: 4, body: byOperador.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Operador</th><th>Pacotes</th></tr></thead><tbody>
           ${byOperador.slice(0, 15).map(([k, v]) => `<tr><td class="left">${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table></div>` : ui.empty('Sem operador registrado.') })}
         ${ui.card('', 'Origem dos registros', 'Quem registrou', { w: 4, body: `<div class="table-wrap"><table class="pc-table"><tbody>${byOrigem.map(([k, v]) => `<tr><td class="left">${esc(k)}</td><td><b>${v}</b></td><td>${H.fmt.pct(v / list.length, 0)}</td></tr>`).join('')}</tbody></table></div>` })}
-        ${ui.card('', 'Pessoas', 'Sorting: todos que passaram pelo 2º Sorting ou pela Auditoria da letra no turno · Etiquetagem: quem estava na vaga Etiqueta da bancada', { w: 12,
+        ${ui.card('', 'Pessoas', 'Sorting: auditor da rota no horário · Etiquetagem: quem estava na vaga Etiqueta da bancada · XPT: quem fez o XPT', { w: 12,
           tools: '<button class="tool" data-pe="recalc" title="Refaz os responsáveis do período com as regras atuais">Recalcular responsáveis</button><button class="tool" data-pe="copy">Copiar lista</button>',
-          body: rows.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting (possível)</th><th>Etiquetagem</th><th>XPT</th><th>Total</th><th>Dias</th><th>Turnos</th></tr></thead><tbody>
+          body: rows.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Pessoa</th><th>Sorting</th><th>Etiquetagem</th><th>XPT</th><th>Total</th><th>Dias</th><th>Turnos</th></tr></thead><tbody>
             ${rows.map(o => `<tr><td class="left">${esc(o.nome)}</td><td>${o.sort}</td><td>${o.etiq}</td><td>${o.xpt}</td><td><b>${o.sort + o.etiq + o.xpt}</b></td><td>${o.days.size}</td><td class="left">${[...o.turnos].sort().join(', ')}</td></tr>`).join('')}
           </tbody></table></div>` : ui.empty('Nenhuma pessoa nos tipos filtrados.') })}
       </div>`;
@@ -1755,7 +1878,7 @@ window.Piso = (() => {
     if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
     const q = id => el.querySelector('#' + id);
     const code = () => q('kCode').value.trim().toUpperCase();
-    const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || (K.tipo === 'xpt' ? !!q('kRota').value.trim() : rotaLetra(q('kRota').value)));
+    const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || (K.tipo === 'xpt' ? !!q('kRota').value.trim() : rotaLetra(q('kRota').value) && rotaNum(q('kRota').value)));
     const sync = () => {
       el.querySelectorAll('.kiosk-types button').forEach(b => b.classList.toggle('on', b.dataset.k === K.tipo));
       q('kSortBox').hidden = K.tipo !== 'sort' && K.tipo !== 'xpt';
@@ -1844,6 +1967,6 @@ window.Piso = (() => {
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
     // Para testes.
-    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf, mergeMaps },
+    _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf, mergeMaps, dividir, audRoutes, audWho, rotasDe, faixaLetra, totalRotas, parseRota },
   };
 })();
