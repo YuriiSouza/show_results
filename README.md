@@ -358,17 +358,25 @@ Meta **457** (`METAS.phd` em `js/config.js`):
     "+ Adicionar pessoas" fica para quem estiver de fora.
   - **2º Sorting e Auditoria em quadro (kanban)**: colunas "Disponíveis" e uma por letra; cada pessoa é um cartão.
     Arraste entre as colunas (ou clique para selecionar e "Mover aqui"); **Mover todos ▸** passa a coluna inteira para outra letra.
-    Vários grupos podem estar em letras diferentes. Cada movimento grava o horário (campo "Movimentos às" para registrar um
-    horário passado) e aparece na linha do tempo — não precisa criar mudança. Erro de sorting na letra C: todos que passaram
-    pela C (2º Sorting ou Auditoria) no turno. Mapas antigos com listas por letra continuam aparecendo como "formato anterior".
+    Vários grupos podem estar em letras diferentes. Cada movimento grava o horário (o da troca de função, ou agora) e aparece
+    na linha do tempo — não precisa criar mudança. Mapas antigos com listas por letra continuam aparecendo como "formato anterior".
+  - **Rotas do turno** (no quadro do 2º Sorting e Auditoria): primeira e última rota do turno, ex.: AM **A-1 até E-6**
+    (86 rotas), PM1 **E-7 até H-2**. As colunas de letras saem dessa faixa (não ficam mais no layout). Também ali: **Rotas por
+    letra** (padrão 20) e **Exceções** (ex.: `C=18`). O "de" sugere a rota seguinte à última do turno anterior do mesmo dia.
+    A coluna **Disponíveis** fica fixa à esquerda ao rolar as letras.
+  - **Auditoria por rota**: cada rota é auditada por **uma pessoa só**. O app divide as rotas da letra **dentro das rotas do
+    turno** igualmente entre quem está auditando a letra, na ordem de chegada (PM1, letra E com 2 pessoas: E-7–E-13 e
+    E-14–E-20) e mostra a faixa no cartão. **Ajustar rotas** muda as faixas
+    (avisa rota sem auditor ou com dois); o ajuste vale enquanto o grupo da letra for o mesmo — se alguém entra ou sai,
+    volta a divisão igual.
   - Recebimento/etiquetagem por **bancada**, numeradas em sequência entre as mesas (Bancada 1 a 8 no layout padrão).
   - **DIARISTA** pode ser escolhido em quantas vagas forem precisas (não conta como "em duas funções" nem entra no rodízio).
   - **Layout** editável pelo líder (mesas, postos, letras, vagas); o mapa novo usa o layout do último salvo.
   - Nomes sugeridos pela guia HSE do mês atual, mas gravados como texto (o histórico não depende do HSE).
   - Grava na guia **MapaPiso** da planilha-base (vale o salvamento mais recente do dia/turno); rascunho fica no aparelho.
 - **Erros de piso**: registro durante a operação, guia **ErrosPiso**.
-  - **Sorting** (gaiola errada): rota certa do pacote (ex.: C-12) → possíveis responsáveis = todos que passaram pelo
-    2º Sorting ou pela Auditoria da letra em qualquer mudança do mapa do turno.
+  - **Sorting** (gaiola errada): rota certa do pacote com o número (ex.: C-12) e horário → responsável = **quem auditava
+    aquela rota** naquele horário (faixas de rotas da Auditoria). "Recalcular" refaz os erros antigos com essa regra.
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.
   - Análise do período (filtro do topo): por pessoa, por dia e por letra. **Recalcular responsáveis** refaz os registros do período com as regras atuais.

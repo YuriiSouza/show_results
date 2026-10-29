@@ -474,3 +474,42 @@ test('mapa de piso: duas pessoas salvando partes diferentes ao mesmo tempo — j
   const r2 = P.mergeMaps(base2, base2, { layout: L, versions: [{ from: '', slots: {} }] });
   assert.deepEqual(r2.versions.map(v => v.from), ['']);
 });
+
+test('auditoria: cada rota com um auditor só (divisão igual, ajuste manual e quem entra depois)', () => {
+  const P = global.window.Piso._;
+  assert.deepEqual(P.dividir(['ANA', 'BIA'], 20), [{ n: 'ANA', de: 1, ate: 10 }, { n: 'BIA', de: 11, ate: 20 }]);
+  assert.deepEqual(P.dividir(['ANA', 'BIA', 'CAIO'], 20).map(f => [f.de, f.ate]), [[1, 7], [8, 14], [15, 20]]);
+  const L = { ...P.DEFAULT_LAYOUT, rotasLetra: { C: 18 } };
+  assert.equal(P.rotasDe(L, 'A'), 20);
+  assert.equal(P.rotasDe(L, 'C'), 18);
+  const map = { layout: L, versions: [{ from: '', slots: {} }], board: { s2: [], aud: [
+    { t: '22:00', n: 'ANA', to: 'C' }, { t: '22:05', n: 'BIA', to: 'C' }, { t: '23:30', n: 'CAIO', to: 'C' },
+  ] } };
+  assert.deepEqual(P.audWho(map, 'C', 12, '22:30'), ['BIA']);           // 18 rotas / 2: ANA 1-9, BIA 10-18
+  assert.deepEqual(P.audWho(map, 'C', 9, '22:30'), ['ANA']);
+  assert.deepEqual(P.audWho(map, 'C', 12, '23:45'), ['BIA']);           // 3 pessoas: 1-6, 7-12, 13-18
+  assert.deepEqual(P.audWho(map, 'C', 13, '23:45'), ['CAIO']);
+  // Ajuste manual às 22:10 (mesmo grupo): ANA 1-4, BIA 5-18. Quando o CAIO entra, volta a divisão automática.
+  map.audFaixas = { C: [{ t: '22:10', faixas: [{ n: 'ANA', de: 1, ate: 4 }, { n: 'BIA', de: 5, ate: 18 }] }] };
+  assert.deepEqual(P.audWho(map, 'C', 6, '22:05'), ['ANA']);
+  assert.deepEqual(P.audWho(map, 'C', 6, '22:20'), ['BIA']);
+  assert.deepEqual(P.audWho(map, 'C', 6, '23:45'), ['ANA']);
+  assert.deepEqual(P.audWho(map, 'D', 1, '23:45'), []);
+});
+
+test('rotas do turno: AM A-1 a E-6 (86 rotas) e PM1 E-7 a H-2; auditoria divide só as rotas do turno', () => {
+  const P = global.window.Piso._;
+  const L = { ...P.DEFAULT_LAYOUT, rotas: 20, rotasLetra: {} };
+  const am = { layout: L, rotas: { de: 'A-1', ate: 'E-6' }, versions: [{ from: '', slots: {} }] };
+  const pm1 = { layout: L, rotas: { de: 'E-7', ate: 'H-2' }, versions: [{ from: '', slots: {} }], board: { s2: [], aud: [
+    { t: '09:00', n: 'ANA', to: 'E' }, { t: '09:01', n: 'BIA', to: 'E' }, { t: '09:02', n: 'CAIO', to: 'H' }] } };
+  assert.equal(P.totalRotas(am), 86);
+  assert.equal(P.totalRotas(pm1), 56);
+  assert.deepEqual(P.faixaLetra(am, 'E'), [1, 6]);
+  assert.deepEqual(P.faixaLetra(pm1, 'E'), [7, 20]);
+  assert.deepEqual(P.faixaLetra(pm1, 'H'), [1, 2]);
+  assert.deepEqual(P.audRoutes(pm1, 'E', '10:00').map(f => [f.n, f.de, f.ate]), [['ANA', 7, 13], ['BIA', 14, 20]]);
+  assert.deepEqual(P.audRoutes(pm1, 'H', '10:00').map(f => [f.n, f.de, f.ate]), [['CAIO', 1, 2]]);
+  assert.deepEqual(P.audWho(pm1, 'E', 14, '10:00'), ['BIA']);
+  assert.equal(P.parseRota('e 7').l, 'E');
+});

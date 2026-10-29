@@ -978,3 +978,16 @@ select.unk { border-color: var(--warn, #A15C00); }
 /* Report salvo: ponto verde antes do título */
 .rpx-saved { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: var(--good); vertical-align: middle; box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
 .rpx-saved[hidden] { display: none; }
+/* Auditoria por rota */
+.pz-rotas { display: block; margin-top: 2px; font-size: 11px; font-weight: 700; color: #3B6FD8; }
+.pz-faixa { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.pz-faixa b { flex: 1 1 180px; }
+.pz-faixa label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.pz-faixa input { width: 64px; padding: 4px 6px; }
+/* Quadro: "Disponíveis" fica fixa à esquerda quando as letras rolam para o lado */
+.pz-cols .pz-col.pool { position: sticky; left: 0; z-index: 2; box-shadow: 8px 0 12px -8px rgba(0,0,0,.25); }
+/* Rotas do turno */
+.pz-rotas-cfg { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; }
+.pz-rotas-cfg label { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text-2); }
+.pz-rotas-cfg input[type="text"] { width: 70px; padding: 4px 8px; font-weight: 700; text-transform: uppercase; }
+.pz-rotas-cfg input[type="number"] { width: 64px; padding: 4px 6px; }
