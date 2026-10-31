@@ -241,9 +241,9 @@ window.Audit = (() => {
     const ruaKeys = [...rua.keys()].sort();
 
     const attention = attentionOf(reps);
-    const q = st.search.toLowerCase();
-    const atRows = attention.filter(r => !q || [r.at, r.corridor, r.operator, r.shift].join(' ').toLowerCase().includes(q))
-      .sort((x, y) => y.missing - x.missing || y.missorted - x.missorted || (y.minutes || 0) - (x.minutes || 0));
+    // A busca filtra só esta tabela (sem redesenhar a tela inteira com os gráficos).
+    st.att = attention.slice().sort((x, y) => y.missing - x.missing || y.missorted - x.missorted || (y.minutes || 0) - (x.minutes || 0));
+    const att = attHtml();
 
     // Tendência por dia e corredores reincidentes (só quando o período tem mais de um dia com relatório).
     const multi = days.length > 1;
@@ -322,7 +322,7 @@ window.Audit = (() => {
         ${ui.card('', `Ofensores do tempo de conferência (meta ${fmtDur(TMAX())})`, 'Operadores ordenados por ATs acima da meta e tempo excedente', { w: 12, body: timeOpsTable(opsTime, st.shift === 'ALL') })}
         ${ui.card('', `ATs acima de ${fmtDur(TMAX())}`, `${overRows.length} AT(s) · da mais lenta para a mais rápida`, { w: 12, body: overRows.length ? `
           <div class="table-wrap"><table><thead><tr><th>AT/TO</th><th class="left">Corredor</th><th>Pedidos</th><th>Duração</th><th>Excesso</th><th class="left">Operador</th></tr></thead><tbody>
-          ${overRows.map(r => `<tr><td>${esc(r.at)}${st.shift === 'ALL' ? ` <span class="shift-tag s-${r.shift}">${r.shift}</span>` : ''}</td><td class="left">${esc(r.corridor)}</td><td>${r.initial}</td>
+          ${overRows.slice(0, MAX_ROWS).map(r => `<tr><td>${esc(r.at)}${st.shift === 'ALL' ? ` <span class="shift-tag s-${r.shift}">${r.shift}</span>` : ''}</td><td class="left">${esc(r.corridor)}</td><td>${r.initial}</td>
             <td class="over"><b>${fmtDur(r.minutes)}</b></td><td class="over">+${fmtDur(r.minutes - TMAX())}</td><td class="left">${esc(r.operator)}</td></tr>`).join('')}
           </tbody></table></div>` : ui.empty(`Nenhuma AT acima de ${fmtDur(TMAX())}. ✓`) })}
         ${ui.card('', 'Operadores', 'Ordenado por não bipados', { w: multi ? 7 : 12, body: opsTable(ops, st.shift === 'ALL') })}
@@ -330,16 +330,12 @@ window.Audit = (() => {
           <div class="table-wrap"><table><thead><tr><th>Corredor</th><th>Relatórios</th><th>Não bipados ${HT('naoBipados')}</th><th>Último</th></tr></thead><tbody>
           ${recurrent.map(c => `<tr><td>${esc(c.corridor)}</td><td>${c.reports.size}</td><td><b>${c.missing}</b></td><td>${esc(fmtDay(c.last.slice(0, 10)) + c.last.slice(10))}</td></tr>`).join('')}
           </tbody></table></div>` : ui.empty('Nenhum corredor com não bipados repetidos no período.') }) : ''}
-        ${ui.card('', 'ATs de atenção', `${atRows.length} de ${a.ats} ATs · com não bipados, pacotes de outra rota ou acima de ${fmtDur(TMAX())} (as demais não são guardadas)`, { w: 12, body: `
+        ${ui.card('', 'ATs de atenção', `${st.att.length} de ${a.ats} ATs · com não bipados, pacotes de outra rota ou acima de ${fmtDur(TMAX())} (as demais não são guardadas)`, { w: 12, body: `
           <input class="search" id="auSearch" type="search" placeholder="Buscar AT, corredor, operador…" value="${esc(st.search)}">
           <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th>
             <th>Inicial</th><th>Final</th><th>Escaneado</th><th>De outra rota ${HT('outraRota')}</th><th>Não bipados ${HT('naoBipados')}</th><th>Início</th><th>Fim</th><th>Duração</th>
-            <th class="left">Operador</th><th class="left">Status</th></tr></thead><tbody>
-            ${atRows.map(r => `<tr class="${r.missing ? 'hl' : ''}"><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}
-              <td class="left">${esc(r.corridor)}</td><td>${r.initial}</td><td>${r.final}</td><td>${r.scanned}</td><td>${r.missorted}</td><td><b>${r.missing}</b></td>
-              <td>${hhmm(r.start)}</td><td>${hhmm(r.end)}</td><td class="${r.minutes > TMAX() ? 'over' : ''}">${fmtDur(r.minutes)}</td>
-              <td class="left">${esc(r.operator)}</td><td class="left">${esc(r.status)}</td></tr>`).join('')}
-          </tbody></table></div>` })}
+            <th class="left">Operador</th><th class="left">Status</th></tr></thead>
+            <tbody id="auAttBody">${att.html}</tbody></table></div><div class="muted small" id="auAttCount">${att.count}</div>` })}
       </div>
 
       <div class="grid au-imported">
@@ -408,6 +404,18 @@ window.Audit = (() => {
         <td class="${o.maxMin > TMAX() ? 'over' : ''}">${fmtDur(o.maxMin)}</td><td>${o.excess ? '+' + fmtDur(o.excess) : '—'}</td>
         <td>${o.pedidosTimed ? f.dec(o.min * 60 / o.pedidosTimed, 1) : '—'}</td></tr>`).join('')}
       </tbody></table></div>`;
+  }
+  // Linhas da tabela "ATs de atenção" (filtradas pela busca; no máximo MAX_ROWS para a tela não pesar).
+  const MAX_ROWS = 300;
+  function attHtml() {
+    const q = st.search.toLowerCase();
+    const list = (st.att || []).filter(r => !q || [r.at, r.corridor, r.operator, r.shift].join(' ').toLowerCase().includes(q));
+    const html = list.slice(0, MAX_ROWS).map(r => `<tr class="${r.missing ? 'hl' : ''}"><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}
+              <td class="left">${esc(r.corridor)}</td><td>${r.initial}</td><td>${r.final}</td><td>${r.scanned}</td><td>${r.missorted}</td><td><b>${r.missing}</b></td>
+              <td>${hhmm(r.start)}</td><td>${hhmm(r.end)}</td><td class="${r.minutes > TMAX() ? 'over' : ''}">${fmtDur(r.minutes)}</td>
+              <td class="left">${esc(r.operator)}</td><td class="left">${esc(r.status)}</td></tr>`).join('');
+    const count = q || list.length > MAX_ROWS ? `${list.length} AT(s)${q ? ' na busca' : ''}${list.length > MAX_ROWS ? ` · mostrando as primeiras ${MAX_ROWS} (use a busca)` : ''}` : '';
+    return { html, count };
   }
   function opsTable(list, showShift, compact = false) {
     if (!list.length) return ui.empty('Sem dados.');
@@ -547,9 +555,13 @@ window.Audit = (() => {
     main.addEventListener('input', e => {
       if (e.target.id !== 'auSearch' || !ui.isActive()) return;
       st.search = e.target.value;
-      const pos = e.target.selectionStart;
-      ui.rerender();
-      const n = $('auSearch'); if (n) { n.focus(); n.setSelectionRange(pos, pos); }
+      // Espera a pessoa parar de digitar (150 ms) para filtrar.
+      clearTimeout(st.searchT);
+      st.searchT = setTimeout(() => {
+        const att = attHtml(), body = $('auAttBody'), cnt = $('auAttCount');
+        if (body) body.innerHTML = att.html;
+        if (cnt) cnt.textContent = att.count;
+      }, 150);
     });
     // Arrastar e soltar o .csv na tela
     main.addEventListener('dragover', e => { if (ui.isActive()) { e.preventDefault(); main.classList.add('dragging'); } });

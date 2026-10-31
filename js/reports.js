@@ -26,7 +26,6 @@ window.Reports = (() => {
   const SHIFT = { T1: 'pm', T3: 'am' };
   const STATUS_OPTS = ['Em andamento', 'Finalizado'];
   // Texto livre da guia de report -> opção do Status.
-  const statusOf = t => (/finaliz/i.test(t || '') ? 'Finalizado' : /andamento/i.test(t || '') ? 'Em andamento' : '');
   const confStatus = c => c && src(c.ok === c.total ? 'Finalizado' : 'Em andamento', 'auto', `${c.how}: Finalizado quando todas as ATs estão validadas (${c.ok}/${c.total})`);
 
   // ---------- Valores digitados (um arquivo por dia) ----------
@@ -63,7 +62,8 @@ window.Reports = (() => {
     const rep = window.Audit && await window.Audit.getSaved(toIso(d), sh);
     if (rep && rep.s && rep.s.ats) {
       const x = rep.s;
-      return { total: x.ats, ok: x.ats - (x.notValidated || 0), pct: (x.ats - (x.notValidated || 0)) / x.ats, missing: x.missing, how: `Relatório Audit ${sh} de ${d}` };
+      // Missing do report = soma da coluna Missorted Orders do relatório Audit do turno (T3 = AM, T1 = PM1).
+      return { total: x.ats, ok: x.ats - (x.notValidated || 0), pct: (x.ats - (x.notValidated || 0)) / x.ats, missing: x.missorted, how: `Relatório Audit ${sh} de ${d}` };
     }
     return null;
   }
@@ -153,12 +153,15 @@ window.Reports = (() => {
     }
 
     const maFields = () => [['total', 'Total'], ['backlog', 'Backlog'], ['emRota', 'Em rota'], ['enviadoSoc', 'Enviado ao SOC'], ['semRastreio', 'Sem rastreio'], ['lost', 'Lost confirmado']];
-    const noShowDay = g(m.tr.ats, `Guia ${S.transporte} · ATs no piso (valor do dia)`);
 
     if (k.type === 'fech') {
       const t = k.turno, s = SHIFT[t], S2 = s.toUpperCase();
       const conf = await conference(m, d, t);
       const hc = m.hc[s];
+      // Expedição do turno: Audit de gestão do turno do dia (T3 = AM, T1 = PM1), como no Report geral.
+      const sh = C.REPORT.auditShift[t], iso = toIso(d);
+      const au = window.Audit && window.Audit.daySummary ? await window.Audit.daySummary(iso, [sh]) : null;
+      const auHow = `Audit de gestão ${dmyIso(iso)} · ${sh}`;
       return {
         title: `Fechamento de turno ${t}`, sub: `Turno ${t} · colunas ${S2} das guias`,
         layout: 'cols',
@@ -186,12 +189,12 @@ window.Reports = (() => {
           ]),
           sec('conf', '🔢', `Conferência ${S2}`, [
             F('conf_status', 'Status', confStatus(conf), { options: STATUS_OPTS }),
-            F('missing', `Missing ${t}`, conf && src(conf.missing, 'auto', `${conf.how}: soma de Missing Orders`)),
+            F('missing', `Missing ${t}`, conf && src(conf.missing, 'auto', `${conf.how}: soma de Missorted Orders`)),
           ]),
           sec('exp', '🚗', 'Expedição', [
-            F('rotas', 'Rotas do turno', null, { hint: 'A guia Transporte tem só o total do dia' }),
-            F('noshow', 'NoShow', noShowDay),
-            F('carregamento', `Carregamento ${t}`, null, { hint: 'hh:mm' }),
+            F('rotas', 'Rotas do turno', au && src(au.ats, 'auto', `${auHow}: ATs validadas`)),
+            F('noshow', 'NoShow', au && au.noshow != null ? src(au.noshow, 'auto', `${auHow}: ATs sem pacote escaneado (coluna E vazia ou 0)`) : null),
+            F('carregamento', `Carregamento ${t}`, au && au.avgMin != null ? src(window.Audit.fmtDur(au.avgMin), 'auto', `${auHow}: tempo médio por AT`) : null, { hint: 'mm:ss' }),
           ]),
           sec('ma', '📦', `Macro Aging ${t}`, maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma[t][key], `Guia ${S.inventario} · MA ${t} · ${l}`)))),
           sec('rev', '↩️', 'Reversa do turno', [['onHold', 'On hold'], ['avariaHub', 'Avaria HUB'], ['avariaSoc', 'Avaria SOC'], ['retornoSoc', 'Retorno SOC']]
@@ -252,8 +255,8 @@ window.Reports = (() => {
           F('conf_all', 'Status geral', confTxt(auAll, 'dia'), { hint: 'conferidas/total - %' }),
         ]),
         sec('erros', '❌', 'Erros operacionais', [
-          F('missing_t1', 'Missing T1', firstOf(c1 && src(c1.missing, 'auto', `${c1.how}: soma de Missing Orders`), fromShift('rpF1', 'missing', 'Fechamento T1'))),
-          F('missing_t3', 'Missing T3', firstOf(c3 && src(c3.missing, 'auto', `${c3.how}: soma de Missing Orders`), fromShift('rpF3', 'missing', 'Fechamento T3'))),
+          F('missing_t1', 'Missing T1', firstOf(c1 && src(c1.missing, 'auto', `${c1.how}: soma de Missorted Orders`), fromShift('rpF1', 'missing', 'Fechamento T1'))),
+          F('missing_t3', 'Missing T3', firstOf(c3 && src(c3.missing, 'auto', `${c3.how}: soma de Missorted Orders`), fromShift('rpF3', 'missing', 'Fechamento T3'))),
           F('missing_all', 'Missing total', null, { calc: v => { const a = num(v.missing_t1), b = num(v.missing_t3); return a != null && b != null ? src(a + b, 'calc', 'Missing T1 + Missing T3') : null; } }),
         ]),
         sec('exp', '🚗', 'Expedição', [
@@ -307,14 +310,13 @@ window.Reports = (() => {
   function fieldHtml(fd, r) {
     const v = r.vals[fd.id], st = r.state[fd.id];
     const how = howText(fd, r);
-    const reset = '';
     const control = fd.options
       ? `<select id="rf-${fd.id}" class="rf-in rf-select" data-fid="${fd.id}" title="${esc(how)}">
           <option value=""${v ? '' : ' selected'}>—</option>${fd.options.map(o => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}
           ${v && !fd.options.includes(v) ? `<option selected>${esc(v)}</option>` : ''}</select>`
       : `<input id="rf-${fd.id}" class="rf-in" data-fid="${fd.id}" value="${esc(v)}" placeholder="" title="${esc(how)}" autocomplete="off">`;
     return `<div class="rf st-${st}" data-row="${fd.id}"><label for="rf-${fd.id}">${esc(fd.label)}</label>
-      <div class="rf-box">${control}${reset}</div></div>`;
+      <div class="rf-box">${control}</div></div>`;
   }
 
   function reportHtml(def, r, day, flow) {

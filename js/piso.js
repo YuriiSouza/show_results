@@ -1441,9 +1441,9 @@ window.Piso = (() => {
               <datalist id="peXptList">${xptOfDay(se.date).map(d => `<option value="${esc(d)}">`).join('')}</datalist>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
               <div class="muted small">Pacote do XPT com erro (principalmente o que foi sem bipar): o responsável é quem estava na vaga desse XPT no mapa de piso.</div>` : se.tipo === 'sort' ? `
-              <label>Rota certa do pacote <input id="peRota" type="text" value="${esc(se.rota)}" placeholder="C-12" autocomplete="off"></label>
+              <label>Gaiola onde o pacote estava <input id="peRota" type="text" value="${esc(se.rota)}" placeholder="C-12" autocomplete="off"></label>
               <label>Horário aproximado <input id="peTime" type="time" value="${esc(se.time)}"></label>
-              <div class="muted small">O pacote foi para a gaiola errada: o responsável é quem auditava essa rota (ex.: C-12) no horário do erro, pelas faixas de rotas da Auditoria no mapa de piso.</div>` : `
+              <div class="muted small">O pacote estava numa gaiola que não era a dele: informe a gaiola onde ele <b>estava</b> (ex.: C-12). O responsável é quem auditava essa rota no horário do erro, pelas faixas de rotas da Auditoria no mapa de piso.</div>` : `
               <div class="pe-row">
                 <button class="tool" data-pe="spx" ${canSpx && !se.busy ? '' : 'disabled'} title="${canSpx ? 'Busca no rastreio do SPX quem recebeu o pacote no hub' : 'A busca no SPX só funciona no app do computador'}">${se.busy ? 'Buscando…' : 'Buscar operador no SPX'}</button>
                 ${se.spxMsg ? `<span class="muted small">${esc(se.spxMsg)}</span>` : ''}
@@ -1532,7 +1532,7 @@ window.Piso = (() => {
         ${ui.card('peCh3', 'Por turno', 'Erros de cada turno', { w: 4 })}
         ${ui.card('peCh4', 'Por hora', 'Horário do erro (no sorting) ou do bipe (etiquetagem)', { w: 6 })}
         ${ui.card('peCh5', 'Taxa por dia', 'Erros por mil pacotes recebidos', { w: 6 })}
-        ${ui.card('peCh2', 'Sorting por letra', 'Letra da gaiola certa do pacote', { w: 6 })}
+        ${ui.card('peCh2', 'Sorting por letra', 'Letra da gaiola onde o pacote estava', { w: 6 })}
         ${ui.card('peCh6', 'Etiquetagem por bancada', 'Bancada de quem bipou o pacote', { w: 6 })}
         ${ui.card('peCh7', 'Pessoas com mais erros', 'Sorting, etiquetagem e XPT · nome completo na tabela "Pessoas"', { w: 12, h: 'tall' })}
         ${ui.card('', 'Gaiolas com mais erros de sorting', `${byRota.length} gaiola(s)`, { w: 4, body: byRota.length ? `<div class="table-wrap"><table class="pc-table"><thead><tr><th class="left">Gaiola</th><th>Erros</th></tr></thead><tbody>
@@ -1827,7 +1827,7 @@ window.Piso = (() => {
   }
 
   // ================= Modo registro (tela cheia) =================
-  // Para os colaboradores: bipar o pacote, escolher o tipo de erro e (sorting) a gaiola certa. Não mostra responsáveis.
+  // Para os colaboradores: bipar o pacote, escolher o tipo de erro e (sorting) a gaiola onde o pacote estava. Não mostra responsáveis.
   // Os responsáveis são calculados e gravados por trás; sem Sessão SPX (etiquetagem), o líder completa depois.
   // Senha do líder para sair do modo registro (APP_CONFIG.KIOSK_PASSWORD).
   async function askKioskPassword() {
@@ -1866,7 +1866,7 @@ window.Piso = (() => {
           <button data-k="etiq">Erro de etiquetagem<small>etiqueta errada</small></button>
           <button data-k="xpt">Erro de XPT<small>pacote de XPT sem bipar</small></button>
         </div>
-        <div id="kSortBox" hidden><div class="kiosk-lbl" id="kRotaLbl">3. Gaiola certa do pacote</div>
+        <div id="kSortBox" hidden><div class="kiosk-lbl" id="kRotaLbl">3. Gaiola onde o pacote estava</div>
           <input id="kRota" class="kiosk-input" placeholder="C-12" list="kXptList" autocomplete="off" autocapitalize="characters" spellcheck="false">
           <datalist id="kXptList"></datalist></div>
         <button class="kiosk-save" data-k="save" disabled>Registrar</button>
@@ -1882,7 +1882,7 @@ window.Piso = (() => {
     const sync = () => {
       el.querySelectorAll('.kiosk-types button').forEach(b => b.classList.toggle('on', b.dataset.k === K.tipo));
       q('kSortBox').hidden = K.tipo !== 'sort' && K.tipo !== 'xpt';
-      q('kRotaLbl').textContent = K.tipo === 'xpt' ? '3. XPT do pacote' : '3. Gaiola certa do pacote';
+      q('kRotaLbl').textContent = K.tipo === 'xpt' ? '3. XPT do pacote' : '3. Gaiola onde o pacote estava';
       q('kRota').placeholder = K.tipo === 'xpt' ? 'XPT-SMD' : 'C-12';
       q('kXptList').innerHTML = K.tipo === 'xpt' ? xptOfDay(K.date).map(d => `<option value="${esc(d)}">`).join('') : '';
       el.querySelector('[data-k="save"]').disabled = !ready() || K.busy;
