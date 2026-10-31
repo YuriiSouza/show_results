@@ -282,6 +282,7 @@ window.Piso = (() => {
       return;
     }
     vacMap = vacated();
+    prevSt = prevStart();
     const saved = baseOn() ? B().mapaGet(st.date, st.turno) : null;
     const vers = sortedVers(st.map);
     m.innerHTML = ui.head('Mapa de piso', 'Quem está em cada função · por dia e turno') + tabs + `
@@ -307,6 +308,7 @@ window.Piso = (() => {
           ${st.mt ? '<button class="link" data-pz="mt-now">usar agora</button>' : `<span class="muted small">(agora · ${nowHm()})</span>`}` : ''}
         <span class="pz-sep"></span>
         <button class="btn-ghost" data-pz="intervalo" title="Sugere quem vai para o intervalo e cria a mudança">☕ Intervalo</button>
+        <button class="btn-ghost ${ls.prevOff ? '' : 'on'}" data-pz="prev" aria-pressed="${!ls.prevOff}" title="Mostra em cinza, em cada vaga vazia, quem estava nela no início do ${st.turno} ${prevSt ? (prevSt.label === 'ontem' ? 'de ontem' : `de ${prevSt.label}`) : 'anterior'}">📅 Início ${prevSt && prevSt.label !== 'ontem' ? `de ${prevSt.label}` : 'de ontem'}</button>
         <button class="btn-ghost" data-pz="rodizio" title="Coloca as pessoas em funções diferentes das que fizeram nos últimos ${HIST_DAYS} dias">🔄 Rodízio</button>
         ${st.undo ? '<button class="tool" data-pz="undo">Desfazer</button>' : ''}
       </div>
@@ -367,10 +369,25 @@ window.Piso = (() => {
     return out;
   }
   let vacMap = new Map();
+  // Início do último mapa salvo do mesmo turno (normalmente ontem): o nome de quem começou em cada vaga aparece em cinza
+  // (placeholder) na vaga vazia, para ajudar no revezamento.
+  let prevSt = null;
+  function prevStart() {
+    if (!baseOn()) return null;
+    const r = B().mapaList().filter(x => x.turno === st.turno && x.date < st.date).pop();
+    if (!r) return null;
+    const y = new Date(st.date + 'T12:00:00'); y.setDate(y.getDate() - 1);
+    // Primeiro nome de cada vaga no turno (sem intervalo/volta): a montagem pode ter sido salva aos poucos e virado trocas.
+    const slots = {};
+    sortedVers(r.map).filter(v => v.tipo !== 'intervalo' && v.tipo !== 'volta').forEach(v => Object.entries(v.slots || {}).forEach(([k, n]) => { if (n && !k.startsWith('int.') && !slots[k]) slots[k] = n; }));
+    return { date: r.date, label: r.date === y.toISOString().slice(0, 10) ? 'ontem' : brShort(r.date), slots };
+  }
   const slotInput = (key, ph = '') => {
     const v = cur().slots[key] || '';
     const vac = !v && vacMap.get(key);
+    const was = !ls.prevOff && prevSt && prevSt.slots[key];
     if (vac) ph = `☕ ${vac} (intervalo) · quem cobre?`;
+    else if (was && !isDw(was)) ph = `${ph ? `${ph} · ` : ''}${was} (${prevSt.label})`;
     return `<div class="pz-slot${vac ? ' vac' : ''}"><input list="pzPeople" data-slot="${key}" value="${esc(v)}" placeholder="${esc(ph)}" aria-label="${esc(ph || 'Vaga')}" autocomplete="off">
       <button class="pz-lock ${st.locks.has(key) ? 'on' : ''}" data-lock="${key}" title="${st.locks.has(key) ? 'Fixo no rodízio (clique para soltar)' : 'Fixar esta vaga no rodízio'}">${st.locks.has(key) ? '🔒' : '🔓'}</button></div>`;
   };
@@ -1236,6 +1253,7 @@ window.Piso = (() => {
     else if (a === 'text') copyText(mapText(), 'Mapa copiado');
     else if (a === 'side') { ls.sideOff = !ls.sideOff; lsSave(); const g = $('pzGrid'); if (g) g.classList.toggle('side-off', !!ls.sideOff); drawSide(); }
     else if (a === 'layout') openLayout();
+    else if (a === 'prev') { ls.prevOff = !ls.prevOff; lsSave(); drawMapa(); }
     else if (a === 'discard') {
       if (!(await uiConfirm('Descartar as alterações não salvas e voltar ao mapa salvo na planilha?', { ok: 'Descartar' }))) return;
       if (ls.drafts) { delete ls.drafts[`${st.date}|${st.turno}`]; lsSave(); }

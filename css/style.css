@@ -964,3 +964,4 @@ select.unk { border-color: var(--warn, #A15C00); }
 .pz-rotas-cfg label { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text-2); }
 .pz-rotas-cfg input[type="text"] { width: 70px; padding: 4px 8px; font-weight: 700; text-transform: uppercase; }
 .pz-rotas-cfg input[type="number"] { width: 64px; padding: 4px 6px; }
+.btn-ghost.on { border-color: var(--shopee); color: var(--shopee); background: var(--shopee-soft); }

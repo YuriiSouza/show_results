@@ -345,6 +345,8 @@ Meta **457** (`METAS.phd` em `js/config.js`):
     - O primeiro salvamento do mapa de hoje passa para **Troca de função**; mapa novo ou de outro dia começa em **Corrigir**.
     - **Linha do tempo do turno**: cada mudança com o que mudou ("Mesa 1 · Indução: ANA → BIA") e os movimentos do quadro;
       clicar abre a mudança em modo Corrigir (dá para mudar o horário ou excluir). **Desfazer** volta todas as mudanças.
+  - **📅 Início de ontem** (revezamento): cada vaga vazia mostra em cinza quem estava nela no início do mesmo turno no último
+    mapa salvo (normalmente ontem), ex.: "Recebe · ANA (ontem)". O botão liga/desliga (fica lembrado no aparelho).
   - **Rodízio** (últimos 10 dias): com o mapa vazio, preenche com quem trabalhou no turno nos últimos 10 dias, cada um
     numa função diferente das que fez; com o mapa preenchido, redistribui as mesmas pessoas. 🔒 fixa uma vaga; **Desfazer** volta.
   - Colocar numa vaga alguém que já está em outra função abre um aviso: **Retirar de lá**, **Manter nas duas** ou **Cancelar**.
