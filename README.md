@@ -126,6 +126,9 @@ Como o app usa os meses:
 - Ao abrir, o período padrão é o **mês atual** (ou o último intervalo escolhido).
 - **Report T3 e HSE** vêm da planilha do mês mais recente.
 - Meses fechados ficam guardados no aparelho: o **Atualizar** busca de novo só o mês atual e o anterior.
+- **Planilha-base:** ao entrar numa tela, o app só relê a planilha-base se a última leitura tiver mais de **3 minutos**
+  (o **Atualizar** do topo, a atualização automática e o salvamento do mapa sempre releem). As gravações pendentes são
+  enviadas **em lote** (uma chamada por aba).
   Se uma planilha antiga for corrigida, use **Recarregar todos os meses** na tela de conexão.
 - Se um mês falhar (ex.: sem permissão), os outros continuam aparecendo e o erro é mostrado ao lado do mês.
 
@@ -154,6 +157,8 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
   do dia (AM = T3; PM = T1 = PM1 + PM2):
   - **Conferência**: Status AM (T3), Status PM (T1) e **Status geral** no formato `conferidas/total - %`
     (conferida = AT com pacote escaneado; noshow não conta).
+  - **Missing T3 / T1** (fechamentos e geral) = soma da coluna **Missorted Orders** do Audit do dia: T3 = AM, T1 = PM1.
+  - **Expedição dos fechamentos**: a mesma lógica, só com o turno (T3 = AM, T1 = PM1): Rotas do turno, NoShow e Carregamento.
   - **Expedição**: **Rotas do dia** = ATs validadas do dia; **NoShow** = rotas noshow do dia; **Carregamento T1/T3** =
     tempo médio por AT do PM/AM (`mm:ss`); **Carregamento médio** = média dos dois. O campo D-0 saiu. Nos fechamentos, **Carregamento XPT · Planejados** já vem com **4** (editável). O **Macro Aging** é só o do T1 (o título fica só "Macro Aging").
 - No computador o report é ajustado para caber na tela. No celular ele vira uma **coluna única com rolagem**,
@@ -381,7 +386,7 @@ Meta **457** (`METAS.phd` em `js/config.js`):
   - Nomes sugeridos pela guia HSE do mês atual, mas gravados como texto (o histórico não depende do HSE).
   - Grava na guia **MapaPiso** da planilha-base (vale o salvamento mais recente do dia/turno); rascunho fica no aparelho.
 - **Erros de piso**: registro durante a operação, guia **ErrosPiso**.
-  - **Sorting** (gaiola errada): rota certa do pacote com o número (ex.: C-12) e horário → responsável = **quem auditava
+  - **Sorting** (pacote na gaiola errada): **gaiola onde o pacote estava** com o número (ex.: C-12) e horário → responsável = **quem auditava
     aquela rota** naquele horário (faixas de rotas da Auditoria). "Recalcular" refaz os erros antigos com essa regra.
   - **Etiquetagem**: quem recebeu (busca no SPX pelo BR — evento "Pedido chegou ao Last Mile Hub", só no PC — ou digitado)
     → responsável = quem está na vaga **Etiqueta** da bancada desse operador, no horário em que o pacote foi bipado.

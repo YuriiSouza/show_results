@@ -615,7 +615,7 @@ window.Parcel = (() => {
     const ops = new Set(hfOps(items).filter(v => st.hf.op.has(v)));   // valor salvo que não existe no período não filtra
     const list = items.filter(x => (!st.hf.status.size || st.hf.status.has(x.s)) && (!ops.size || ops.has(x.op))
       && (!q || [x.c, x.op, x.at, x.dn, x.di, x.cage, x.dest, x.dmg].join(' ').toLowerCase().includes(q)))
-      .sort((a, b) => b.date.localeCompare(a.date) || a.op.localeCompare(b.op, 'pt-BR') || a.c.localeCompare(b.c));
+      .sort((a, b) => String(b.date || '').localeCompare(a.date || '') || String(a.op || '').localeCompare(b.op || '', 'pt-BR') || String(a.c || '').localeCompare(b.c || ''));
     const c = $('pcHCount');
     if (c) c.textContent = `${list.length} de ${items.length} pacote(s)` + (list.length > MAX_ROWS ? ` · mostrando os primeiros ${MAX_ROWS}` : '');
     const dash = '<span class="muted">—</span>';

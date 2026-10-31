@@ -141,10 +141,13 @@ window.Base = (() => {
   }
   const APPLY = { RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
 
+  // Ao entrar numa tela, só relê a planilha-base se a última leitura tiver mais de PASSIVE_TTL (o Atualizar do topo, a
+  // atualização automática e o salvamento do mapa forçam a leitura). Cada leitura traz todas as abas da planilha-base.
+  const PASSIVE_TTL = 3 * 60e3;
   async function load(force = false) {
     await ready;
     if (!enabled()) return false;
-    if (!force && Date.now() - loadedAt < 20000) return true;
+    if (!force && Date.now() - loadedAt < PASSIVE_TTL) return true;
     if (loading) return loading;
     loading = (async () => {
       try {
@@ -189,11 +192,16 @@ window.Base = (() => {
       setStatus('sync', 'Enviando…');
       try {
         if (!ensured) { await api.baseEnsure(ID); ensured = true; }
-        // Relê a fila a cada envio: gravações feitas durante o envio também saem.
+        // Envia em lote: junta as gravações da fila por aba (uma chamada por aba, ~2 MB no máximo por vez). Relê a fila a
+        // cada lote: gravações feitas durante o envio também saem. Repetir uma linha é inofensivo (vale a última gravação).
         let pend;
         while ((pend = ls.get('basePending', [])).length) {
-          await api.baseAppend(ID, pend[0].tab, pend[0].rows);
-          ls.set('basePending', ls.get('basePending', []).slice(1));
+          let n = 0, size = 0;
+          while (n < pend.length && (n === 0 || size < 2e6)) { size += JSON.stringify(pend[n].rows).length; n++; }
+          const byTab = new Map();
+          pend.slice(0, n).forEach(op => byTab.set(op.tab, [...(byTab.get(op.tab) || []), ...op.rows]));
+          for (const [tab, rows] of byTab) await api.baseAppend(ID, tab, rows);
+          ls.set('basePending', ls.get('basePending', []).slice(n));
         }
         setStatus('ok', 'Salvo na planilha-base');
       } catch (err) {
