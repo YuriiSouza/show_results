@@ -31,6 +31,19 @@ window.Parcel = (() => {
   if (['req', 'rel', 'hist'].includes(saved.tab)) st.tab = saved.tab;
   if (saved.hf) { st.hf.q = String(saved.hf.q || ''); ['status', 'op'].forEach(k => { st.hf[k] = new Set(Array.isArray(saved.hf[k]) ? saved.hf[k] : []); }); }
   if (saved.rf) { st.rf.q = String(saved.rf.q || ''); RF_SETS.forEach(k => { st.rf[k] = new Set(Array.isArray(saved.rf[k]) ? saved.rf[k] : []); }); }
+  // Detalhe das ATs de dias que já passaram (não muda mais): fica no aparelho para não consultar o SPX de novo.
+  // Dia da AT = data no código (AT20260929…). Guarda no máx. 30 dias.
+  const AT_KEY = 'hub.parcel.ats';
+  const atDay = at => { const m = /^AT(\d{4})(\d{2})(\d{2})/.exec(at); return m ? `${m[1]}-${m[2]}-${m[3]}` : ''; };
+  const atStore = (() => { try { return JSON.parse(localStorage.getItem(AT_KEY)) || {}; } catch (e) { return {}; } })();
+  function atRemember(at, data) {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: TZ }), d = atDay(at);
+    if (!d || d >= today) return;
+    const old = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    Object.keys(atStore).forEach(k => { if (atDay(k) < old) delete atStore[k]; });
+    atStore[at] = data;
+    try { localStorage.setItem(AT_KEY, JSON.stringify(atStore)); } catch (e) { /* sem armazenamento: consulta de novo */ }
+  }
   function persist() {
     if (st.headers.length && !st.demo) {
       saved.search = st.search;
@@ -215,7 +228,7 @@ window.Parcel = (() => {
       <button class="tool" data-pc="import" ${run ? 'disabled' : ''}>Trocar arquivo</button>
       ${run ? `<div class="pc-progress">
           <div class="progress"><span style="width:${Math.round(100 * run.done / run.total)}%"></span></div>
-          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${Date.now() - run.lastAt > 7000 ? ' · <span class="pc-wait">SPX segurando as consultas, tentando de novo…</span>' : ''}</span>
+          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${run.spx && run.spx.pausedMs > 0 ? ` · <span class="pc-wait">SPX segurando as consultas (anti-robô) · retomando em ${Math.ceil(run.spx.pausedMs / 1000)} s</span>` : run.spx && run.refused0 != null && run.spx.refusals > run.refused0 ? ` · <span class="muted">SPX segurou ${run.spx.refusals - run.refused0} vez(es) · pausa de ${Math.round(run.spx.pauseMs / 1000)} s</span>` : ''}</span>
           <button class="tool danger" data-pc="cancel" ${run.cancel ? 'disabled' : ''}>${run.cancel ? 'Cancelando…' : 'Cancelar'}</button>
         </div>` : `<div class="au-bar-right pc-actions">
           <button class="btn-primary solid" data-pc="run" ${n && canTrack() ? '' : 'disabled'}
@@ -725,13 +738,14 @@ window.Parcel = (() => {
     const codes = targets();
     if (!codes.length) return;
     if (codes.length > 200 && !(await uiConfirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`, { ok: 'Consultar' }))) return;
-    const job = st.run = { total: codes.length, done: 0, cancel: false, auth: '', lastAt: Date.now() };
+    const job = st.run = { total: codes.length, done: 0, cancel: false, noSession: false, lastAt: Date.now(), spx: null, refused0: null };
     st.results = codes;
     const queue = codes.slice();
     const opts = { ...cfg() };
     // Detalhe de cada AT: uma consulta por AT, reaproveitada por todos os pedidos dela (cache da sessão).
     const atOf = at => {
-      if (!st.ats.has(at)) st.ats.set(at, Promise.resolve().then(() => api().parcelAt(at)).catch(() => ({ ok: false, error: 'Falha na consulta' })));
+      if (!st.ats.has(at)) st.ats.set(at, atStore[at] ? Promise.resolve({ ok: true, data: atStore[at] })
+        : Promise.resolve().then(() => api().parcelAt(at)).then(r => { if (r && r.ok) atRemember(at, r.data); return r; }).catch(() => ({ ok: false, error: 'Falha na consulta' })));
       return st.ats.get(at);
     };
     // Progresso redesenhado no máximo 4 vezes por segundo (lotes grandes não travam a tela).
@@ -751,12 +765,11 @@ window.Parcel = (() => {
               const info = C.extract(r.data, opts);
               const at = info.atBefore && api().parcelAt ? await atOf(info.atBefore.code) : null;
               if (at && !at.ok) st.ats.delete(info.atBefore.code);   // erro não fica em cache
-              if (at && at.auth) { job.cancel = true; job.auth = at.error; }
-              else st.out.set(code, { ok: true, raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
+              st.out.set(code, { ok: true, raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
                 row: C.rowOf(code, info, at && at.ok ? at.data : null, at && !at.ok ? at.error : '') });
             } catch (e) { st.out.set(code, { ok: false, error: 'Resposta do SPX em formato inesperado' }); }
-          } else if (r.auth) { job.cancel = true; job.auth = r.error; }   // sessão recusada: não adianta continuar
-          else st.out.set(code, { ok: false, error: r.error || 'Falha na consulta' });
+          } else if (r.noSession) { job.cancel = true; job.noSession = true; }
+          else st.out.set(code, { ok: false, error: r.error || 'Falha na consulta' });   // recusa do anti-robô: fica como erro, dá para consultar de novo
         }
         job.done++; job.lastAt = Date.now();
         tick();
@@ -765,12 +778,18 @@ window.Parcel = (() => {
     st.tab = 'req'; persist();
     if (ui.isActive()) draw();
     // Sem avanço por um tempo: o SPX está segurando as consultas e o app espera para tentar de novo (avisa na barra).
-    const watch = setInterval(() => { if (ui.isActive()) drawBar(); }, 3000);
+    // Situação do ritmo no SPX (pausa por recusa do anti-robô), mostrada na barra.
+    const spxStatus = async () => { try { job.spx = api().parcelStatus ? await api().parcelStatus() : null; } catch (e) { job.spx = null; } if (job.spx && job.refused0 == null) job.refused0 = job.spx.refusals; };
+    await spxStatus();
+    const watch = setInterval(async () => { await spxStatus(); if (ui.isActive()) drawBar(); }, 1000);
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, worker));
     clearInterval(watch);
     st.run = null;
-    if (job.auth) { st.session = false; window.SpxSession.clear(); ui.toast(job.auth, true); }
-    else ui.toast(job.cancel ? 'Consulta cancelada' : 'Consulta concluída');
+    await spxStatus();
+    const refused = job.spx && job.refused0 != null ? job.spx.refusals - job.refused0 : 0;
+    const errs = codes.filter(c => st.out.has(c) && !st.out.get(c).ok).length;
+    if (job.noSession) window.SpxSession.open(() => run());
+    else ui.toast(`${job.cancel ? 'Consulta cancelada' : 'Consulta concluída'}${refused ? ` · o SPX segurou as consultas ${refused} vez(es) (pausa aprendida: ${Math.round(job.spx.pauseMs / 1000)} s)` : ''}${errs ? ` · ${errs} com erro: clique em Consultar de novo para tentar só eles` : ''}`, !!errs);
     paint();
   }
 

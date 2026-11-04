@@ -3,8 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../js/parcel-core.js');
-const { parseCurl, track, atDetail, _setSession, _setTiming } = require('../electron/parcel.js');
-_setTiming({ authWaits: [0, 0, 0], gapMs: 0 });   // nos testes, sem esperar
+const { parseCurl, track, atDetail, status, _setSession, _setTiming } = require('../electron/parcel.js');
+_setTiming({ gapMs: 0, gapMax: 0, coolMs: 0, coolStep: 0, coolMax: 0 });   // nos testes, sem esperar
 const fixture = require('./fixtures/tracking-BR2698263380980.json');
 
 // Horário de Brasília -> segundos Unix.
@@ -114,13 +114,13 @@ test('detalhe da AT: gaiola e motorista vêm de corridor_cage / driver_id / driv
     ev('2026-10-01T05:57:13', 50, 'Pedido adicionado à Assignment Task [AT20261001AI3R8]', 'spx@shopee.com'),
     ev('2026-10-01T05:58:00', 2, 'Pedido em precesso de entrega. Motorista:[999] MOTORISTA DA ENTREGA; Contato: 0', '', {}),
   ] });
-  assert.equal(info.missing.operator, '[ops1]OPERADOR UM');
+  assert.equal(info.missing.operator, 'outro@shopee.com');   // vale o último missing
   assert.equal(info.atBefore.code, 'AT20260929AFOV4');
   assert.equal(info.atBefore.driver, null);
   const detail = { assignment_task_id: 'AT20260929AFOV4', driver_id: 613859, driver_name: 'MOTORISTA DA AT', corridor_cage: 'D-10' };
-  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'OPERADOR UM',
+  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'outro@shopee.com',
     missingTs: info.missing.ts, damage: '', damageOperator: '', noAt: false, xpt: '',
-    atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '' });
+    atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '2 missings no rastreio; usado o último (29/09 12:23)' });
   assert.match(Core.rowOf('X', info, { driver_id: 0, driver_name: '', corridor_cage: '' }).note, /AT sem gaiola; AT sem motorista atribuído/);
   assert.match(Core.rowOf('X', info, null, 'SPX respondeu HTTP 500').note, /Detalhe da AT indisponível: SPX respondeu HTTP 500/);
 });
@@ -173,7 +173,7 @@ test('parseCurl (cmd do Windows) e cookie em -H', () => {
   assert.deepEqual(parseCurl('texto qualquer'), {});
 });
 
-test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => {
+test('track: tenta de novo em 5xx, pausa nas recusas do anti-robô e valida o código', async () => {
   _setSession({ cookie: 'a=1' });
   const res = (status, body) => ({ status, ok: status >= 200 && status < 300, headers: { get: () => '0.01' }, json: async () => body });
   let calls = 0;
@@ -186,12 +186,18 @@ test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => 
   assert.equal(calls, 2);
   assert.deepEqual(ok, { ok: true, data: { tracking_list: [] } });
 
-  // 403: tenta de novo (3 esperas) antes de dar a sessão como expirada.
+  // 403 é o anti-robô: pausa e tenta de novo (6 vezes); esgotado, é erro do código — a sessão não é derrubada.
   let n403 = 0;
+  const r0 = status().refusals;
   const denied = await track('BR2698263380980', async () => { n403++; return res(403); });
-  assert.equal(n403, 4);
+  assert.equal(n403, 7);
   assert.equal(denied.ok, false);
-  assert.equal(denied.auth, true);
+  assert.equal(denied.blocked, true);
+  assert.equal(denied.auth, undefined);
+  assert.equal(status().refusals - r0, 7);
+  // 429 também é recusa.
+  let n429 = 0;
+  assert.equal((await track('BR2698263380980', async () => (++n429 < 2 ? res(429) : res(200, { retcode: 0, data: {} })))).ok, true);
   // Recusa passageira (403 e depois resposta normal): a consulta continua, sem pedir sessão nova.
   let nT = 0;
   const back = await track('BR2698263380980', async () => (++nT < 3 ? res(403) : res(200, { retcode: 0, data: { tracking_list: [1] } })));
@@ -210,8 +216,8 @@ test('track: tenta de novo em 5xx, para em 403 e valida o código', async () => 
   assert.deepEqual(at, { ok: true, data: { corridor_cage: 'D-10' } });
   assert.deepEqual(await atDetail('BR123', async () => { throw new Error('não deveria chamar'); }), { ok: false, error: 'AT inválida' });
   _setSession(null);
-  assert.equal((await track('BR2698263380980')).auth, true);
-  assert.equal((await atDetail('AT20260929AFOV4')).auth, true);
+  assert.equal((await track('BR2698263380980')).noSession, true);
+  assert.equal((await atDetail('AT20260929AFOV4')).noSession, true);
 });
 
 test('AT só vale a partir das 21:00 da véspera do missing (horário de Brasília)', () => {
@@ -531,4 +537,38 @@ test('audit: rota noshow = AT sem pacote escaneado (coluna E vazia ou 0)', () =>
   assert.equal(s.ats, 3);
   assert.equal(s.noshow, 2);
   assert.deepEqual(s.noshowList.map(x => x.corridor), ['A-2', 'A-3']);
+});
+
+test('ritmo: pausa aprendida (5 s; recusa de novo sobe 5 s; a que funcionou vale para as próximas)', async () => {
+  _setTiming({ gapMs: 1, gapMax: 1, coolMs: 30, coolStep: 30, coolMax: 1000 });
+  _setSession({ cookie: 'a=1' });
+  const res = (status, body) => ({ status, ok: status >= 200 && status < 300, headers: { get: () => null }, json: async () => body });
+  let n = 0;
+  let t0 = Date.now();
+  // Duas recusas seguidas: pausa 30 e depois 60; a resposta boa veio depois de 60 → pausa aprendida = 60.
+  assert.equal((await track('BR2698263380980', async () => (++n < 3 ? res(403) : res(200, { retcode: 0, data: {} })))).ok, true);
+  assert.ok(Date.now() - t0 >= 30 + 60 - 5);
+  assert.equal(status().pauseMs, 60);
+  // Próxima recusa já pausa 60 direto (e, dando certo, continua 60).
+  n = 0; t0 = Date.now();
+  assert.equal((await track('BR2698263380980', async () => (++n < 2 ? res(403) : res(200, { retcode: 0, data: {} })))).ok, true);
+  assert.ok(Date.now() - t0 >= 60 - 5);
+  assert.equal(status().pauseMs, 60);
+  _setSession(null);
+  _setTiming({ gapMs: 0, gapMax: 0, coolMs: 0, coolStep: 0, coolMax: 0 });
+});
+
+test('vários missings: vale o último (AT da véspera dele, operador de quem marcou por último)', () => {
+  const info = Core.extract({ tracking_list: [
+    ev('2026-10-31T21:27:16', 0, '-', 'System'),
+    ev('2026-11-01T02:46:59', 10, 'Pedido chegou ao Last Mile Hub para entrega', '[Ops301970]GUSTAVO'),
+    ev('2026-11-01T02:46:59', 0, 'Pedido em processamento na Assignment Task [AT20261101C2F1T]', 'Admin(Dynamic Routing)'),
+    ev('2026-11-01T06:37:36', 581, 'Order marked as missing', '[ops355223]Ellen Raquel'),
+    ev('2026-11-02T23:21:51', 0, 'Pedido em processamento na Assignment Task [AT20261103C4633]', 'Admin(Dynamic Routing)'),
+    ev('2026-11-03T06:49:57', 581, 'Order marked as missing', '[ops199314]MARIA FERNANDA'),
+    ev('2026-11-03T12:20:13', 581, 'Order marked as missing', 'pablo.silva@shopee.com'),
+  ] });
+  assert.equal(info.atBefore.code, 'AT20261103C4633');
+  assert.equal(info.missing.operator, 'pablo.silva@shopee.com');
+  assert.ok(info.notes.includes('3 missings no rastreio; usado o último (03/11 12:20)'));
 });
