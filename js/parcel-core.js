@@ -97,7 +97,8 @@ const ParcelCore = (() => {
 
   // Regras por código:
   // - chegada: 1º evento na estação do hub;
-  // - missing: 1º evento a partir da chegada com status 581 ou "marked as missing";
+  // - missing: ÚLTIMO evento a partir da chegada com status 581 ou "marked as missing" (o pacote pode ser marcado
+  //   missing, achado e marcado de novo em outro dia: vale o mais recente, com aviso nas observações);
   // - avaria: evento de "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" a partir das 21:00 da véspera do missing
   //   (mesma janela das ATs; sem missing, qualquer um conta). Sendo avaria, não se procura AT nem motorista;
   // - AT anterior: última AT desde as 21:00 da véspera do missing (horário do hub) e antes do missing.
@@ -121,7 +122,8 @@ const ParcelCore = (() => {
     if (!arrival) { info.notes.push(`Sem passagem pelo ${o.stationName}`); setDamage(0); return info; }
     info.arrival = { ts: arrival.ts, status: arrival.status, message: arrival.message };
 
-    const missing = ev.find(e => e.ts >= arrival.ts && (e.status === ST.missing || /marked as missing/i.test(e.message)));
+    const misses = ev.filter(e => e.ts >= arrival.ts && (e.status === ST.missing || /marked as missing/i.test(e.message)));
+    const missing = misses[misses.length - 1];
     if (!missing) { info.notes.push('Sem missing após a chegada'); setDamage(0); return info; }
     info.missing = { ts: missing.ts, status: missing.status, operator: missing.operator };
     const { dayStart, from } = windowOf(missing.ts);
@@ -147,6 +149,7 @@ const ParcelCore = (() => {
       return { code: at.code, ts: from, station: same[0].station, cage,
         driver: m ? { id: m[1], name: m[2].trim(), ts: d.ts } : null, transfers };
     };
+    const dmh = ts => { const d = new Date((ts + off) * 1000), p = n => String(n).padStart(2, '0'); return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`; };
     const fromTxt = `${String(o.atFromHour).padStart(2, '0')}:00 do dia anterior`;
     // Só conta AT feita no hub. AT de outra estação (ex.: XPT_GO_Crixás) indica que o pacote é daquele XPT, não do hub.
     const atHub = x => x.station === o.stationName || x.stationId === o.stationId;
@@ -154,6 +157,7 @@ const ParcelCore = (() => {
     const other = others.filter(x => x.ts >= missing.ts)[0] || others[others.length - 1];
     if (other) info.otherAt = { code: other.code, ts: other.ts, station: other.station };
     const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= from).pop();
+    if (misses.length > 1) info.notes.push(`${misses.length} missings no rastreio; usado o último (${dmh(missing.ts)})`);
     if (before) info.atBefore = describe(before);
     else {
       info.noAtToday = true;
