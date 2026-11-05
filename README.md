@@ -10,6 +10,18 @@ Menu lateral retrátil (☰ no topo ou **Recolher** no rodapé do menu) com as s
 **Visão geral · Recebimento · HC & PHD · Inventário · Reversa · Transporte · Audit de gestão · HSE · Report T3**,
 com filtro de período, dia de referência, metas (✓/⚠), botão **Tabela** em cada gráfico, **Modo TV** e tema claro/escuro.
 
+## Passo a passo guiado (tour)
+
+- O botão **?** no topo abre o passo a passo **da tela atual**: a tela escurece, uma parte fica destacada e um balão explica
+  o que ela faz (**Próximo / Voltar / Pular**; setas do teclado e **Esc** também funcionam).
+- Na **primeira vez** que o app abre no aparelho, aparece o passo a passo **geral** (menu, período, atualizar, Sessão SPX,
+  Modo TV, tema, conectar planilhas). Ele espera o login e as outras janelas fecharem. No último passo, **Ver esta tela** emenda
+  o passo a passo da tela aberta.
+- Telas com sub-abas têm um roteiro para cada uma: o **?** usa o da sub-aba aberta (Dashboard do Mapa de piso e do
+  Recebimento por hora, Análise do período dos Erros de piso, Rastreio e Histórico do Parcel).
+- Os roteiros ficam em `STEPS` em `js/tour.js` (um por tela, `tela:sub-aba` para as sub-abas; os 4 reports de turno compartilham o mesmo). Cada passo aponta
+  um seletor CSS (ou o título de um card); passo cujo elemento não está na tela (ex.: Audit sem relatório importado) é pulado.
+
 ## Audit de gestão (relatórios LMHub)
 
 > **Nomes das colunas do relatório** (o **?** ao lado do número explica):

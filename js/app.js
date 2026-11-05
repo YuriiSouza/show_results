@@ -792,6 +792,7 @@
 
   function selectTab(id) {
     if (state.tab === 'mapa' && id !== 'mapa' && window.Piso && window.Piso.leave) window.Piso.leave();
+    if (window.Tour) window.Tour.stop(true);
     state.tab = id; LS.set('tab', id);
     document.body.classList.remove('nav-open');
     renderAll();
@@ -824,6 +825,10 @@
     document.title = `Dashboard ${C.HUB_NAME}`;
 
     $('btnRefresh').addEventListener('click', () => refresh());
+    $('btnTour').addEventListener('click', () => {
+      document.body.classList.remove('nav-open');
+      if (!window.Tour.start(state.tab)) window.Tour.start('geral');
+    });
     $('btnTheme').addEventListener('click', () => {
       const next = isDark() ? 'light' : 'dark';
       document.documentElement.dataset.theme = next; LS.set('theme', next);
@@ -1099,6 +1104,6 @@
   $('appVersion').textContent = window.APP_VERSION || '—';
   window.Updater.start();
   setAuto();
-  refresh({ silent: true });
+  refresh({ silent: true }).then(() => window.Tour.autoStart());
   loginGate();
 })();
