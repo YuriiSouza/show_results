@@ -984,3 +984,5 @@ select.unk { border-color: var(--warn, #A15C00); }
 .tour-skip { font-size: 13px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .tour-spot, .tour-pop { transition: none; } }
 body.tv #btnTour { display: none; }
+.icon-btn.tour-btn { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 0 12px 0 9px; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.icon-btn.tour-btn svg { width: 18px; height: 18px; flex: none; }
