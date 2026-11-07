@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../js/parcel-core.js');
 const { parseCurl, track, atDetail, status, _setSession, _setTiming } = require('../electron/parcel.js');
-_setTiming({ gapMs: 0, gapMax: 0, coolMs: 0, coolStep: 0, coolMax: 0 });   // nos testes, sem esperar
+_setTiming({ gapMs: 0, coolMs: 0 });   // nos testes, sem esperar
 const fixture = require('./fixtures/tracking-BR2698263380980.json');
 
 // Horário de Brasília -> segundos Unix.
@@ -539,23 +539,21 @@ test('audit: rota noshow = AT sem pacote escaneado (coluna E vazia ou 0)', () =>
   assert.deepEqual(s.noshowList.map(x => x.corridor), ['A-2', 'A-3']);
 });
 
-test('ritmo: pausa aprendida (5 s; recusa de novo sobe 5 s; a que funcionou vale para as próximas)', async () => {
-  _setTiming({ gapMs: 1, gapMax: 1, coolMs: 30, coolStep: 30, coolMax: 1000 });
+test('ritmo: 2 s fixos entre chamadas e pausa de 5 s em cada recusa (escala reduzida no teste)', async () => {
+  _setTiming({ gapMs: 20, coolMs: 50 });
   _setSession({ cookie: 'a=1' });
   const res = (status, body) => ({ status, ok: status >= 200 && status < 300, headers: { get: () => null }, json: async () => body });
+  const at = [];
   let n = 0;
-  let t0 = Date.now();
-  // Duas recusas seguidas: pausa 30 e depois 60; a resposta boa veio depois de 60 → pausa aprendida = 60.
-  assert.equal((await track('BR2698263380980', async () => (++n < 3 ? res(403) : res(200, { retcode: 0, data: {} })))).ok, true);
-  assert.ok(Date.now() - t0 >= 30 + 60 - 5);
-  assert.equal(status().pauseMs, 60);
-  // Próxima recusa já pausa 60 direto (e, dando certo, continua 60).
-  n = 0; t0 = Date.now();
-  assert.equal((await track('BR2698263380980', async () => (++n < 2 ? res(403) : res(200, { retcode: 0, data: {} })))).ok, true);
-  assert.ok(Date.now() - t0 >= 60 - 5);
-  assert.equal(status().pauseMs, 60);
+  assert.equal((await track('BR2698263380980', async () => { at.push(Date.now()); return ++n < 3 ? res(403) : res(200, { retcode: 0, data: {} }); })).ok, true);
+  assert.ok(at[1] - at[0] >= 45 && at[2] - at[1] >= 45, 'pausa de 50 em cada recusa');
+  const t = [];
+  await track('BR2698263380980', async () => { t.push(Date.now()); return res(200, { retcode: 0, data: {} }); });
+  await track('BR2698263380980', async () => { t.push(Date.now()); return res(200, { retcode: 0, data: {} }); });
+  assert.ok(t[1] - t[0] >= 15, 'intervalo fixo entre chamadas');
+  assert.equal(status().pauseMs, 50);
   _setSession(null);
-  _setTiming({ gapMs: 0, gapMax: 0, coolMs: 0, coolStep: 0, coolMax: 0 });
+  _setTiming({ gapMs: 0, coolMs: 0 });
 });
 
 test('vários missings: vale o último (AT da véspera dele, operador de quem marcou por último)', () => {

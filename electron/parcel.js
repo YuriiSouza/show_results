@@ -44,38 +44,24 @@ function parseCurl(text) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const BLOCK_MSG = 'O SPX está limitando as consultas (anti-robô). Consulte este código de novo daqui a pouco.';
 
-// Ritmo das chamadas ao SPX (todas passam por aqui, mesmo em paralelo). Recusa (401/403, redirecionamento, resposta que
-// não é JSON, retcode de login/permissão, 429) é sempre o anti-robô segurando requisições demais — a sessão continua
-// valendo. A cada recusa TODAS as consultas pausam. A pausa é aprendida: começa em 5 s; recusa logo depois da pausa
-// = foi pouco, sobe 5 s (10 s, 15 s… até 60 s); a pausa depois da qual o SPX voltou a responder vira a pausa das
-// próximas recusas (vale enquanto o app estiver aberto). O intervalo entre chamadas também dobra na recusa e volta a
-// encurtar aos poucos a cada resposta boa.
-const timing = { gapMs: 400, gapMax: 4000, coolMs: 5000, coolStep: 5000, coolMax: 60000, refusedTries: 6 };
-const gate = { gap: timing.gapMs, until: 0, streak: 0, refusals: 0, pause: timing.coolMs, last: 0 };
+// Ritmo das chamadas ao SPX (todas passam por aqui, mesmo em paralelo): intervalo fixo de 2 s entre uma chamada e a
+// outra (o SPX aceita umas 7 seguidas e depois começa a recusar). Recusa (401/403, redirecionamento, resposta que não é
+// JSON, retcode de login/permissão, 429) é sempre o anti-robô — a sessão continua valendo: TODAS as consultas pausam 5 s
+// e a mesma chamada é tentada de novo.
+const timing = { gapMs: 2000, coolMs: 5000, refusedTries: 6 };
+const gate = { until: 0, refusals: 0 };
 let gapChain = Promise.resolve(), lastAt = 0;
 function pace() {
   const p = gapChain.then(async () => {
-    for (;;) { const w = Math.max(lastAt + gate.gap, gate.until) - Date.now(); if (w <= 0) break; await sleep(w); }
+    for (;;) { const w = Math.max(lastAt + timing.gapMs, gate.until) - Date.now(); if (w <= 0) break; await sleep(w); }
     lastAt = Date.now();
   });
   gapChain = p.catch(() => {});
   return p;
 }
-function refusedNow() {
-  gate.refusals++;
-  gate.gap = Math.min(timing.gapMax, Math.max(timing.gapMs, gate.gap * 2));
-  // 1ª recusa depois de uma resposta boa: pausa aprendida. Recusa de novo logo após a pausa: a pausa foi pouca.
-  gate.last = gate.streak ? Math.min(timing.coolMax, gate.last + timing.coolStep) : gate.pause;
-  gate.streak++;
-  gate.until = Math.max(gate.until, Date.now() + gate.last);
-}
-function okNow() {
-  if (gate.streak) gate.pause = gate.last;   // essa pausa bastou: as próximas recusas já pausam esse tempo
-  gate.streak = 0;
-  gate.gap = Math.max(timing.gapMs, Math.round(gate.gap * 0.85));
-}
+function refusedNow() { gate.refusals++; gate.until = Math.max(gate.until, Date.now() + timing.coolMs); }
 // Situação do ritmo, para a tela mostrar quando o SPX está segurando.
-const status = () => ({ pausedMs: Math.max(0, gate.until - Date.now()), pauseMs: gate.pause, gapMs: gate.gap, refusals: gate.refusals });
+const status = () => ({ pausedMs: Math.max(0, gate.until - Date.now()), pauseMs: timing.coolMs, gapMs: timing.gapMs, refusals: gate.refusals });
 
 // Uma chamada ao SPX (GET, ou POST com JSON quando há body). Tenta de novo (com espera crescente) em 5xx, tempo
 // esgotado e falha de rede; recusa do anti-robô pausa o ritmo e tenta de novo (até refusedTries vezes).
@@ -107,10 +93,9 @@ async function request(url, fetchImpl, payload) {
     if (!body || typeof body !== 'object') { const r = block(); if (r) return r; continue; }
     if (body.retcode != null && body.retcode !== 0) {
       const msg = String(body.message || body.msg || '').slice(0, 120);
-      if (!/login|auth|token|session|permission/i.test(msg)) { okNow(); return { ok: false, error: `SPX: ${msg || 'erro'} (retcode ${body.retcode})` }; }
+      if (!/login|auth|token|session|permission/i.test(msg)) { return { ok: false, error: `SPX: ${msg || 'erro'} (retcode ${body.retcode})` }; }
       const r = block(); if (r) return r; continue;
     }
-    okNow();
     return { ok: true, data: body.data || body };
   }
   return { ok: false, error: `${last} — ${tries} tentativas` };
@@ -161,4 +146,4 @@ function register(ipcMain) {
   ipcMain.handle('spx:wfm', () => wfm());
 }
 
-module.exports = { register, parseCurl, track, atDetail, wfm, status, _setTiming: t => { Object.assign(timing, t); Object.assign(gate, { gap: timing.gapMs, until: 0, streak: 0, pause: timing.coolMs, last: 0 }); }, ALLOWED, _setSession: h => { session = h; } };
+module.exports = { register, parseCurl, track, atDetail, wfm, status, _setTiming: t => { Object.assign(timing, t); gate.until = 0; }, ALLOWED, _setSession: h => { session = h; } };
