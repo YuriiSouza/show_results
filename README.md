@@ -63,15 +63,12 @@ ficam salvos no aparelho, para continuarem lá quando você voltar à tela.
    O contador mostra "X de Y linhas". Marque linhas específicas ou deixe sem seleção para usar todas as filtradas.
 3. **Consultar rastreio** (só no app desktop). Na primeira vez o app pede a **Sessão SPX**: no navegador, com o SPX logado,
    F12 → Rede → Fetch/XHR → requisição `tracking_info` → *Copiar como cURL* → colar no app.
-   A consulta roda com no máximo 2 códigos ao mesmo tempo, com um intervalo entre as chamadas que se ajusta sozinho. Recusa do
-   SPX (401/403/429, redirecionamento, resposta que não é JSON) é o anti-robô, não sessão expirada: **todas** as consultas pausam.
-   A pausa é aprendida: começa em 5 s; se o SPX recusar de novo logo depois, sobe 5 s (10 s, 15 s… até 60 s); a pausa depois da
-   qual o SPX voltou a responder vale para as próximas recusas (enquanto o app estiver aberto). O intervalo entre chamadas
-   também dobra na recusa e volta a encurtar a cada resposta boa. A barra mostra "SPX segurando as
-   consultas · retomando em X s" e o aviso final diz quantas vezes o SPX segurou. O app nunca pede o cURL de novo por recusa:
-   depois de 6 recusas seguidas o código fica com erro e **Consultar** de novo tenta só os que faltam. Limite de 15 s por
-   tentativa, pode ser cancelada. Código já consultado não é consultado de novo na mesma sessão, e o detalhe de AT de dia que
-   já passou fica guardado no aparelho (30 dias).
+   As chamadas ao SPX têm um intervalo fixo de **2 s** entre uma e outra. Recusa do SPX (401/403/429, redirecionamento,
+   resposta que não é JSON) é o anti-robô, não sessão expirada: **todas** as consultas pausam **5 s** e a chamada é repetida.
+   A barra mostra "SPX segurando as consultas · retomando em X s" e o aviso final diz quantas vezes o SPX segurou. O app
+   nunca pede o cURL de novo por recusa: depois de 6 recusas seguidas o código fica com erro e **Consultar** de novo tenta
+   só os que faltam. Limite de 15 s por tentativa, pode ser cancelada. Código já consultado não é consultado de novo na
+   mesma sessão, e o detalhe de AT de dia que já passou fica guardado no aparelho (30 dias).
 4. **Resultado** (exportável em CSV): operador do missing, AT anterior ao missing, gaiola, ID e nome do motorista e observações.
 
 São duas requisições ao SPX, as mesmas que o site faz:

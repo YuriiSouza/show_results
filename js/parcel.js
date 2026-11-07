@@ -10,7 +10,7 @@ window.Parcel = (() => {
   const canTrack = () => !!(api() && api().parcelTrack);
   const MAX_ROWS = 300;       // linhas desenhadas na tabela (o filtro e a consulta valem para todas)
   const MAX_DISTINCT = 300;   // colunas com mais valores distintos que isso não ganham filtro
-  const CONCURRENCY = 2;     // consultas ao mesmo tempo (o SPX recusa quando são muitas seguidas)
+  const CONCURRENCY = 2;     // consultas em andamento ao mesmo tempo (o ritmo de 2 s entre chamadas é do processo principal)
   const TZ = 'America/Sao_Paulo';
 
   const st = { file: '', demo: false, headers: [], rows: [], codeCol: 0, distinct: [], hidden: new Set(), filters: {}, search: '', view: [],
@@ -228,7 +228,7 @@ window.Parcel = (() => {
       <button class="tool" data-pc="import" ${run ? 'disabled' : ''}>Trocar arquivo</button>
       ${run ? `<div class="pc-progress">
           <div class="progress"><span style="width:${Math.round(100 * run.done / run.total)}%"></span></div>
-          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${run.spx && run.spx.pausedMs > 0 ? ` · <span class="pc-wait">SPX segurando as consultas (anti-robô) · retomando em ${Math.ceil(run.spx.pausedMs / 1000)} s</span>` : run.spx && run.refused0 != null && run.spx.refusals > run.refused0 ? ` · <span class="muted">SPX segurou ${run.spx.refusals - run.refused0} vez(es) · pausa de ${Math.round(run.spx.pauseMs / 1000)} s</span>` : ''}</span>
+          <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${run.spx && run.spx.pausedMs > 0 ? ` · <span class="pc-wait">SPX segurando as consultas (anti-robô) · retomando em ${Math.ceil(run.spx.pausedMs / 1000)} s</span>` : run.spx && run.refused0 != null && run.spx.refusals > run.refused0 ? ` · <span class="muted">SPX segurou ${run.spx.refusals - run.refused0} vez(es)</span>` : ''}</span>
           <button class="tool danger" data-pc="cancel" ${run.cancel ? 'disabled' : ''}>${run.cancel ? 'Cancelando…' : 'Cancelar'}</button>
         </div>` : `<div class="au-bar-right pc-actions">
           <button class="btn-primary solid" data-pc="run" ${n && canTrack() ? '' : 'disabled'}
@@ -789,7 +789,7 @@ window.Parcel = (() => {
     const refused = job.spx && job.refused0 != null ? job.spx.refusals - job.refused0 : 0;
     const errs = codes.filter(c => st.out.has(c) && !st.out.get(c).ok).length;
     if (job.noSession) window.SpxSession.open(() => run());
-    else ui.toast(`${job.cancel ? 'Consulta cancelada' : 'Consulta concluída'}${refused ? ` · o SPX segurou as consultas ${refused} vez(es) (pausa aprendida: ${Math.round(job.spx.pauseMs / 1000)} s)` : ''}${errs ? ` · ${errs} com erro: clique em Consultar de novo para tentar só eles` : ''}`, !!errs);
+    else ui.toast(`${job.cancel ? 'Consulta cancelada' : 'Consulta concluída'}${refused ? ` · o SPX segurou as consultas ${refused} vez(es)` : ''}${errs ? ` · ${errs} com erro: clique em Consultar de novo para tentar só eles` : ''}`, !!errs);
     paint();
   }
 
