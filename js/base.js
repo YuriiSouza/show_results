@@ -23,6 +23,7 @@ window.Base = (() => {
   let erros = new Map();   // id -> { id, date, turno, tipo, code, rota, time, resp, status, user, at, detail }
   let recebs = new Map();  // "iso|turno" -> { date, turno, status, user, at, inicio, meta, res }
   let parcels = new Map(); // "iso" -> { date, status, user, at, items: [{ c, s, op, mt, at, cage, dn, di, dest, dmg }] }
+  let avarias = new Map(); // id -> { id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat, acao, evid, status, user, at, detail }
   let loadedAt = 0;
   let loading = null;
   let ensured = false;
@@ -139,7 +140,19 @@ window.Base = (() => {
     try { const js = c.slice(RH_JSON_AT).join(''); res = js ? JSON.parse(js) : null; } catch (e) { return; }
     recebs.set(key, { date, turno, status: st, user: who, at, inicio, meta: meta === '' ? null : Number(meta), res });
   }
-  const APPLY = { RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
+  // Avarias: ID, Data, BR, Origem, Tipo, Setor, Observação, Responsável, Recebido em, Tratativa, Ação tomada, Evidência,
+  // Status, Usuário, Gravado em, Aparelho, Detalhe (JSON).
+  function applyAvariaRow(r) {
+    const c = r.map(x => (x == null ? '' : String(x)));
+    const [id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat, acao, evid, st, who, at, , json] = c;
+    if (!id || !date) return;
+    const cur = avarias.get(id);
+    if (cur && at < cur.at) return;
+    let detail = {};
+    try { detail = json ? JSON.parse(json) : {}; } catch (e) { detail = {}; }
+    avarias.set(id, { id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat: trat || 'Aberto', acao, evid, status: st, user: who, at, detail });
+  }
+  const APPLY = { Avarias: applyAvariaRow, RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
 
   // Ao entrar numa tela, só relê a planilha-base se a última leitura tiver mais de PASSIVE_TTL (o Atualizar do topo, a
   // atualização automática e o salvamento do mapa forçam a leitura). Cada leitura traz todas as abas da planilha-base.
@@ -156,12 +169,14 @@ window.Base = (() => {
         await flush();
         const data = await api.baseRead(ID);
         reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapaHist.clear(); mapas = new Map(); erros = new Map();
+        avarias = new Map();
         data.reports.forEach(applyReportRow);
         data.audit.forEach(applyAuditRow);
         (data.parcel || []).forEach(applyParcelRow);
         (data.mapa || []).forEach(r => { applyMapaRow(r); histMapaRow(r); });
         (data.erros || []).forEach(applyErroRow);
         (data.receb || []).forEach(applyRecebRow);
+        (data.avarias || []).forEach(applyAvariaRow);
         // O que ainda está na fila (não enviado) vale por cima do que veio da planilha.
         ls.get('basePending', []).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
         loadedAt = Date.now();
@@ -358,6 +373,25 @@ window.Base = (() => {
     return recebs.get(`${iso}|${turno}`);
   }
 
+  // ---------- Avarias ----------
+  const avariaList = () => [...avarias.values()].filter(a => a.status !== 'excluido').sort((a, b) => (a.date + a.at).localeCompare(b.date + b.at));
+  const avariaRow = (a, st, who, at) => [a.id, a.date, a.br || '', a.origem || '', a.tipo || '', a.setor || '', a.obs || '', a.resp || '', a.recebidoEm || '',
+    a.trat || 'Aberto', a.acao || '', a.evid || '', st, who, at, device(), JSON.stringify(a.detail || {})];
+  async function avariaSave(a) {
+    const id = a.id || `AV_${a.date}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    const row = avariaRow({ ...a, id }, 'ativo', await ensureUser(), nowIso());
+    applyAvariaRow(row);
+    queue('Avarias', [row]);
+    return avarias.get(id);
+  }
+  async function avariaDelete(id) {
+    const cur = avarias.get(id);
+    if (!cur) return;
+    const row = avariaRow(cur, 'excluido', await ensureUser(), nowIso());
+    applyAvariaRow(row);
+    queue('Avarias', [row]);
+  }
+
   // ---------- Migração única dos dados que estavam só neste aparelho ----------
   async function migrateOnce() {
     if (ls.get('baseMigrated', false) || !api) return;
@@ -390,6 +424,7 @@ window.Base = (() => {
     parcelList, parcelGet, parcelSave, parcelDelete,
     recebList, recebGet, recebSave,
     mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
+    avariaList, avariaSave, avariaDelete,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();

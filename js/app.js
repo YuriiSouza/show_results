@@ -26,6 +26,7 @@
     transporte: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/>',
     audit: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
     parcel: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+    avarias: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M12 8v4M12 15.5v.5"/>',
     hse: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
     mapa: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M15 9v12"/>',
     rechora: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M3 20l4-4"/>',
@@ -44,6 +45,7 @@
     { id: 'transporte', group: 'Operação', label: 'Transporte', daily: true, render: renderTransporte },
     { id: 'audit', group: 'Qualidade', label: 'Audit de gestão', daily: true, render: () => window.Audit.render(uiCtx) },
     { id: 'parcel', group: 'Qualidade', label: 'Parcel', daily: true, render: () => window.Parcel.render(pcCtx) },
+    { id: 'avarias', group: 'Qualidade', label: 'Avarias', daily: true, render: () => window.Avarias.render(avCtx) },
     { id: 'mapa', group: 'Piso', label: 'Mapa de piso', daily: true, render: () => window.Piso.renderMapa(pisoCtx) },
     { id: 'rechora', group: 'Piso', label: 'Recebimento por hora', daily: true, render: () => window.Receb.render(rhCtx) },
     { id: 'erros', group: 'Piso', label: 'Erros de piso', daily: true, render: () => window.Piso.renderErros(pisoCtx) },
@@ -357,6 +359,9 @@
 
   const pcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'parcel', range: () => uiCtx.range() };
 
+  // Contexto da tela Avarias (js/avarias.js).
+  const avCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'avarias', range: () => uiCtx.range() };
+
   function renderAll() {
     if (!state.model) return;
     if (!TABS.some(t => t.id === state.tab)) state.tab = 'overview';
@@ -370,7 +375,7 @@
     tab.render();
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);

@@ -52,6 +52,25 @@ O que a aba mostra:
   ranking de operadores; lista de ATs com busca.
 - **Relatórios importados**: lista para abrir ou excluir cada relatório.
 
+## Avarias (grupo Qualidade)
+
+Registro das avarias de pacotes, com três sub-abas no topo. Tudo fica na planilha-base (guia **Avarias**;
+vale a gravação mais recente de cada ID, e excluir só marca a linha como excluída).
+- **Registrar avaria**: data da ocorrência (hoje, pode ser alterada), BR por leitor ou digitação (Enter busca), **origem**
+  (Hub, XPT, SOC), **tipo** (Líquida, Cortante, Outra), **setor** onde foi identificada e observação opcional.
+  - **Responsável = quem recebeu o pacote pela primeira vez no hub**: no rastreio do SPX, do mais antigo para o mais novo,
+    o 1º evento na estação do hub (`LM Hub_GO_Anápolis`) e, a partir dele, o 1º **LMHub_Recebido** ("Pedido chegou ao Last
+    Mile Hub") no hub; o operador desse evento (`ParcelCore.firstReceipt`).
+  - **Nunca passou pelo hub** (avaria identificada antes de receber): a avaria é salva e o responsável é **quem nos enviou**,
+    a última estação do rastreio (SOC/XPT), marcada como "enviou avariado". BR sem nenhum evento no rastreio não é salva.
+    BR já registrada no mesmo dia pede confirmação.
+  - No celular, ou sem Sessão SPX, a avaria é salva com responsável **pendente**; **Buscar responsáveis** completa no PC.
+- **Histórico**: período do filtro do topo, busca por BR/colaborador, filtros por origem, tipo, setor e tratativa, ordem por
+  data, paginação (50 por página) e **Exportar CSV**. **Detalhes** abre a tratativa (Aberto, Em análise, Concluído), a ação
+  tomada e a evidência, com o histórico de mudanças.
+- **Dashboard**: total, tratativas em aberto, Hub/XPT/SOC, líquidas, cortantes, % concluídas; evolução diária e mensal, por
+  origem, por setor, por tipo, responsáveis com mais avarias e tratativas. Filtros de origem, tipo, setor e colaborador.
+
 ## Parcel (relatório de contagem + rastreio no SPX)
 
 Aba **Parcel** (grupo Qualidade), com duas sub-abas: **Relatório de contagem** (o arquivo importado) e **Rastreio (requisição)**
@@ -77,7 +96,7 @@ São duas requisições ao SPX, as mesmas que o site faz:
   (`corridor_cage`) e o **motorista** (`driver_id` / `driver_name`). É uma consulta por AT, reaproveitada por todos os pedidos dela.
 
 Regras (em `js/parcel-core.js`, testadas em `test/parcel.test.js` — `npm test`):
-missing = **último** evento a partir da chegada ao hub com status 581 ou "marked as missing" (com vários, a observação avisa); AT anterior = última AT antes do missing
+missing = **último** evento a partir da chegada ao hub com status 581 ou "marked as missing" (com vários, a observação avisa); AT anterior = **primeira** AT do hub entre as 21:00 da véspera e o último missing
 (evento com status 49/50 ou o texto "em processamento na / adicionado à Assignment Task [AT…]"). ATs depois do missing não entram.
 Se o detalhe da AT falhar, o motorista é o do evento seguinte de status 2 no rastreio (por proximidade de horário), com aviso.
 O botão **Copiar JSON** de cada linha copia as duas respostas daquele código (sem cookies).

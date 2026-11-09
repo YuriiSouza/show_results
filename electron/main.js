@@ -120,6 +120,8 @@ const BASE_TABS = {
   ErrosPiso: ['ID', 'Data', 'Turno', 'Tipo', 'Código', 'Rota / letra', 'Horário', 'Responsáveis', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Detalhe (JSON)', 'Categoria', 'Operador SPX (recebedor)', 'Etiquetador', 'Observação'],
   // Recebimento por hora (painel de produtividade do SPX) e a meta do turno. Vale o salvamento mais recente do dia/turno.
   RecebimentoHora: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Início', 'A receber', 'Recebido', 'Ritmo (pac/h)', 'Previsão de término', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)'],
+  // Avarias: cada ocorrência (BR, origem, tipo, setor, quem recebeu no hub) e a tratativa. Vale a linha mais recente de cada ID.
+  Avarias: ['ID', 'Data', 'BR', 'Origem', 'Tipo', 'Setor', 'Observação', 'Responsável (recebeu no hub)', 'Recebido em', 'Tratativa', 'Ação tomada', 'Evidência', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Detalhe (JSON)'],
 };
 const baseId = id => { if (!/^[a-zA-Z0-9-_]{20,}$/.test(String(id || ''))) throw new Error('Link da planilha-base inválido.'); return id; };
 const q = tab => encodeURIComponent(`'${tab}'`);
@@ -161,10 +163,10 @@ ipcMain.handle('base:ensure', async (_e, id) => {
 ipcMain.handle('base:read', async (_e, id) => {
   const token = await baseToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${baseId(id)}`;
-  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&valueRenderOption=UNFORMATTED_VALUE`, token);
-  const [rep, aud, par, mapa, err, rh] = data.valueRanges || [];
+  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&valueRenderOption=UNFORMATTED_VALUE`, token);
+  const [rep, aud, par, mapa, err, rh, av] = data.valueRanges || [];
   return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [],
-    mapa: (mapa && mapa.values) || [], erros: (err && err.values) || [], receb: (rh && rh.values) || [] };
+    mapa: (mapa && mapa.values) || [], erros: (err && err.values) || [], receb: (rh && rh.values) || [], avarias: (av && av.values) || [] };
 });
 
 // Acrescenta linhas ao fim de uma guia.
