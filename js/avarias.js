@@ -1,6 +1,6 @@
 // Avarias (grupo Qualidade): registro das avarias de pacotes, histórico com tratativa e dashboard.
-// - Registrar: bipa/digita a BR; o responsável é quem RECEBEU o pacote pela primeira vez no hub (rastreio do SPX,
-//   ParcelCore.firstReceipt). O usuário informa origem, tipo, setor e observação.
+// - Registrar: bipa/digita a BR. Só com origem Hub o responsável é consultado: quem RECEBEU o pacote pela primeira vez no hub (rastreio do SPX,
+//   ParcelCore.firstReceipt). XPT/SOC: sem consulta, sem responsável. O usuário informa origem, tipo, setor e observação.
 // - Pacote que nunca passou pelo hub (avaria vista antes de receber): o responsável é quem nos enviou — a última estação
 //   do rastreio (SOC/XPT). A avaria é salva normalmente.
 // - Sem SPX (celular, ou sem Sessão SPX) a avaria é salva com o responsável pendente; "Buscar responsáveis" completa no PC.
@@ -44,11 +44,14 @@ window.Avarias = (() => {
   const opts = (list, cur, all = '') => (all ? `<option value="">${all}</option>` : '') + list.map(v => `<option ${cur === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const list = () => (baseOn() ? B().avariaList() : []);
   const inRange = () => { const rg = ui.range(); return list().filter(a => a.date >= rg.from && a.date <= rg.to); };
-  const pendente = a => !a.resp && ['pendente', 'erro', ''].includes((a.detail || {}).lookup || '');
+  // O responsável só é consultado quando a origem da avaria é o Hub (XPT e SOC não têm responsável no hub).
+  const isHub = o => o === 'Hub';
+  const pendente = a => isHub(a.origem) && !a.resp && ['pendente', 'erro', ''].includes((a.detail || {}).lookup || '');
   const respTxt = a => {
     const d = a.detail || {};
     if (a.resp && d.lookup === 'naohub') return `${esc(a.resp)} <span class="pill warn">enviou avariado</span>`;
     if (a.resp) return `${esc(a.resp)}${d.system ? ' <span class="muted small">(conta de sistema)</span>' : ''}`;
+    if (!isHub(a.origem)) return `<span class="muted small">— (origem ${esc(a.origem)})</span>`;
     if (d.lookup === 'semrastreio') return '<span class="pill bad">sem rastreio</span>';
     if (d.lookup === 'semreceb') return '<span class="pill warn">sem recebimento no hub</span>';
     return '<span class="pill warn">pendente</span>';
@@ -80,14 +83,12 @@ window.Avarias = (() => {
 
   async function runLookup() {
     const br = normBr(st.form.br);
-    if (!br) return;
+    if (!br || !isHub(st.form.origem)) { if (ui.isActive()) drawReg(); return; }
     st.look = { br, state: 'busy' };
     drawReg();
     const lk = await lookup(br);
-    if (normBr(st.form.br) !== br) return;   // o código mudou durante a busca
+    if (normBr(st.form.br) !== br || !isHub(st.form.origem)) return;   // o código ou a origem mudou durante a busca
     st.look = { br, ...lk };
-    // Não passou pelo hub: a origem vem da estação que enviou (troca um "Hub" que ficou da avaria anterior).
-    if (suggestOrigem(st.look) && (!st.form.origem || st.form.origem === 'Hub')) st.form.origem = suggestOrigem(st.look);
     if (!ui.isActive()) return;
     drawReg();
     // Tudo preenchido (ex.: "Manter origem, tipo e setor"): o foco vai para Salvar, e o próximo Enter salva.
@@ -115,7 +116,9 @@ window.Avarias = (() => {
   function lookBox() {
     const lk = st.look, br = normBr(st.form.br);
     const box = (cls, icon, title, sub) => `<div class="av-who ${cls}"><span class="av-who-ic">${icon}</span><span class="av-who-t">${title}</span>${sub ? `<span class="av-who-s" title="${sub.replace(/<[^>]+>/g, '')}">${sub}</span>` : ''}</div>`;
-    if (!br) return box('', '👤', 'Responsável', 'Aparece aqui depois de bipar a BR: quem recebeu o pacote pela primeira vez no hub.');
+    if (st.form.origem && !isHub(st.form.origem)) return box('', '—', 'Sem busca de responsável', `origem ${esc(st.form.origem)}: o responsável só é consultado quando a origem é Hub`);
+    if (!br) return box('', '👤', 'Responsável', 'Origem Hub: aparece aqui quem recebeu o pacote pela primeira vez no hub.');
+    if (!st.form.origem) return box('', '👤', 'Escolha a origem', 'Se for <b>Hub</b>, o app busca no SPX quem recebeu o pacote no hub.');
     if (!lk || lk.br !== br) return box('', '👤', 'Responsável ainda não buscado', 'Tecle <b>Enter</b> no campo da BR (o leitor já faz isso) ou clique em Buscar.');
     if (lk.state === 'busy') return box('busy', '⏳', 'Buscando no SPX…', '');
     if (lk.state === 'ok') return box('ok', '✓', `${esc(lk.name)}${lk.system ? ' <span class="muted small">(conta de sistema)</span>' : ''}`, `recebeu no hub em ${esc(dmhOf(lk.ts))}`);
@@ -124,8 +127,6 @@ window.Avarias = (() => {
     if (lk.state === 'semreceb') return box('warn', '⚠', 'Sem recebimento no hub', esc(lk.msg || ''));
     return box('warn', '…', 'Responsável fica pendente', esc(lk.msg || ''));
   }
-  // Origem sugerida pela estação que enviou (só quando o pacote não passou pelo hub).
-  const suggestOrigem = lk => (lk && lk.state === 'naohub' ? (/xpt/i.test(lk.name) ? 'XPT' : /soc/i.test(lk.name) ? 'SOC' : '') : '');
   const missing = () => { const f = st.form; return [!normBr(f.br) && 'BR', !f.origem && 'origem', !f.tipo && 'tipo', !f.setor && 'setor'].filter(Boolean); };
   const step = (n, title, done, body, hint = '') => `<div class="av-step ${done ? 'done' : ''}">
     <div class="av-step-t"><span class="av-step-n">${done ? '✓' : n}</span>${title}${hint ? ` <span class="muted small">${hint}</span>` : ''}</div>${body}</div>`;
@@ -142,7 +143,7 @@ window.Avarias = (() => {
     const spx = canSpx() ? (window.SpxSession.isActive() ? '<span class="pill good">SPX ativo</span>' : '<span class="pill warn" title="Sem Sessão SPX: o responsável fica pendente">Sem SPX</span>') : '<span class="pill warn" title="No celular o responsável fica pendente: complete no app do computador">Responsável depois, no PC</span>';
     const isToday = st.date === todayIso();
     const summary = [normBr(f.br), f.origem, f.tipo, f.setor].filter(Boolean).map(esc).join(' · ');
-    ui.main.innerHTML = ui.head('Avarias', 'Responsável = quem recebeu o pacote no hub') + subTabs() + noBase() + `
+    ui.main.innerHTML = ui.head('Avarias', 'Origem Hub: responsável = quem recebeu o pacote no hub') + subTabs() + noBase() + `
       <div class="av-reg">
         <section class="card av-card">
           <div class="av-card-head">
@@ -150,9 +151,9 @@ window.Avarias = (() => {
             <div class="av-card-meta">${spx}
               <label class="av-date ${isToday ? '' : 'retro'}" title="Data da ocorrência (mude só para lançamento retroativo)">📅 <input type="date" id="avDate" value="${st.date}" max="${todayIso()}">${isToday ? '' : '<span class="pill warn">retroativo</span>'}</label></div>
           </div>
-          ${step(1, 'BR do pacote', !!(normBr(f.br) && st.look && st.look.br === normBr(f.br) && st.look.state !== 'busy'), `
+          ${step(1, 'BR do pacote', !!(normBr(f.br) && (!isHub(f.origem) || (st.look && st.look.br === normBr(f.br) && st.look.state !== 'busy'))), `
             <div class="av-br"><input id="avBr" type="text" value="${esc(f.br)}" placeholder="Bipe ou digite a BR" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text">
-              <button class="tool" data-av="look" ${normBr(f.br) && !busy ? '' : 'disabled'}>Buscar</button></div>
+              ${isHub(f.origem) ? `<button class="tool" data-av="look" ${normBr(f.br) && !busy ? '' : 'disabled'}>Buscar</button>` : ''}</div>
             ${lookBox()}`)}
           <div class="av-pair">
           ${step(2, 'Origem', !!f.origem, seg('origem', ORIGENS, f.origem))}
@@ -191,7 +192,8 @@ window.Avarias = (() => {
     if (!baseOn() || st.saving) return;
     if (!PC.CODE_RE.test(br)) return ui.toast('Código inválido: confira a BR.', true);
     if (!f.origem || !f.tipo || !f.setor) return ui.toast('Informe origem, tipo e setor.', true);
-    let lk = st.look && st.look.br === br && st.look.state !== 'busy' ? st.look : null;
+    const hub = isHub(f.origem);
+    let lk = !hub ? { state: 'naoaplica' } : st.look && st.look.br === br && st.look.state !== 'busy' ? st.look : null;
     st.saving = true; drawReg();
     try {
       if (!lk) { lk = await lookup(br); st.look = { br, ...lk }; }
@@ -200,7 +202,7 @@ window.Avarias = (() => {
       if (dup.length && !(await window.uiConfirm(`A BR ${br} já tem ${dup.length} avaria(s) registrada(s) em ${brDate(st.date)}. É uma nova ocorrência?`, { ok: 'Salvar mesmo assim' }))) return;
       const a = applyLook({ date: st.date, br, origem: f.origem, tipo: f.tipo, setor: f.setor, obs: f.obs.trim(), trat: 'Aberto', detail: { hist: [] } }, lk);
       await B().avariaSave(a);
-      ui.toast(found(lk) ? `Avaria salva · responsável: ${lk.name}` : 'Avaria salva · responsável pendente');
+      ui.toast(found(lk) ? `Avaria salva · responsável: ${lk.name}` : hub ? 'Avaria salva · responsável pendente' : `Avaria salva · origem ${f.origem}`);
       st.form = ls.keep ? { ...emptyForm(), origem: f.origem, tipo: f.tipo, setor: f.setor } : emptyForm(); st.look = null;
     } catch (e) { ui.toast(String(e.message || e), true); }
     finally { st.saving = false; if (ui.isActive()) { drawReg(); const i = $('avBr'); if (i && !normBr(st.form.br)) i.focus(); } }
@@ -275,7 +277,7 @@ window.Avarias = (() => {
         <label>Ação tomada <textarea id="avAcao" rows="2">${esc(a.acao)}</textarea></label>
         <label>Evidência de conclusão <textarea id="avEvid" rows="2" placeholder="Ex.: feedback aplicado em 05/11, foto no grupo">${esc(a.evid)}</textarea></label>
         <div class="pe-row"><button class="btn-primary solid" data-av-tsave="${esc(a.id)}">Salvar tratativa</button>
-          ${!a.resp && canSpx() ? `<button class="tool" data-av-relook="${esc(a.id)}">Buscar responsável</button>` : ''}
+          ${!a.resp && isHub(a.origem) && canSpx() ? `<button class="tool" data-av-relook="${esc(a.id)}">Buscar responsável</button>` : ''}
           <button class="tool danger" data-av-del="${esc(a.id)}">Excluir avaria</button></div>
       </div>
       ${hist.length ? `<div class="av-det-hist"><span class="muted small">Histórico da tratativa</span>${hist.map(h => `<div class="small">${esc(new Date(h.at).toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' }))} · ${esc(h.user)} · <b>${esc(h.trat)}</b>${h.acao ? ` — ${esc(h.acao)}` : ''}</div>`).join('')}</div>` : ''}
@@ -361,7 +363,10 @@ window.Avarias = (() => {
       if (!t) return;
       const d = t.dataset;
       if (d.avView) { ls.view = d.avView; lsSave(); st.open = ''; window.Charts.destroyAll(); draw(); return; }
-      if (d.avSet) { st.form[d.avSet] = st.form[d.avSet] === d.v ? '' : d.v; drawReg(); if (!missing().length && $('avSave') && !$('avSave').disabled) $('avSave').focus(); return; }
+      if (d.avSet) {
+        st.form[d.avSet] = st.form[d.avSet] === d.v ? '' : d.v;
+        if (d.avSet === 'origem') { if (!isHub(st.form.origem)) st.look = null; else if (normBr(st.form.br) && (!st.look || st.look.br !== normBr(st.form.br))) { runLookup(); return; } }
+        drawReg(); if (!missing().length && $('avSave') && !$('avSave').disabled) $('avSave').focus(); return; }
       if (d.avPage) { st.page += Number(d.avPage); drawHist(); return; }
       if (d.avOpen) { st.open = st.open === d.avOpen ? '' : d.avOpen; drawHist(); const c = ui.main.querySelector('.av-open'); if (c) c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.avTsave) { saveTrat(d.avTsave); return; }
@@ -409,7 +414,7 @@ window.Avarias = (() => {
       const t = e.target;
       if (t.id === 'avKeep') { ls.keep = t.checked; lsSave(); return; }
       if (t.id === 'avDate' && t.value) { st.date = t.value; drawReg(); }
-      else if (t.id === 'avBr') { const br = normBr(t.value); st.form.br = br; t.value = br; if (br && (!st.look || st.look.br !== br)) runLookup(); }
+      else if (t.id === 'avBr') { const br = normBr(t.value); st.form.br = br; t.value = br; if (br && isHub(st.form.origem) && (!st.look || st.look.br !== br)) runLookup(); }
       else if (t.dataset.avHf) { ls.hf = { ...(ls.hf || {}), [t.dataset.avHf]: t.value }; lsSave(); st.page = 0; drawHist(); }
       else if (t.dataset.avDf) { ls.df = { ...(ls.df || {}), [t.dataset.avDf]: t.value }; lsSave(); drawDash(); }
     });
