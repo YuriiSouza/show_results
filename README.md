@@ -310,7 +310,7 @@ js/mobile-api.js      leitura da planilha e armazenamento no celular (Capacitor)
 scripts/build-mobile.js monta mobile/www para o app mobile
 capacitor.config.json configuração do app mobile
 ios/, android/        projetos nativos gerados pelo Capacitor
-assets/logo.png       fonte dos ícones e da tela de abertura do app mobile
+assets/logo.png       fonte dos ícones e da tela de abertura do app mobile (gerar com: npx @capacitor/assets generate)
 ```
 
 ## PHD (calculado)
