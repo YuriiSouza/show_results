@@ -293,6 +293,27 @@ window.Tour = (() => {
       { el: '#main [data-pe="recalc"]', title: 'Recalcular responsáveis', text: 'Refaz os responsáveis de todos os erros do período com as regras atuais (ex.: depois de corrigir um mapa de piso).' },
       { el: '#main [data-pe="copy"]', title: 'Copiar lista', text: 'Copia a tabela de pessoas para colar no WhatsApp ou numa planilha.' },
     ],
+    avarias: [
+      { el: '#main .section-title', title: 'Avarias', text: 'Registro das avarias de pacotes, com o responsável puxado do rastreio: quem <b>recebeu o pacote pela primeira vez no hub</b> (ele deveria ter visto a avaria antes de receber).' },
+      { el: '#main .pc-tabs', title: 'Sub-telas', text: '<b>Registrar</b>, <b>Histórico</b> (tratativa de cada ocorrência) e <b>Dashboard</b>. Em cada uma, clique em <b>?</b> para o passo a passo dela.' },
+      { el: '#avDate', title: 'Data da ocorrência', text: 'Vem com o dia de hoje; mude só para lançamento retroativo.' },
+      { el: '#avBr', title: 'BR', text: 'Bipe (leitor) ou digite a BR e tecle Enter: o app busca no SPX quem recebeu o pacote no hub. No celular, ou sem Sessão SPX, o responsável fica pendente.' },
+      { el: '#main .av-chips', title: 'Origem, tipo e setor', text: 'Obrigatórios: origem (Hub, XPT, SOC), tipo (Líquida, Cortante, Outra) e o setor onde a avaria foi vista.' },
+      { el: '#main [data-av="save"]', title: 'Salvar ocorrência', text: 'Salva na planilha-base. BR já registrada no mesmo dia pede confirmação. Pacote que nunca passou pelo hub (avaria vista antes de receber) fica no nome de quem enviou.' },
+      { el: card('Avarias do dia'), title: 'Avarias do dia', text: 'O que foi registrado no dia. <b>Buscar responsáveis</b> completa as pendentes (no computador, com a Sessão SPX).' },
+    ],
+    'avarias:hist': [
+      { el: '#main .av-filters', title: 'Filtros', text: 'Busca por BR ou colaborador, origem, tipo, setor e tratativa. O período é o do filtro do topo.' },
+      { el: '#main [data-av="export"]', title: 'Exportar', text: 'Baixa as ocorrências filtradas em CSV (abre no Excel).' },
+      { el: '#main [data-av-open]', title: 'Detalhes e tratativa', text: 'Abre a ocorrência para mudar a tratativa (Aberto, Em análise, Concluído), registrar a ação tomada e a evidência.' },
+    ],
+    'avarias:dash': [
+      { el: '#main .av-filters', title: 'Filtros', text: 'Origem, tipo, setor e colaborador. O período é o do filtro do topo.' },
+      k('Total de avarias', 'Avarias no período e a média por dia com avaria.'),
+      k('Tratativas em aberto', 'Avarias ainda sem tratativa concluída.'),
+      c('Evolução diária', 'Avarias de cada dia, por origem.'),
+      c('Responsáveis com mais avarias', 'Quem recebeu no hub os pacotes avariados, ou a estação que enviou avariado: base para o feedback.'),
+    ],
     hse: [
       { el: '#main .section-title', title: 'HSE', text: 'Saúde, segurança e meio ambiente do mês, da guia HSE da planilha.' },
       { el: '#hseMonth', title: 'Mês', text: 'Cada planilha mensal tem a sua guia HSE. Abre no mês atual; esta tela não segue o filtro de período.' },
@@ -365,7 +386,7 @@ window.Tour = (() => {
     const b = document.querySelector('#main .pc-tabs button.active');
     if (!b) return '';
     const d = b.dataset;
-    return d.pzView || d.rhView || d.peView || d.pcTab || '';
+    return d.pzView || d.rhView || d.peView || d.pcTab || d.avView || '';
   };
   function start(id = currentTab()) {
     const sub = subView();

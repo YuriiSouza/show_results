@@ -44,25 +44,26 @@ test('caso BR2698263380980: missing sem AT anterior (a AT depois do missing não
   assert.equal(info.otherAt.station, 'XPT_GO_Jaraguá');
 });
 
-test('AT anterior ao missing: usa a última antes do missing e o motorista em até 30 min', () => {
+test('AT anterior ao missing: usa a PRIMEIRA da janela (21:00 da véspera até o missing) e o motorista em até 30 min', () => {
   const info = Core.extract({ tracking_list: [
     ev('2026-09-29T05:00:00', 880, 'chegou'),
     ev('2026-09-29T08:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260929AAAAA]'),
     ev('2026-09-29T08:05:00', 2, 'Pedido em precesso de entrega. Motorista:[111] ANA SILVA; Contato: 0'),
+    ev('2026-09-29T08:30:00', 420, 'Pedido transferido para o motorista 3.641563e+06', '[3641563]RENATA MOREIRA'),
     ev('2026-09-29T09:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260929BBBBB]'),
     ev('2026-09-29T09:01:00', 417, 'Assignment Task [AT20260929BBBBB] em processamento'),
     ev('2026-09-29T09:10:00', 2, 'Pedido em precesso de entrega. Motorista:[222] BRUNO COSTA; Contato: 0'),
-    ev('2026-09-29T10:00:00', 420, 'Pedido transferido para o motorista 3.641563e+06', '[3641563]RENATA MOREIRA'),
+    ev('2026-09-29T10:00:00', 420, 'Pedido transferido para o motorista 4.000001e+06', '[4000001]OUTRO MOTORISTA'),
     ev('2026-09-29T12:00:00', 581, 'Parcel marked as missing', 'op@shopee.com'),
     ev('2026-09-30T08:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260930CCCCC]'),
   ] });
-  assert.equal(info.atBefore.code, 'AT20260929BBBBB');
-  assert.equal(info.atBefore.ts, sp('2026-09-29T09:00:00'));
-  assert.deepEqual([info.atBefore.driver.id, info.atBefore.driver.name], ['222', 'BRUNO COSTA']);
+  assert.equal(info.atBefore.code, 'AT20260929AAAAA');
+  assert.equal(info.atBefore.ts, sp('2026-09-29T08:00:00'));
+  assert.deepEqual([info.atBefore.driver.id, info.atBefore.driver.name], ['111', 'ANA SILVA']);
   // Transferência: ID lido de operator "[3641563]NOME", não da notação científica da mensagem.
   assert.deepEqual(info.atBefore.transfers.map(t => [t.id, t.name]), [['3641563', 'RENATA MOREIRA']]);
   const row = Core.rowOf('X', info);
-  assert.deepEqual([row.atBefore, row.driverId, row.driverName], ['AT20260929BBBBB', '222', 'BRUNO COSTA']);
+  assert.deepEqual([row.atBefore, row.driverId, row.driverName], ['AT20260929AAAAA', '111', 'ANA SILVA']);
   assert.match(row.note, /proximidade de horário/);
   assert.match(row.note, /Transferido para \[3641563\] RENATA MOREIRA/);
 });
@@ -569,4 +570,22 @@ test('vários missings: vale o último (AT da véspera dele, operador de quem ma
   assert.equal(info.atBefore.code, 'AT20261103C4633');
   assert.equal(info.missing.operator, 'pablo.silva@shopee.com');
   assert.ok(info.notes.includes('3 missings no rastreio; usado o último (03/11 12:20)'));
+});
+
+test('firstReceipt (Avarias): primeiro LMHub_Recebido no hub depois da 1ª passagem pelo hub', () => {
+  const OUT = { station_name: 'SOC_GO_Goiânia', station_id: 1 };
+  const r = Core.firstReceipt({ tracking_list: [
+    ev('2026-11-01T10:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops1]OUTRO HUB', OUT),
+    ev('2026-11-02T01:00:00', 880, 'Pedido em transferência para o Last Mile Hub', 'ops@shopee.com'),
+    ev('2026-11-02T02:10:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops177146]FULANA DE TAL'),
+    ev('2026-11-03T02:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops2]SEGUNDO RECEBIMENTO'),
+  ] });
+  assert.deepEqual([r.name, r.ts, r.system], ['FULANA DE TAL', sp('2026-11-02T02:10:00'), false]);
+  // Status em texto (LMHub_Recebido) também vale.
+  assert.equal(Core.firstReceipt({ tracking_list: [ev('2026-11-02T02:10:00', 'LMHub_Recebido', 'Recebido', '[Ops9]CICRANO')] }).name, 'CICRANO');
+  // Sem passagem pelo hub: null. Passou pelo hub sem recebimento: sem nome.
+  assert.equal(Core.firstReceipt({ tracking_list: [ev('2026-11-01T10:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops1]X', OUT)] }), null);
+  assert.equal(Core.firstReceipt({ tracking_list: [ev('2026-11-02T01:00:00', 880, 'Em transferência', 'ops@shopee.com')] }).name, '');
+  // Recebido por conta de sistema (e-mail): volta marcado.
+  assert.equal(Core.firstReceipt(fixture).system, true);
 });

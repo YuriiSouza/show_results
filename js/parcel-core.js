@@ -85,7 +85,7 @@ const ParcelCore = (() => {
         const key = [ts, ev.status, ev.message, ev.operator].join('|');
         if (!seen.has(key)) {
           seen.add(key);
-          out.push({ ts, status: Number(ev.status), message: String(ev.message || ''), operator: String(ev.operator || '').trim(),
+          out.push({ ts, status: Number(ev.status), statusText: [ev.status, ev.status_name, ev.status_desc].filter(x => typeof x === 'string').join(' '), message: String(ev.message || ''), operator: String(ev.operator || '').trim(),
             station: String(ev.station_name || '').trim(), stationId: Number(ev.station_id) || null, cage: cageIn(ev), damage: damageIn(ev) });
         }
       }
@@ -101,7 +101,7 @@ const ParcelCore = (() => {
   //   missing, achado e marcado de novo em outro dia: vale o mais recente, com aviso nas observações);
   // - avaria: evento de "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" a partir das 21:00 da véspera do missing
   //   (mesma janela das ATs; sem missing, qualquer um conta). Sendo avaria, não se procura AT nem motorista;
-  // - AT anterior: última AT desde as 21:00 da véspera do missing (horário do hub) e antes do missing.
+  // - AT anterior: PRIMEIRA AT (a mais antiga) entre as 21:00 da véspera do missing (horário do hub) e o missing.
   //   ATs mais antigas e ATs depois do missing não entram; sem AT nessa janela, a linha fica marcada (noAtToday);
   // - gaiola e motorista: vêm do detalhe da AT (outra requisição; ver rowOf). Sem o detalhe, o motorista é o do
   //   evento seguinte de status 2 ("Motorista:[ID] NOME"), até 30 min depois — vínculo por proximidade de horário.
@@ -156,7 +156,7 @@ const ParcelCore = (() => {
     const hubAts = ats.filter(atHub), others = ats.filter(x => !atHub(x));
     const other = others.filter(x => x.ts >= missing.ts)[0] || others[others.length - 1];
     if (other) info.otherAt = { code: other.code, ts: other.ts, station: other.station };
-    const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= from).pop();
+    const before = hubAts.find(x => x.ts < missing.ts && x.ts >= from);
     if (misses.length > 1) info.notes.push(`${misses.length} missings no rastreio; usado o último (${dmh(missing.ts)})`);
     if (before) info.atBefore = describe(before);
     else {
@@ -221,6 +221,21 @@ const ParcelCore = (() => {
       .map(r => ({ name: stripId(r.operator), ts: r.ts, operator: r.operator }));
   }
   const receiver = (resp, opts) => receivers(resp, opts).pop() || null;
+  // Avarias: quem recebeu o pacote PELA PRIMEIRA VEZ no hub. No rastreio (do mais antigo para o mais novo): o 1º evento
+  // na estação do hub e, a partir dele, o 1º "LMHub_Recebido" ("Pedido chegou ao Last Mile Hub") no hub. O operador desse
+  // recebimento é o responsável (ele deveria ter visto a avaria antes de receber). Sem passagem pelo hub ou sem
+  // recebimento lá: null. Operador de sistema (e-mail) volta com system: true.
+  const RECEIVED_RE = /lmhub_recebido|chegou ao last mile hub/i;
+  function firstReceipt(resp, opts) {
+    const o = { ...DEFAULTS, ...(opts || {}) };
+    const atHub = e => e.station === o.stationName || e.stationId === o.stationId;
+    const ev = flatten(resp);
+    const k = ev.findIndex(atHub);
+    if (k < 0) return null;
+    const r = ev.slice(k).find(e => atHub(e) && (e.status === 10 || RECEIVED_RE.test(e.message) || RECEIVED_RE.test(e.statusText)));
+    if (!r) return { hubTs: ev[k].ts, name: '', operator: '', ts: null, system: false };
+    return { hubTs: ev[k].ts, name: stripId(r.operator), operator: r.operator, ts: r.ts, system: !r.operator || /@/.test(r.operator) || /^system$/i.test(r.operator) };
+  }
   // Janela de recebimento do turno da noite: de "inicio" (HH:MM) da véspera até "fim" (HH:MM) do dia do erro (fuso do hub).
   // Recebido antes da janela = backlog; só depois da janela (ou nunca) = não recebido; dentro = operador do recebimento.
   // win: { inicio, fim, backlogAntes? }. Janela que vira a noite (inicio > fim) começa na véspera. Com backlogAntes,
@@ -241,7 +256,7 @@ const ParcelCore = (() => {
     return { classe: 'naorec', ...(all.filter(r => r.ts > to).pop() || {}), from, to };
   }
 
-  return { DEFAULTS, CODE_RE, parseTable, receiver, receivers, receiverInWindow, flatten, extract, rowOf, stripId, destOf };
+  return { DEFAULTS, CODE_RE, parseTable, receiver, receivers, firstReceipt, receiverInWindow, flatten, extract, rowOf, stripId, destOf };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = ParcelCore;
 else window.ParcelCore = ParcelCore;
