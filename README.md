@@ -58,7 +58,8 @@ Registro das avarias de pacotes, com três sub-abas no topo. Tudo fica na planil
 vale a gravação mais recente de cada ID, e excluir só marca a linha como excluída).
 - **Registrar avaria**: data da ocorrência (hoje, pode ser alterada), BR por leitor ou digitação (Enter busca), **origem**
   (Hub, XPT, SOC), **tipo** (Líquida, Cortante, Outra), **setor** onde foi identificada e observação opcional.
-  - **Responsável = quem recebeu o pacote pela primeira vez no hub**: no rastreio do SPX, do mais antigo para o mais novo,
+  - O responsável **só é consultado quando a origem é Hub**. Origem XPT ou SOC: sem consulta ao SPX e sem responsável.
+  - **Responsável (origem Hub) = quem recebeu o pacote pela primeira vez no hub**: no rastreio do SPX, do mais antigo para o mais novo,
     o 1º evento na estação do hub (`LM Hub_GO_Anápolis`) e, a partir dele, o 1º **LMHub_Recebido** ("Pedido chegou ao Last
     Mile Hub") no hub; o operador desse evento (`ParcelCore.firstReceipt`).
   - **Nunca passou pelo hub** (avaria identificada antes de receber): a avaria é salva e o responsável é **quem nos enviou**,
