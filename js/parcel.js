@@ -741,7 +741,7 @@ window.Parcel = (() => {
     const job = st.run = { total: codes.length, done: 0, cancel: false, noSession: false, lastAt: Date.now(), spx: null, refused0: null };
     st.results = codes;
     const queue = codes.slice();
-    const opts = { ...cfg() };
+    const opts = { ...cfg(), reportDay: reportDay() };   // janela do missing = dia do relatório
     // Detalhe de cada AT: uma consulta por AT, reaproveitada por todos os pedidos dela (cache da sessão).
     const atOf = at => {
       if (!st.ats.has(at)) st.ats.set(at, atStore[at] ? Promise.resolve({ ok: true, data: atStore[at] })
@@ -756,7 +756,9 @@ window.Parcel = (() => {
       while (queue.length && !job.cancel) {
         const code = queue.shift();
         // Cache da sessão: código já consultado com sucesso não é consultado de novo.
-        if (!(st.out.get(code) || {}).ok) {
+        // (o resultado depende do dia do relatório: outro dia consulta de novo)
+        const prev = st.out.get(code) || {};
+        if (!prev.ok || prev.day !== opts.reportDay) {
           let r;
           if (!C.CODE_RE.test(code)) r = { ok: false, error: 'Código inválido' };
           else { try { r = await api().parcelTrack(code); } catch (e) { r = { ok: false, error: 'Falha na consulta' }; } }
@@ -765,7 +767,7 @@ window.Parcel = (() => {
               const info = C.extract(r.data, opts);
               const at = info.atBefore && api().parcelAt ? await atOf(info.atBefore.code) : null;
               if (at && !at.ok) st.ats.delete(info.atBefore.code);   // erro não fica em cache
-              st.out.set(code, { ok: true, raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
+              st.out.set(code, { ok: true, day: opts.reportDay, raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
                 row: C.rowOf(code, info, at && at.ok ? at.data : null, at && !at.ok ? at.error : '') });
             } catch (e) { st.out.set(code, { ok: false, error: 'Resposta do SPX em formato inesperado' }); }
           } else if (r.noSession) { job.cancel = true; job.noSession = true; }

@@ -95,14 +95,17 @@ const ParcelCore = (() => {
     return out.sort((a, b) => a.ts - b.ts);
   }
 
-  // Regras por código:
-  // - chegada: 1º evento na estação do hub;
-  // - missing: ÚLTIMO evento a partir da chegada com status 581 ou "marked as missing" (o pacote pode ser marcado
-  //   missing, achado e marcado de novo em outro dia: vale o mais recente, com aviso nas observações);
-  // - avaria: evento de "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" a partir das 21:00 da véspera do missing
-  //   (mesma janela das ATs; sem missing, qualquer um conta). Sendo avaria, não se procura AT nem motorista;
-  // - AT anterior: PRIMEIRA AT (a mais antiga) entre as 21:00 da véspera do missing (horário do hub) e o missing.
-  //   ATs mais antigas e ATs depois do missing não entram; sem AT nessa janela, a linha fica marcada (noAtToday);
+  // Regras por código (opts.reportDay = dia do relatório do Parcel, AAAA-MM-DD, no fuso do hub):
+  // - janela do dia: das 21:00 da véspera do dia do relatório até 23:59:59 do dia do relatório. Sem reportDay, o dia
+  //   é o do último missing do rastreio;
+  // - chegada: de trás para frente, a ÚLTIMA passagem pelo hub que começou até o fim da janela (início do último
+  //   trecho seguido de eventos na estação do hub);
+  // - missing: o PRIMEIRO missing (status 581 ou "marked as missing") da janela, depois dessa chegada. Missing de
+  //   outro dia não conta (a linha fica "sem missing no dia", com aviso);
+  // - avaria: evento de "Avaria de Produto" ou "Avaria Externa – SOC/LH/XPT" dentro da janela (sem missing, qualquer
+  //   um conta). Sendo avaria, não se procura AT nem motorista;
+  // - AT anterior: do missing para trás, a 1ª AT do hub encontrada (a mais próxima antes do missing), desde que a
+  //   partir das 21:00 da véspera. Sem AT nessa janela, a linha fica marcada (noAtToday);
   // - gaiola e motorista: vêm do detalhe da AT (outra requisição; ver rowOf). Sem o detalhe, o motorista é o do
   //   evento seguinte de status 2 ("Motorista:[ID] NOME"), até 30 min depois — vínculo por proximidade de horário.
   function extract(resp, opts) {
@@ -110,25 +113,41 @@ const ParcelCore = (() => {
     const ev = flatten(resp);
     const info = { events: ev.length, arrival: null, missing: null, atBefore: null, noAtToday: false, lastOldAt: null, otherAt: null, damage: null, cageTop: cageTop(resp), notes: [] };
     if (!ev.length) { info.notes.push('Rastreio sem eventos'); return info; }
-    // Janela: a partir das 21:00 da véspera do dia de referência (o do missing), no fuso do hub.
+    // Janela: das 21:00 da véspera do dia do relatório até o fim desse dia, no fuso do hub.
     const off = o.tzOffsetMin * 60;
-    const windowOf = ts => { const dayStart = Math.floor((ts + off) / 86400) * 86400 - off; return { dayStart, from: dayStart - (24 - o.atFromHour) * 3600 }; };
-    const setDamage = from => {
-      const dmg = ev.filter(e => e.damage && e.ts >= from).pop();
+    const dayOf = ts => Math.floor((ts + off) / 86400) * 86400 - off;
+    const isMiss = e => e.status === ST.missing || /marked as missing/i.test(e.message);
+    const atHubEv = e => e.station === o.stationName || e.stationId === o.stationId;
+    const setDamage = (from, to = Infinity) => {
+      const dmg = ev.filter(e => e.damage && e.ts >= from && e.ts <= to).pop();
       if (dmg) { info.damage = { ts: dmg.ts, reason: dmg.damage, operator: dmg.operator }; info.notes.unshift('Avaria: ' + dmg.damage); }
     };
 
-    const arrival = ev.find(e => e.station === o.stationName || e.stationId === o.stationId);
-    if (!arrival) { info.notes.push(`Sem passagem pelo ${o.stationName}`); setDamage(0); return info; }
+    if (!ev.some(atHubEv)) { info.notes.push(`Sem passagem pelo ${o.stationName}`); setDamage(0); return info; }
+    const rep = /^\d{4}-\d{2}-\d{2}$/.test(String(o.reportDay || '')) ? o.reportDay : '';
+    const firstHub = ev.find(atHubEv).ts, lastMiss = ev.filter(e => isMiss(e) && e.ts >= firstHub).pop();
+    const dayStart = rep ? Date.UTC(+rep.slice(0, 4), +rep.slice(5, 7) - 1, +rep.slice(8, 10)) / 1000 - off : dayOf((lastMiss || ev[ev.length - 1]).ts);
+    const from = dayStart - (24 - o.atFromHour) * 3600, to = dayStart + 86400 - 1;
+    info.dayStart = dayStart; info.atFrom = from; info.atTo = to;
+    // Chegada: de trás para frente, o último evento no hub até o fim da janela e, dele para trás, o início desse trecho.
+    let k = -1;
+    for (let i = ev.length - 1; i >= 0; i--) if (ev[i].ts <= to && atHubEv(ev[i])) { k = i; break; }
+    if (k < 0) { info.notes.push(`Sem passagem pelo ${o.stationName} até o dia do relatório`); setDamage(from, to); return info; }
+    while (k > 0 && (atHubEv(ev[k - 1]) || !ev[k - 1].station)) k--;
+    while (!atHubEv(ev[k])) k++;
+    const arrival = ev[k];
     info.arrival = { ts: arrival.ts, status: arrival.status, message: arrival.message };
 
-    const misses = ev.filter(e => e.ts >= arrival.ts && (e.status === ST.missing || /marked as missing/i.test(e.message)));
-    const missing = misses[misses.length - 1];
-    if (!missing) { info.notes.push('Sem missing após a chegada'); setDamage(0); return info; }
+    const dm = ts => { const d = new Date((ts + off) * 1000); return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
+    const misses = ev.filter(e => e.ts >= Math.max(arrival.ts, from) && e.ts <= to && isMiss(e));
+    const missing = misses[0];
+    if (!missing) {
+      const outros = ev.filter(e => e.ts >= arrival.ts && isMiss(e));
+      info.notes.push('Sem missing no dia' + (outros.length ? ` · missing em outro dia: ${[...new Set(outros.map(e => dm(e.ts)))].join(', ')}` : ''));
+      setDamage(from, to); return info;
+    }
     info.missing = { ts: missing.ts, status: missing.status, operator: missing.operator };
-    const { dayStart, from } = windowOf(missing.ts);
-    info.dayStart = dayStart; info.atFrom = from;
-    setDamage(from);
+    setDamage(from, to);
     if (info.damage) return info;
 
     const ats = ev.filter(e => AT_RE.test(e.message) && (ST.at.includes(e.status) || AT_TEXT_RE.test(e.message)))
@@ -156,13 +175,12 @@ const ParcelCore = (() => {
     const hubAts = ats.filter(atHub), others = ats.filter(x => !atHub(x));
     const other = others.filter(x => x.ts >= missing.ts)[0] || others[others.length - 1];
     if (other) info.otherAt = { code: other.code, ts: other.ts, station: other.station };
-    const before = hubAts.find(x => x.ts < missing.ts && x.ts >= from);
-    if (misses.length > 1) info.notes.push(`${misses.length} missings no rastreio; usado o último (${dmh(missing.ts)})`);
+    const before = hubAts.filter(x => x.ts < missing.ts && x.ts >= from).pop();
+    if (misses.length > 1) info.notes.push(`${misses.length} missings no dia; usado o primeiro (${dmh(missing.ts)})`);
     if (before) info.atBefore = describe(before);
     else {
       info.noAtToday = true;
       const old = hubAts.filter(x => x.ts < from).pop();
-      const dm = ts => { const d = new Date((ts + off) * 1000); return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
       if (old) info.lastOldAt = { code: old.code, ts: old.ts };
       info.notes.push(`Sem AT no dia (desde ${fromTxt})` + (old ? ` · última AT: ${old.code} em ${dm(old.ts)}` : ''));
       if (info.otherAt) info.notes.push(`Pacote de outro XPT: ${info.otherAt.station} (AT ${info.otherAt.code} em ${dm(info.otherAt.ts)})`);

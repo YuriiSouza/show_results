@@ -44,7 +44,7 @@ test('caso BR2698263380980: missing sem AT anterior (a AT depois do missing não
   assert.equal(info.otherAt.station, 'XPT_GO_Jaraguá');
 });
 
-test('AT anterior ao missing: usa a PRIMEIRA da janela (21:00 da véspera até o missing) e o motorista em até 30 min', () => {
+test('AT anterior ao missing: do missing para trás, a 1ª AT encontrada (a mais próxima) e o motorista em até 30 min', () => {
   const info = Core.extract({ tracking_list: [
     ev('2026-09-29T05:00:00', 880, 'chegou'),
     ev('2026-09-29T08:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260929AAAAA]'),
@@ -57,15 +57,15 @@ test('AT anterior ao missing: usa a PRIMEIRA da janela (21:00 da véspera até o
     ev('2026-09-29T12:00:00', 581, 'Parcel marked as missing', 'op@shopee.com'),
     ev('2026-09-30T08:00:00', 418, 'Pedido adicionado à Assignment Task [AT20260930CCCCC]'),
   ] });
-  assert.equal(info.atBefore.code, 'AT20260929AAAAA');
-  assert.equal(info.atBefore.ts, sp('2026-09-29T08:00:00'));
-  assert.deepEqual([info.atBefore.driver.id, info.atBefore.driver.name], ['111', 'ANA SILVA']);
-  // Transferência: ID lido de operator "[3641563]NOME", não da notação científica da mensagem.
-  assert.deepEqual(info.atBefore.transfers.map(t => [t.id, t.name]), [['3641563', 'RENATA MOREIRA']]);
+  assert.equal(info.atBefore.code, 'AT20260929BBBBB');
+  assert.equal(info.atBefore.ts, sp('2026-09-29T09:00:00'));
+  assert.deepEqual([info.atBefore.driver.id, info.atBefore.driver.name], ['222', 'BRUNO COSTA']);
+  // Transferência: ID lido de operator "[4000001]NOME", não da notação científica da mensagem.
+  assert.deepEqual(info.atBefore.transfers.map(t => [t.id, t.name]), [['4000001', 'OUTRO MOTORISTA']]);
   const row = Core.rowOf('X', info);
-  assert.deepEqual([row.atBefore, row.driverId, row.driverName], ['AT20260929AAAAA', '111', 'ANA SILVA']);
+  assert.deepEqual([row.atBefore, row.driverId, row.driverName], ['AT20260929BBBBB', '222', 'BRUNO COSTA']);
   assert.match(row.note, /proximidade de horário/);
-  assert.match(row.note, /Transferido para \[3641563\] RENATA MOREIRA/);
+  assert.match(row.note, /Transferido para \[4000001\] OUTRO MOTORISTA/);
 });
 
 test('BR269015323946R: AT reconhecida pelo texto "em processamento na Assignment Task" e gaiola', () => {
@@ -115,13 +115,13 @@ test('detalhe da AT: gaiola e motorista vêm de corridor_cage / driver_id / driv
     ev('2026-10-01T05:57:13', 50, 'Pedido adicionado à Assignment Task [AT20261001AI3R8]', 'spx@shopee.com'),
     ev('2026-10-01T05:58:00', 2, 'Pedido em precesso de entrega. Motorista:[999] MOTORISTA DA ENTREGA; Contato: 0', '', {}),
   ] });
-  assert.equal(info.missing.operator, 'outro@shopee.com');   // vale o último missing
+  assert.equal(info.missing.operator, '[ops1]OPERADOR UM');   // vale o primeiro missing do dia
   assert.equal(info.atBefore.code, 'AT20260929AFOV4');
   assert.equal(info.atBefore.driver, null);
   const detail = { assignment_task_id: 'AT20260929AFOV4', driver_id: 613859, driver_name: 'MOTORISTA DA AT', corridor_cage: 'D-10' };
-  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'outro@shopee.com',
+  assert.deepEqual(Core.rowOf('BR269015323946R', info, detail), { code: 'BR269015323946R', missingOperator: 'OPERADOR UM',
     missingTs: info.missing.ts, damage: '', damageOperator: '', noAt: false, xpt: '',
-    atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '2 missings no rastreio; usado o último (29/09 12:23)' });
+    atBefore: 'AT20260929AFOV4', cage: 'D-10', driverId: '613859', driverName: 'MOTORISTA DA AT', note: '2 missings no dia; usado o primeiro (29/09 11:03)' });
   assert.match(Core.rowOf('X', info, { driver_id: 0, driver_name: '', corridor_cage: '' }).note, /AT sem gaiola; AT sem motorista atribuído/);
   assert.match(Core.rowOf('X', info, null, 'SPX respondeu HTTP 500').note, /Detalhe da AT indisponível: SPX respondeu HTTP 500/);
 });
@@ -146,7 +146,7 @@ test('missing anterior à chegada no hub não conta; sem passagem pelo hub é av
     ev('2026-09-29T05:00:00', 880, 'chegou'),
   ] });
   assert.equal(a.missing, null);
-  assert.deepEqual(a.notes, ['Sem missing após a chegada']);
+  assert.deepEqual(a.notes, ['Sem missing no dia']);
   const b = Core.extract({ data: { tracking_list: [ev('2026-09-28T10:00:00', 1, 'criado', '', other)] } });
   assert.equal(b.arrival, null);
   assert.match(b.notes[0], /Sem passagem pelo LM Hub_GO_Anápolis/);
@@ -557,8 +557,8 @@ test('ritmo: 2 s fixos entre chamadas e pausa de 5 s em cada recusa (escala redu
   _setTiming({ gapMs: 0, coolMs: 0 });
 });
 
-test('vários missings: vale o último (AT da véspera dele, operador de quem marcou por último)', () => {
-  const info = Core.extract({ tracking_list: [
+test('vários missings: vale o primeiro do dia do relatório (e a AT mais próxima antes dele)', () => {
+  const mk = reportDay => Core.extract({ tracking_list: [
     ev('2026-10-31T21:27:16', 0, '-', 'System'),
     ev('2026-11-01T02:46:59', 10, 'Pedido chegou ao Last Mile Hub para entrega', '[Ops301970]GUSTAVO'),
     ev('2026-11-01T02:46:59', 0, 'Pedido em processamento na Assignment Task [AT20261101C2F1T]', 'Admin(Dynamic Routing)'),
@@ -566,10 +566,38 @@ test('vários missings: vale o último (AT da véspera dele, operador de quem ma
     ev('2026-11-02T23:21:51', 0, 'Pedido em processamento na Assignment Task [AT20261103C4633]', 'Admin(Dynamic Routing)'),
     ev('2026-11-03T06:49:57', 581, 'Order marked as missing', '[ops199314]MARIA FERNANDA'),
     ev('2026-11-03T12:20:13', 581, 'Order marked as missing', 'pablo.silva@shopee.com'),
-  ] });
-  assert.equal(info.atBefore.code, 'AT20261103C4633');
-  assert.equal(info.missing.operator, 'pablo.silva@shopee.com');
-  assert.ok(info.notes.includes('3 missings no rastreio; usado o último (03/11 12:20)'));
+  ] }, { reportDay });
+  // Relatório de 03/11: 1º missing do dia (MARIA), AT de 02/11 23:21 (depois das 21:00 da véspera).
+  const d3 = mk('2026-11-03');
+  assert.equal(d3.missing.operator, '[ops199314]MARIA FERNANDA');
+  assert.equal(d3.atBefore.code, 'AT20261103C4633');
+  assert.ok(d3.notes.includes('2 missings no dia; usado o primeiro (03/11 06:49)'));
+  // Sem dia do relatório: o dia do último missing (mesmo resultado).
+  assert.equal(mk('').missing.operator, '[ops199314]MARIA FERNANDA');
+  // Relatório de 01/11: o missing desse dia (Ellen) e a AT dele.
+  const d1 = mk('2026-11-01');
+  assert.equal(d1.missing.operator, '[ops355223]Ellen Raquel');
+  assert.equal(d1.atBefore.code, 'AT20261101C2F1T');
+  // Relatório de 02/11: nenhum missing no dia; avisa os outros dias.
+  const d2 = mk('2026-11-02');
+  assert.equal(d2.missing, null);
+  assert.equal(d2.notes[0], 'Sem missing no dia · missing em outro dia: 01/11, 03/11');
+});
+
+test('chegada: a última passagem pelo hub até o dia do relatório (de trás para frente)', () => {
+  const OUT = { station_name: 'XPT_GO_Crixás', station_id: 5 };
+  const info = Core.extract({ tracking_list: [
+    ev('2026-11-01T02:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops1]PRIMEIRA'),
+    ev('2026-11-01T06:00:00', 581, 'Order marked as missing', '[ops2]MISSING ANTIGO'),
+    ev('2026-11-02T10:00:00', 1, 'no XPT', '', OUT),
+    ev('2026-11-04T02:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops3]VOLTOU'),
+    ev('2026-11-04T05:00:00', 418, 'Pedido adicionado à Assignment Task [AT20261104XXXXX]'),
+    ev('2026-11-04T07:00:00', 581, 'Order marked as missing', '[ops4]MISSING NOVO'),
+    ev('2026-11-06T02:00:00', 10, 'Pedido chegou ao Last Mile Hub', '[Ops5]DEPOIS DO RELATORIO', OUT),
+  ] }, { reportDay: '2026-11-04' });
+  assert.equal(info.arrival.ts, sp('2026-11-04T02:00:00'));
+  assert.equal(info.missing.operator, '[ops4]MISSING NOVO');
+  assert.equal(info.atBefore.code, 'AT20261104XXXXX');
 });
 
 test('firstReceipt (Avarias): primeiro LMHub_Recebido no hub depois da 1ª passagem pelo hub', () => {

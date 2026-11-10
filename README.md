@@ -97,8 +97,11 @@ São duas requisições ao SPX, as mesmas que o site faz:
   (`corridor_cage`) e o **motorista** (`driver_id` / `driver_name`). É uma consulta por AT, reaproveitada por todos os pedidos dela.
 
 Regras (em `js/parcel-core.js`, testadas em `test/parcel.test.js` — `npm test`):
-missing = **último** evento a partir da chegada ao hub com status 581 ou "marked as missing" (com vários, a observação avisa); AT anterior = **primeira** AT do hub entre as 21:00 da véspera e o último missing
-(evento com status 49/50 ou o texto "em processamento na / adicionado à Assignment Task [AT…]"). ATs depois do missing não entram.
+tudo parte do **dia do relatório** (o dia mais frequente na coluna *Scanned time*; janela das 21:00 da véspera até o fim
+desse dia). Chegada = de trás para frente, a **última passagem** pelo hub até o fim da janela; missing = o **primeiro**
+missing da janela depois dessa chegada (status 581 ou "marked as missing"; missing de outro dia não conta e a linha fica
+"Sem missing no dia", avisando os outros dias); AT anterior = do missing para trás, a **1ª AT do hub encontrada** (a mais
+próxima antes do missing), desde que a partir das 21:00 da véspera (evento com status 49/50 ou o texto "em processamento na / adicionado à Assignment Task [AT…]"). ATs depois do missing não entram.
 Se o detalhe da AT falhar, o motorista é o do evento seguinte de status 2 no rastreio (por proximidade de horário), com aviso.
 O botão **Copiar JSON** de cada linha copia as duas respostas daquele código (sem cookies).
 
@@ -342,10 +345,10 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 
 ## Parcel: AT do dia e report diário
 
-- A **AT** de um pacote só vale se for **a partir das 21:00 do dia anterior ao missing** (horário de Brasília) e antes do missing
+- A **AT** de um pacote é a mais próxima antes do missing e só vale se for **a partir das 21:00 do dia anterior ao relatório** (horário de Brasília) e antes do missing
   (hora configurável em `PARCEL.atFromHour`).
 - **Avaria:** vale quando algum evento do rastreio traz **"Avaria de Produto"** ou **"Avaria Externa – SOC/LH/XPT"**
-  (outros textos com a palavra "avaria" não contam), **a partir das 21:00 do dia anterior ao missing** — a mesma janela das ATs.
+  (outros textos com a palavra "avaria" não contam), **dentro da janela do dia do relatório** (21:00 da véspera até o fim do dia) — a mesma janela das ATs.
   O pacote é marcado como **Avaria**: o app não procura a AT nem consulta o detalhe da AT. Há um filtro só para as avarias.
 - O resultado tem indicadores, gráficos por motorista, gaiola e operador, e filtros por situação, motorista, gaiola e operador —
   todos aceitam **mais de um valor ao mesmo tempo**.
