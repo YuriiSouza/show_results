@@ -103,6 +103,8 @@ missing da janela depois dessa chegada (status 581 ou "marked as missing"; missi
 "Sem missing no dia", avisando os outros dias); AT anterior = do missing para trás, a **1ª AT do hub encontrada** (a mais
 próxima antes do missing), desde que a partir das 21:00 da véspera (evento com status 49/50 ou o texto "em processamento na / adicionado à Assignment Task [AT…]"). ATs depois do missing não entram.
 Se o detalhe da AT falhar, o motorista é o do evento seguinte de status 2 no rastreio (por proximidade de horário), com aviso.
+Códigos com erro (no rastreio ou no detalhe da AT) ganham o botão **↻ Repetir as com erro**, que consulta de novo só eles e
+mantém o resultado dos outros.
 O botão **Copiar JSON** de cada linha copia as duas respostas daquele código (sem cookies).
 
 > **Sessão do SPX:** o cURL colado vale como uma senha. Ele fica só na memória do processo do app (nunca em arquivo ou log)

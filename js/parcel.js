@@ -222,7 +222,7 @@ window.Parcel = (() => {
     const el = $('pcBar');
     if (!el) return;
     const n = targets().length, run = st.run;
-    const errors = st.results.filter(c => st.out.has(c) && !st.out.get(c).ok).length;
+    const errors = failed().length;
     el.innerHTML = `
       <span class="au-period">📄 ${esc(st.file)}<span class="muted"> · ${st.rows.length} linhas</span></span>
       <button class="tool" data-pc="import" ${run ? 'disabled' : ''}>Trocar arquivo</button>
@@ -231,6 +231,7 @@ window.Parcel = (() => {
           <span><b>${run.done}</b> de ${run.total}${errors ? ` · ${errors} erro(s)` : ''}${run.spx && run.spx.pausedMs > 0 ? ` · <span class="pc-wait">SPX segurando as consultas (anti-robô) · retomando em ${Math.ceil(run.spx.pausedMs / 1000)} s</span>` : run.spx && run.refused0 != null && run.spx.refusals > run.refused0 ? ` · <span class="muted">SPX segurou ${run.spx.refusals - run.refused0} vez(es)</span>` : ''}</span>
           <button class="tool danger" data-pc="cancel" ${run.cancel ? 'disabled' : ''}>${run.cancel ? 'Cancelando…' : 'Cancelar'}</button>
         </div>` : `<div class="au-bar-right pc-actions">
+          ${errors && canTrack() ? `<button class="tool danger" data-pc="retry" title="Consulta de novo só os códigos que deram erro (rastreio ou detalhe da AT)">↻ Repetir as com erro (${errors})</button>` : ''}
           <button class="btn-primary solid" data-pc="run" ${n && canTrack() ? '' : 'disabled'}
             title="${canTrack() ? 'Consulta o rastreio dos códigos selecionados ou, sem seleção, de todos os filtrados' : 'A consulta de rastreio só funciona no aplicativo desktop'}">
             Consultar rastreio (${n} ${st.selected.size ? 'selecionado(s)' : 'filtrado(s)'})</button>
@@ -732,14 +733,19 @@ window.Parcel = (() => {
   }
 
   // ---------- Consulta (no máx. 3 ao mesmo tempo; um código com erro não derruba os outros) ----------
-  async function run() {
+  // Códigos da consulta atual que deram erro: no rastreio ou no detalhe da AT.
+  const failed = () => st.results.filter(c => { const o = st.out.get(c); return o && (!o.ok || o.atErr); });
+
+  // retry = true: consulta de novo só os que deram erro, mantendo o resultado dos outros.
+  async function run(retry = false) {
     if (st.run || !canTrack()) return;
-    if (!st.session) return window.SpxSession.open(() => { st.session = true; run(); });
-    const codes = targets();
+    if (!st.session) return window.SpxSession.open(() => { st.session = true; run(retry); });
+    const codes = retry ? failed() : targets();
     if (!codes.length) return;
-    if (codes.length > 200 && !(await uiConfirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`, { ok: 'Consultar' }))) return;
+    if (!retry && codes.length > 200 && !(await uiConfirm(`Consultar o rastreio de ${codes.length} códigos? Pode levar alguns minutos.`, { ok: 'Consultar' }))) return;
     const job = st.run = { total: codes.length, done: 0, cancel: false, noSession: false, lastAt: Date.now(), spx: null, refused0: null };
-    st.results = codes;
+    if (retry) codes.forEach(c => { const o = st.out.get(c); if (o) o.force = true; });
+    else st.results = codes;
     const queue = codes.slice();
     const opts = { ...cfg(), reportDay: reportDay() };   // janela do missing = dia do relatório
     // Detalhe de cada AT: uma consulta por AT, reaproveitada por todos os pedidos dela (cache da sessão).
@@ -758,7 +764,7 @@ window.Parcel = (() => {
         // Cache da sessão: código já consultado com sucesso não é consultado de novo.
         // (o resultado depende do dia do relatório: outro dia consulta de novo)
         const prev = st.out.get(code) || {};
-        if (!prev.ok || prev.day !== opts.reportDay) {
+        if (!prev.ok || prev.force || prev.atErr || prev.day !== opts.reportDay) {
           let r;
           if (!C.CODE_RE.test(code)) r = { ok: false, error: 'Código inválido' };
           else { try { r = await api().parcelTrack(code); } catch (e) { r = { ok: false, error: 'Falha na consulta' }; } }
@@ -767,7 +773,7 @@ window.Parcel = (() => {
               const info = C.extract(r.data, opts);
               const at = info.atBefore && api().parcelAt ? await atOf(info.atBefore.code) : null;
               if (at && !at.ok) st.ats.delete(info.atBefore.code);   // erro não fica em cache
-              st.out.set(code, { ok: true, day: opts.reportDay, raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
+              st.out.set(code, { ok: true, day: opts.reportDay, atErr: !!(at && !at.ok), raw: { tracking_info: r.data, assignment_task: at && at.ok ? at.data : null },
                 row: C.rowOf(code, info, at && at.ok ? at.data : null, at && !at.ok ? at.error : '') });
             } catch (e) { st.out.set(code, { ok: false, error: 'Resposta do SPX em formato inesperado' }); }
           } else if (r.noSession) { job.cancel = true; job.noSession = true; }
@@ -789,9 +795,10 @@ window.Parcel = (() => {
     st.run = null;
     await spxStatus();
     const refused = job.spx && job.refused0 != null ? job.spx.refusals - job.refused0 : 0;
-    const errs = codes.filter(c => st.out.has(c) && !st.out.get(c).ok).length;
-    if (job.noSession) window.SpxSession.open(() => run());
-    else ui.toast(`${job.cancel ? 'Consulta cancelada' : 'Consulta concluída'}${refused ? ` · o SPX segurou as consultas ${refused} vez(es)` : ''}${errs ? ` · ${errs} com erro: clique em Consultar de novo para tentar só eles` : ''}`, !!errs);
+    codes.forEach(c => { const o = st.out.get(c); if (o) delete o.force; });
+    const errs = failed().length;
+    if (job.noSession) window.SpxSession.open(() => run(retry));
+    else ui.toast(`${job.cancel ? 'Consulta cancelada' : retry ? 'Nova tentativa concluída' : 'Consulta concluída'}${refused ? ` · o SPX segurou as consultas ${refused} vez(es)` : ''}${errs ? ` · ${errs} com erro: use "Repetir as com erro"` : ''}`, !!errs);
     paint();
   }
 
@@ -844,6 +851,7 @@ window.Parcel = (() => {
       else if (d.pc === 'import') { $('pcFile').value = ''; $('pcFile').click(); }
       else if (d.pc === 'demo') setData('exemplo-contagem.tsv', demoGrid(), true);
       else if (d.pc === 'run') run();
+      else if (d.pc === 'retry') run(true);
       else if (d.pc === 'cancel') { if (st.run) { st.run.cancel = true; drawBar(); } }
       else if (d.pc === 'export') exportCsv();
       else if (d.pc === 'rclear') { st.rf.q = ''; RF_SETS.forEach(k => st.rf[k].clear()); persist(); drawResultFilters(); drawResultTable(); }
