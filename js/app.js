@@ -506,6 +506,7 @@
       ['ON Hold', f.int(sum(m.rev.onHold)), f.int(m.rev.onHold[i])],
       ['Avaria HUB', f.int(sum(m.rev.avariaHub)), f.int(m.rev.avariaHub[i])],
       ['Avaria SOC', f.int(sum(m.rev.avariaSoc)), f.int(m.rev.avariaSoc[i])],
+      ['Avaria XPT', f.int(sum(m.rev.avariaXpt)), f.int(m.rev.avariaXpt[i])],
       ['Retorno SOC', f.int(sum(m.rev.retornoSoc)), f.int(m.rev.retornoSoc[i])],
       ['Rotas', f.int(sum(m.tr.rotas)), f.int(m.tr.rotas[i])],
       ['ATs no piso', f.int(sum(m.tr.ats)), f.int(m.tr.ats[i])],
@@ -706,18 +707,19 @@
         kpi('Retorno SOC (período)', f.int(sum(rv.retornoSoc)), [sub(`${vals(rv.retornoSoc).filter(v => v > 0).length} envios`)]),
         kpi('Avaria HUB (período)', f.int(sum(rv.avariaHub)), [sub(`${f.int(rv.avariaHub[i])} em ${refLabel().slice(0, 5)}`)]),
         kpi('Avaria SOC (período)', f.int(sum(rv.avariaSoc)), [sub(`${f.int(rv.avariaSoc[i])} em ${refLabel().slice(0, 5)}`)]),
-        kpi('Avarias por 10 mil recebidos', f.dec(ratio(sum(rv.avariaHub) + sum(rv.avariaSoc), sum(m.rec.total)) * 10000, 1), [sub('HUB + SOC ÷ volume')]),
+        kpi('Avaria XPT (período)', f.int(sum(rv.avariaXpt)), [sub(`${f.int(rv.avariaXpt[i])} em ${refLabel().slice(0, 5)} · categoria à parte`)]),
+        kpi('Avarias por 10 mil recebidos', f.dec(ratio(sum(rv.avariaHub) + sum(rv.avariaSoc), sum(m.rec.total)) * 10000, 1), [sub('HUB + SOC ÷ volume (sem XPT)')]),
       ].join('')}</div>
       <div class="grid">
         ${card('rvHold', 'On Hold', 'Pacotes em On Hold por dia · tracejado = média')}
         ${card('rvRet', 'Retorno SOC', 'Pacotes devolvidos ao SOC')}
-        ${card('rvAv', 'Avarias: HUB × SOC', 'Quantidade por dia', { w: 12 })}
+        ${card('rvAv', 'Avarias: HUB × SOC × XPT', 'Quantidade por dia', { w: 12 })}
       </div>`;
     const mh = avgPos(rv.onHold);
     H.render('rvHold', { labels: labels(), datasets: [H.bar('ON Hold', sl(rv.onHold), H.color(2)), H.ref(`Média ${f.int(mh)}`, mh, n)] });
     H.render('rvRet', { labels: labels(), datasets: [H.bar('Retorno SOC', sl(rv.retornoSoc), H.color(1))] });
     H.render('rvAv', { labels: labels(), datasets: [
-      H.bar('Avaria HUB', sl(rv.avariaHub), H.color(2)), H.bar('Avaria SOC', sl(rv.avariaSoc), H.color(1)),
+      H.bar('Avaria HUB', sl(rv.avariaHub), H.color(2)), H.bar('Avaria SOC', sl(rv.avariaSoc), H.color(1)), H.bar('Avaria XPT', sl(rv.avariaXpt), H.color(4)),
     ] });
   }
 

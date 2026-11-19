@@ -373,10 +373,10 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   = AM + PM; total do inventário = soma do aging. Gerente não vê a tela. **HSE do mês** (no fim da lista de áreas): colaboradores, checklists, ginástica laboral, DDS e links, gravados por mês na guia HSE; "Copiar do mês anterior" traz a estrutura sem os status.
 - **Sugestões no lançamento** (como no report: o campo ainda sem valor já vem preenchido, com borda verde e a origem; digitar substitui; salvar grava): Recebimento AM/PM pelo
   Recebimento por hora, separado pela janela do AM (ex.: 22:00 da véspera até 05:30 = AM; de 05:30 até 22:00 = PM; cada
-  hora conta pelo horário de início); Avaria HUB/SOC pela tela Avarias do dia (origem); Rotas, SPR (pedidos iniciais ÷
+  hora conta pelo horário de início); Avaria HUB/SOC/XPT pela tela Avarias do dia (origem; XPT é categoria à parte, fora do "por 10 mil recebidos"); Rotas, SPR (pedidos iniciais ÷
   rotas) e ATs no piso (rotas noshow) pelo Audit de gestão do dia, com o detalhe por turno.
 - **Validação de noshow** (Audit de gestão → Rotas noshow): Confirmar ou "Não é noshow" em cada rota (guia NoShow da
-  planilha do hub). "Não é noshow" deixa de contar no indicador, no report e na sugestão; "a validar" ainda conta.
+  planilha do hub). "Não é noshow" deixa de contar no indicador, no report e na sugestão; "a validar" ainda conta, e o card "Rotas noshow" mostra o lembrete 🔔 "N rota(s) a validar" (clique leva à lista).
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

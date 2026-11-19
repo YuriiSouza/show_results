@@ -217,6 +217,7 @@ window.Audit = (() => {
     const reps = st.shift === 'ALL' ? inPeriod : inPeriod.filter(r => r.shift === st.shift);
     const days = [...new Set(inPeriod.map(r => r.date))].sort();
     const a = agg(reps);
+    const nsPend = a.noshowList.filter(x => !x.val).length;   // rotas noshow ainda sem validação (contam como noshow)
     const prev = previous();
     const pa = prev ? agg(prev.reps) : null;
     const meta = ui.meta.missingMax;
@@ -305,7 +306,8 @@ window.Audit = (() => {
         ui.kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
         ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com não bipados</span>`]),
         ui.kpi(`Rotas noshow ${HT('noshow')}`, a.noshow == null ? '—' : f.int(a.noshow), [a.noshow == null ? '<span>reimporte o relatório para calcular</span>'
-          : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`]),
+          : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`,
+          nsPend ? `<button class="ns-alert" data-ns-goto title="Rotas noshow ainda sem validação contam como noshow">🔔 ${nsPend} rota(s) a validar</button>` : '']),
         ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), `<span>${a.ops} operadores</span>`]),
         ui.kpi(`ATs acima de ${fmtDur(TMAX())}`, f.int(a.over), [a.timed ? `<span class="pill ${a.over ? 'bad' : 'good'}">${a.over ? '⚠' : '✓'} ${f.pct(ratio(a.over, a.timed), 0)} das ATs</span>` : '',
           `<span>+${fmtDur(a.excess)} acima da meta</span>`]),
@@ -537,6 +539,8 @@ window.Audit = (() => {
     bound = true;
     const main = ui.main;
     main.addEventListener('click', async e => {
+      const go = e.target.closest('[data-ns-goto]');
+      if (go && ui.isActive()) { const c = main.querySelector('[data-ns]'); if (c) c.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       const ns = e.target.closest('[data-ns]');
       if (ns && ui.isActive()) {
         const [date, shift, at, val] = ns.dataset.ns.split('|');

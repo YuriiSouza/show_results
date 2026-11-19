@@ -49,6 +49,7 @@ window.buildModel = function buildModel(raw) {
     onHold: pick(g('reversa', 'ON Hold'), g('gerencial', 'ON Hold')),
     avariaHub: pick(g('reversa', 'Avaria HUB'), g('gerencial', 'Avaria HUB')),
     avariaSoc: pick(g('reversa', 'Avaria SOC'), g('gerencial', 'Avaria SOC')),
+    avariaXpt: pick(g('reversa', 'Avaria XPT'), g('gerencial', 'Avaria XPT')),
     retornoSoc: pick(g('reversa', 'Retorno SOC'), g('gerencial', 'Retorno SOC')),
   };
 
@@ -226,7 +227,7 @@ window.MODEL_SERIES = (() => {
     'hc.dwAM', 'hc.dwPM', ...blk('hc.am', HC), ...blk('hc.pm', HC),
     ...blk('hc.total', ['hc', 'abs', 'dsr', 'ferias', 'diaristas', 'desligado', 'afastamento', 'presente']),
     'inv.aging.0', 'inv.aging.1', 'inv.aging.2', 'inv.aging.3', 'inv.aging.4', 'inv.total', ...blk('inv.ma.T1', MA), ...blk('inv.ma.T3', MA),
-    ...blk('rev', ['onHold', 'avariaHub', 'avariaSoc', 'retornoSoc']),
+    ...blk('rev', ['onHold', 'avariaHub', 'avariaSoc', 'avariaXpt', 'retornoSoc']),
     ...blk('tr', ['rotas', 'ats', 'spr', 'ds', 'dsD0']),
   ];
 })();
@@ -266,7 +267,7 @@ window.modelFromRows = (rows, { from, to, hseByMonth = {} } = {}) => {
     rec: Object.fromEntries(['am', 'pm', 'total', 'xptCarregado', 'packedXpt', 'projetado'].map(k => [k, arr()])),
     hc: { dwAM: arr(), dwPM: arr(), am: HC(), pm: HC(), total: Object.fromEntries(['hc', 'abs', 'dsr', 'ferias', 'diaristas', 'desligado', 'afastamento', 'presente'].map(k => [k, arr()])) },
     inv: { aging: window.AGING_NAMES.map(name => ({ name, data: arr() })), total: arr(), ma: { T1: MA(), T3: MA() } },
-    rev: Object.fromEntries(['onHold', 'avariaHub', 'avariaSoc', 'retornoSoc'].map(k => [k, arr()])),
+    rev: Object.fromEntries(['onHold', 'avariaHub', 'avariaSoc', 'avariaXpt', 'retornoSoc'].map(k => [k, arr()])),
     tr: Object.fromEntries(['rotas', 'ats', 'spr', 'ds', 'dsD0'].map(k => [k, arr()])),
   };
   rows.forEach(r => { const i = index.get(r.iso), a = window.seriesAt(base, r.path); if (i != null && a) a[i] = r.v; });

@@ -34,7 +34,7 @@ window.Lanc = (() => {
       { kind: 'matrix', title: 'MA', cols: ['T1', 'T3'], rows: MAK.map(([k, l]) => ({ label: l, cells: [[`inv.ma.T1.${k}`], [`inv.ma.T3.${k}`]] })) },
     ] },
     { id: 'rev', title: 'Reversa', desc: 'Pacotes da reversa no dia.', sections: [
-      { kind: 'list', rows: [['rev.onHold', 'On hold'], ['rev.avariaHub', 'Avaria HUB'], ['rev.avariaSoc', 'Avaria SOC'], ['rev.retornoSoc', 'Retorno SOC']] },
+      { kind: 'list', rows: [['rev.onHold', 'On hold'], ['rev.avariaHub', 'Avaria HUB'], ['rev.avariaSoc', 'Avaria SOC'], ['rev.avariaXpt', 'Avaria XPT'], ['rev.retornoSoc', 'Retorno SOC']] },
     ] },
     { id: 'tr', title: 'Transporte', desc: 'Rotas, ATs e indicadores de entrega do dia.', sections: [
       { kind: 'list', rows: [['tr.rotas', 'Rotas'], ['tr.ats', 'ATs no piso'], ['tr.spr', 'SPR', 'dec'], ['tr.ds', 'DS', 'pct'], ['tr.dsD0', 'DS D0', 'pct']] },
@@ -106,7 +106,7 @@ window.Lanc = (() => {
     const list = B().avariaList().filter(a => a.date === iso);
     const n = o => list.filter(a => a.origem === o).length;
     const how = o => (n(o) ? `Avarias do dia com origem ${o}` : 'Nenhuma avaria registrada no dia com essa origem');
-    return { 'rev.avariaHub': { v: n('Hub'), how: how('Hub') }, 'rev.avariaSoc': { v: n('SOC'), how: how('SOC') } };
+    return { 'rev.avariaHub': { v: n('Hub'), how: how('Hub') }, 'rev.avariaSoc': { v: n('SOC'), how: how('SOC') }, 'rev.avariaXpt': { v: n('XPT'), how: how('XPT') } };
   }
   async function auditSug(iso) {
     const A = window.Audit;
