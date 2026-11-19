@@ -345,6 +345,32 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 - A sub-aba **Histórico (operadores)** mostra, para o período do filtro do app, os pacotes por **operador do missing**
   (quantidade, dias, situação), para o líder dar o feedback, e a lista de pacotes com filtros. Funciona também no mobile.
 
+## Multi-hub (em teste local)
+
+Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **planilha Central** (`js/central.js`):
+- **Usuarios**: e-mail da conta Google, nome, papel (Admin, Gerente, Qualidade, Site líder, Líder, Analista), hubs e status.
+  Admin vê todos os hubs; Gerente e Qualidade podem ter vários; os demais ficam num hub só. Gerente é **só consulta**.
+- **Hubs**: ID, nome, cidade e configuração (estação do SPX, código no Sort Code, janelas e metas).
+- **Arquivos**: a planilha de dados de cada hub por ano. Ela substitui a planilha-base: mapa de piso, erros, avarias,
+  Parcel, recebimento por hora, reports e Audit são lidos e gravados na planilha do hub escolhido.
+- Vale a linha mais recente de cada chave (nada é apagado). Planilha Central vazia: quem abre primeiro vira Admin e o hub
+  de `CENTRAL_SEED` é cadastrado com a sua planilha.
+- Quem não está cadastrado (ou está inativo) vê "Acesso não liberado". Quem tem mais de um hub troca no topo.
+- Tela **Administração → Usuários e hubs** (só Admin): cadastra usuários, hubs e vincula a planilha de dados do ano
+  (o app confere o acesso e cria as guias).
+- Segurança: compartilhe a Central como **Leitor** com todos e **Editor** só com os admins; cada planilha de hub só com
+  a equipe do hub (Editor) e gerentes (Leitor).
+- **Indicadores** (o que vinha das planilhas mensais) ficam na guia `Indicadores` da planilha do hub: uma linha por dia e
+  indicador (`rec.total`, `hc.am.abs`, `inv.aging.2`…; ver `MODEL_SERIES` em `js/model.js`), vale a mais recente. O HSE do
+  mês fica na guia `HSE`. O app **não lê mais as planilhas mensais**: em Administração → Hubs → **Importar planilhas
+  mensais** os dados são copiados (as mensais só são lidas; repetir só grava o que mudou).
+- Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
+  a hora de início da AT do Parcel.
+- **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que
+  abre o **Consolidado dos hubs**: volume, PHD, DS, % ABS, avarias, erros de piso e Parcel sem AT de cada hub no período.
+- Proteção: a planilha-base antiga e as planilhas mensais estão em `READ_ONLY_SHEETS` (`electron/main.js` e
+  `js/mobile-api.js`): qualquer gravação nelas é recusada.
+
 ## Parcel: AT do dia e report diário
 
 - A **AT** de um pacote é a mais próxima antes do missing e só vale se for **a partir das 21:00 do dia anterior ao relatório** (horário de Brasília) e antes do missing

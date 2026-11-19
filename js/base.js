@@ -8,7 +8,13 @@
 window.Base = (() => {
   const api = window.hubApi || null;
   const C = window.APP_CONFIG;
-  const ID = (String(C.BASE_SHEET_URL || '').match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1] || '';
+  const LEGACY_ID = (String(C.BASE_SHEET_URL || '').match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1] || '';
+  // Multi-hub (js/central.js): a planilha-base é a planilha de dados do hub escolhido, no ano atual.
+  const multi = () => !!(window.Central && window.Central.on());
+  const curId = () => (multi() ? window.Central.dataId() : LEGACY_ID);
+  // Para onde vai uma gravação da fila. Multi-hub: NUNCA a planilha-base antiga (ela só é lida); o que ficou na fila
+  // de antes vai para a planilha do hub atual.
+  const target = op => (multi() ? (op.id && op.id !== LEGACY_ID ? op.id : curId()) : (op.id || LEGACY_ID));
   const CHUNK = 45000; // limite seguro por célula (o Google aceita até 50 mil caracteres)
 
   const ls = {
@@ -23,6 +29,8 @@ window.Base = (() => {
   let erros = new Map();   // id -> { id, date, turno, tipo, code, rota, time, resp, status, user, at, detail }
   let recebs = new Map();  // "iso|turno" -> { date, turno, status, user, at, inicio, meta, res }
   let parcels = new Map(); // "iso" -> { date, status, user, at, items: [{ c, s, op, mt, at, cage, dn, di, dest, dmg }] }
+  let indic = new Map();   // "iso|indicador" -> { v (null = apagado), user, at }
+  let hses = new Map();    // "AAAA-MM" -> { month, user, at, hse }
   let avarias = new Map(); // id -> { id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat, acao, evid, status, user, at, detail }
   let loadedAt = 0;
   let loading = null;
@@ -37,16 +45,19 @@ window.Base = (() => {
   const ready = readAuth();
   // Relê o login (chamado a cada atualização): entrar com o Google sem reabrir o app também ativa a planilha-base.
   const recheck = () => readAuth();
-  const enabled = () => !!(api && api.baseRead && ID && signedIn && active);
+  const enabled = () => !!(api && api.baseRead && curId() && signedIn && active);
   const setActive = on => { active = !!on; if (!enabled()) setStatus('off', ''); };
   const setStatus = (state, msg = '') => { status.state = state; status.msg = msg; status.at = new Date(); listeners.forEach(fn => fn(status)); };
   const clean = err => String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
   // ---------- Usuário ----------
-  const user = () => ls.get('user', '');
+  const user = () => { const m = multi() && window.Central.me(); return (m && (m.nome || m.email)) || ls.get('user', ''); };
   const setUser = name => { ls.set('user', String(name || '').trim()); listeners.forEach(fn => fn(status)); };
   let askUser = null; // definido pelo app (abre o diálogo de nome)
   async function ensureUser() {
+    // Gerente (e outros papéis só de consulta) não grava nada.
+    if (multi() && window.Central.readOnly()) throw new Error(`Seu acesso (${window.Central.role()}) é só de consulta: nada foi salvo.`);
+    if (multi() && !curId()) throw new Error('Este hub ainda não tem planilha de dados para o ano: peça ao administrador.');
     if (user()) return user();
     if (askUser) { const n = await askUser(); if (n) setUser(n); }
     return user() || 'Sem nome';
@@ -152,7 +163,30 @@ window.Base = (() => {
     try { detail = json ? JSON.parse(json) : {}; } catch (e) { detail = {}; }
     avarias.set(id, { id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat: trat || 'Aberto', acao, evid, status: st, user: who, at, detail });
   }
-  const APPLY = { Avarias: applyAvariaRow, RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
+  // Indicadores: Data, Indicador, Valor, Status, Usuário, Gravado em, Origem. Vale a linha mais recente de cada dia/indicador.
+  function applyIndRow(r) {
+    const c = r.map(x => (x == null ? '' : x));
+    const [date, path, v, st, who, at] = c;
+    const iso = String(date).trim(), key = `${iso}|${String(path).trim()}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !path) return;
+    const cur = indic.get(key), when = String(at);
+    if (cur && when < cur.at) return;
+    const n = v === '' || st === 'excluido' ? null : Number(v);
+    indic.set(key, { v: n != null && isFinite(n) ? n : null, user: String(who), at: when });
+  }
+  // HSE: Mês, Status, Usuário, Gravado em, Origem, HSE (JSON 1..3).
+  const HSE_JSON_AT = 5, HSE_CHUNKS = 3;
+  function applyHseRow(r) {
+    const c = r.map(x => (x == null ? '' : String(x)));
+    const [month, st, who, at] = c;
+    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    const cur = hses.get(month);
+    if (cur && at < cur.at) return;
+    let hse = null;
+    try { const js = c.slice(HSE_JSON_AT).join(''); hse = js ? JSON.parse(js) : null; } catch (e) { return; }
+    hses.set(month, { month, user: who, at, hse: st === 'excluido' ? null : hse });
+  }
+  const APPLY = { Indicadores: applyIndRow, HSE: applyHseRow, Avarias: applyAvariaRow, RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
 
   // Ao entrar numa tela, só relê a planilha-base se a última leitura tiver mais de PASSIVE_TTL (o Atualizar do topo, a
   // atualização automática e o salvamento do mapa forçam a leitura). Cada leitura traz todas as abas da planilha-base.
@@ -165,11 +199,14 @@ window.Base = (() => {
     loading = (async () => {
       try {
         setStatus('sync', 'Sincronizando…');
-        if (!ensured) { await api.baseEnsure(ID); ensured = true; }
+        const ID = curId();
+        if (ensured !== ID) { await api.baseEnsure(ID); ensured = ID; }
         await flush();
         const data = await api.baseRead(ID);
         reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapaHist.clear(); mapas = new Map(); erros = new Map();
-        avarias = new Map();
+        avarias = new Map(); indic = new Map(); hses = new Map();
+        (data.indicadores || []).forEach(applyIndRow);
+        (data.hse || []).forEach(applyHseRow);
         data.reports.forEach(applyReportRow);
         data.audit.forEach(applyAuditRow);
         (data.parcel || []).forEach(applyParcelRow);
@@ -177,12 +214,12 @@ window.Base = (() => {
         (data.erros || []).forEach(applyErroRow);
         (data.receb || []).forEach(applyRecebRow);
         (data.avarias || []).forEach(applyAvariaRow);
-        // O que ainda está na fila (não enviado) vale por cima do que veio da planilha.
-        ls.get('basePending', []).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
+        // O que ainda está na fila (não enviado) vale por cima do que veio da planilha (só o que é desta planilha).
+        ls.get('basePending', []).filter(op => target(op) === ID).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
         loadedAt = Date.now();
         const pend = ls.get('basePending', []).length;
         setStatus(pend ? 'pending' : 'ok', pend ? `${pend} envio(s) pendente(s)` : 'Sincronizado');
-        migrateOnce();
+        if (!multi()) migrateOnce();   // multi-hub: a migração para a planilha do hub é feita à parte
         return true;
       } catch (err) {
         setStatus('error', clean(err));
@@ -195,7 +232,7 @@ window.Base = (() => {
   // ---------- Escrita (fila) ----------
   function queue(tab, rows) {
     const pend = ls.get('basePending', []);
-    pend.push({ tab, rows });
+    pend.push({ tab, rows, id: curId() });   // cada gravação vai para a planilha do hub em que foi feita
     ls.set('basePending', pend);
     flush().catch(() => {});
   }
@@ -205,8 +242,8 @@ window.Base = (() => {
     flushing = (async () => {
       if (!ls.get('basePending', []).length) return;
       setStatus('sync', 'Enviando…');
+      const sent = new Set([ensured]);
       try {
-        if (!ensured) { await api.baseEnsure(ID); ensured = true; }
         // Envia em lote: junta as gravações da fila por aba (uma chamada por aba, ~2 MB no máximo por vez). Relê a fila a
         // cada lote: gravações feitas durante o envio também saem. Repetir uma linha é inofensivo (vale a última gravação).
         let pend;
@@ -214,8 +251,13 @@ window.Base = (() => {
           let n = 0, size = 0;
           while (n < pend.length && (n === 0 || size < 2e6)) { size += JSON.stringify(pend[n].rows).length; n++; }
           const byTab = new Map();
-          pend.slice(0, n).forEach(op => byTab.set(op.tab, [...(byTab.get(op.tab) || []), ...op.rows]));
-          for (const [tab, rows] of byTab) await api.baseAppend(ID, tab, rows);
+          pend.slice(0, n).forEach(op => { const k = `${target(op)}|${op.tab}`; byTab.set(k, [...(byTab.get(k) || []), ...op.rows]); });
+          for (const [k, rows] of byTab) {
+            const [id, tab] = k.split('|');
+            if (!id) throw new Error('Sem planilha de dados do hub para gravar.');
+            if (!sent.has(id)) { await api.baseEnsure(id); sent.add(id); }
+            await api.baseAppend(id, tab, rows);
+          }
           ls.set('basePending', ls.get('basePending', []).slice(n));
         }
         setStatus('ok', 'Salvo na planilha-base');
@@ -399,6 +441,51 @@ window.Base = (() => {
     queue('Avarias', [row]);
   }
 
+  // ---------- Indicadores do dia e HSE (o que vinha das planilhas mensais) ----------
+  // Modelo do dashboard montado da guia Indicadores (todos os dias do 1º lançamento até hoje). Sem nada: null.
+  function indicadoresModel() {
+    const rows = [];
+    indic.forEach((x, k) => { if (x.v == null) return; const [iso, path] = k.split('|'); rows.push({ iso, path, v: x.v }); });
+    if (!rows.length) return null;
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const last = rows.reduce((m, r) => (r.iso > m ? r.iso : m), '');
+    const hseByMonth = {};
+    hses.forEach(h => { if (h.hse) hseByMonth[h.month] = h.hse; });
+    return window.modelFromRows(rows, { to: last > today ? last : today, hseByMonth });
+  }
+  // Linhas a acrescentar para gravar "items" ({ iso, path, v | null }) sobre o que já existe (Map como "indic"): só o que mudou.
+  function indDiff(current, items, who, at, origem) {
+    const out = [];
+    items.forEach(({ iso, path, v }) => {
+      const cur = current.get(`${iso}|${path}`), now = v == null || v === '' ? null : Number(v);
+      if ((cur ? cur.v : null) === now) return;
+      out.push([iso, path, now == null ? '' : now, now == null ? 'excluido' : 'ativo', who, at, origem || device()]);
+      current.set(`${iso}|${path}`, { v: now, user: who, at });
+    });
+    return out;
+  }
+  async function indicadoresSave(items, origem) {
+    const rows = indDiff(new Map(indic), items, await ensureUser(), nowIso(), origem);
+    rows.forEach(applyIndRow);
+    for (let k = 0; k < rows.length; k += 5000) queue('Indicadores', rows.slice(k, k + 5000));
+    return rows.length;
+  }
+  const hseRow = (month, hse, who, at, origem) => {
+    const json = JSON.stringify(hse || null), chunks = [];
+    for (let k = 0; k < json.length; k += CHUNK) chunks.push(json.slice(k, k + CHUNK));
+    if (chunks.length > HSE_CHUNKS) throw new Error('HSE grande demais para a planilha.');
+    return [month, 'ativo', who, at, origem || device(), ...chunks];
+  };
+  // Para a importação das planilhas mensais numa planilha de hub qualquer (Administração): lê o que ela já tem.
+  function parseExisting(data) {
+    const keep = [indic, hses];
+    indic = new Map(); hses = new Map();
+    (data.indicadores || []).forEach(applyIndRow); (data.hse || []).forEach(applyHseRow);
+    const out = { indic, hses };
+    [indic, hses] = keep;
+    return out;
+  }
+
   // ---------- Migração única dos dados que estavam só neste aparelho ----------
   async function migrateOnce() {
     if (ls.get('baseMigrated', false) || !api) return;
@@ -432,6 +519,7 @@ window.Base = (() => {
     recebList, recebGet, recebSave,
     mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
     avariaList, avariaSave, avariaDelete,
-    sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
+    indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hasIndicadores: () => indic.size > 0,
+    sheetUrl: () => (curId() ? `https://docs.google.com/spreadsheets/d/${curId()}/edit` : ''),
   };
 })();

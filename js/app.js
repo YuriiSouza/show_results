@@ -34,6 +34,8 @@
     rpP1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="12" cy="15" r="3"/><path d="M12 13.5V15l1 .8"/>',
     rpF1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 15l2 2 4-4"/>',
     rpAll: '<path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10M15 10v10"/>',
+    consol: '<rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>',
+    admin: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="18" cy="16" r="2.5"/><path d="M18 11.5v2M18 18.5v2M13.5 16h2M20.5 16h2"/>',
     report: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
   };
   const TABS = [
@@ -55,6 +57,9 @@
     { id: 'rpP3', group: 'Reports', label: 'Parcial T3', daily: true, report: true, render: () => window.Reports.render('rpP3', rpCtx) },
     { id: 'rpF3', group: 'Reports', label: 'Fechamento T3', daily: true, report: true, render: () => window.Reports.render('rpF3', rpCtx) },
     { id: 'rpAll', group: 'Reports', label: 'Report Geral', daily: true, report: true, render: () => window.Reports.render('rpAll', rpCtx) },
+    // Multi-hub: números de todos os hubs da pessoa (Admin, Gerente e Qualidade) e cadastro de usuários e hubs (Admin).
+    { id: 'consol', group: 'Multi-hub', label: 'Consolidado dos hubs', daily: true, visible: () => !!(window.Central && window.Central.on() && window.Central.MULTI.includes(window.Central.role()) && window.Central.myHubs().length), render: () => window.Consol.render(csCtx) },
+    { id: 'admin', group: 'Multi-hub', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.isAdmin()), render: () => window.Admin.render(adCtx) },
   ];
 
 
@@ -74,11 +79,21 @@
 
   // Links configurados ({ 'AAAA-MM': link }). Um link antigo (antes da lista de meses) vale para o mês atual.
   // Os links padrão do app (config.js) valem para todos; o que o usuário salvar para um mês tem prioridade.
+  const visTabs = () => TABS.filter(t => !t.visible || t.visible());
   const configuredMonths = cfg => {
-    const months = { ...(C.DEFAULT_MONTHS || {}), ...(cfg.months || {}) };
+    const months = { ...(C.MONTHLY_SHEETS_IMPORT || {}), ...(cfg.months || {}) };
     if (!Object.keys(cfg.months || {}).length && cfg.spreadsheetUrl) months[ym(new Date())] = cfg.spreadsheetUrl;
     return months;
   };
+
+  // Hub sem planilhas mensais: modelo vazio com os dias do ano até hoje (as telas da planilha-base funcionam normalmente).
+  function emptyModel() {
+    const m = window.buildModel({ sheets: {} });
+    const p = n => String(n).padStart(2, '0'), today = new Date(), dates = [];
+    for (let d = new Date(today.getFullYear(), 0, 1); d <= today; d.setDate(d.getDate() + 1)) dates.push(`${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`);
+    m.dates = dates;
+    return m;
+  }
 
   // Lê uma planilha (um mês).
   async function fetchOne(url) {
@@ -91,6 +106,16 @@
   async function fetchData({ full = false } = {}) {
     if (!api || LS.get('demo', '') === '1') return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
     const cfg = await api.getConfig();
+    const CT = window.Central;
+    // Multi-hub: os indicadores vêm da guia Indicadores da planilha do hub (as planilhas mensais não são mais lidas).
+    if (CT && CT.on() && cfg.signedIn && CT.hub()) {
+      const B = window.Base;
+      await B.ready; await B.recheck(); B.setActive(true);
+      const ok = await B.load(true);
+      const model = B.indicadoresModel() || emptyModel();
+      const f = CT.dataFile();
+      return { model, demo: false, fromBase: true, sources: [{ month: '', ok: !!ok, name: f ? `${CT.hub().nome || CT.hub().id} ${f.ano}` : '', error: ok ? '' : (B.status.msg || 'Falha ao ler a planilha do hub') }] };
+    }
     const months = configuredMonths(cfg);
     const keys = Object.keys(months).sort();
     if (!cfg.signedIn || !keys.length) return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
@@ -129,14 +154,29 @@
     return { model: window.mergeModels(models), demo: false, sources };
   }
 
+  // Multi-hub: sem cadastro (ou sem hub) o app não carrega nada e explica o que fazer.
+  function accessBlock() {
+    const CT = window.Central;
+    if (!CT || !CT.on()) return '';
+    const st = CT.state(), mail = esc(CT.email());
+    const box = (t, p) => `<div class="access-block card"><h2>${t}</h2><p>${p}</p><p><button class="btn-primary solid" data-access-retry>Tentar de novo</button></p></div>`;
+    if (st === 'nouser') return box('Acesso não liberado', `A conta <b>${mail}</b> não está cadastrada no app. Peça ao administrador para cadastrar este e-mail e o seu hub.`);
+    if (st === 'inactive') return box('Acesso desativado', `O acesso da conta <b>${mail}</b> foi desativado. Fale com o administrador.`);
+    if (st === 'nohub') return box('Sem hub liberado', `A conta <b>${mail}</b> está cadastrada, mas sem nenhum hub ativo. Peça ao administrador para liberar o seu hub.`);
+    if (st === 'error') return box('Não foi possível ler a planilha Central', `${esc(CT.error())}<br>Confira a internet e se a planilha Central está compartilhada com <b>${mail}</b>.`);
+    return '';
+  }
+
   async function refresh({ silent = false, full = false } = {}) {
     if (state.loading) return;
+    const blocked = accessBlock();
+    if (blocked) { main.innerHTML = blocked; $('tabs').innerHTML = ''; $('filters').classList.add('hidden'); setStatus('err', 'Sem acesso'); return; }
     state.loading = true;
     setStatus('loading', full ? 'Recarregando todos os meses…' : 'Atualizando…');
     $('btnRefresh').classList.add('loading');
     try {
-      const { model, demo, sources } = await fetchData({ full });
-      if (window.Base) { await window.Base.ready; await window.Base.recheck(); window.Base.setActive(!demo); await window.Base.load(true); }
+      const { model, demo, sources, fromBase } = await fetchData({ full });
+      if (window.Base && !fromBase) { await window.Base.ready; await window.Base.recheck(); window.Base.setActive(!demo); await window.Base.load(true); }
       state.model = model;
       state.demo = demo;
       state.sources = sources;
@@ -145,17 +185,18 @@
       $('demoBanner').hidden = !demo;
       const okMonths = sources.filter(x => x.ok);
       const bad = sources.filter(x => x.error);
-      state.sheetName = demo ? '' : okMonths.length === 1 ? okMonths[0].name : `${okMonths.length} meses conectados`;
+      state.sheetName = demo ? '' : fromBase ? (okMonths[0] || {}).name || '' : okMonths.length === 1 ? okMonths[0].name : `${okMonths.length} meses conectados`;
       setConn(demo ? 'demo' : bad.length ? 'err' : 'ok', demo ? 'Usando dados de exemplo'
         : bad.length ? `${okMonths.length} ok · ${bad.length} com erro` : state.sheetName);
       setStatus(bad.length ? 'err' : 'ok', (bad.length ? 'Atualizado com avisos às ' : 'Atualizado às ') + state.updatedAt.toLocaleTimeString('pt-BR'));
-      const span = okMonths.length ? `${shortMonth(okMonths[0].month)} a ${shortMonth(okMonths[okMonths.length - 1].month)}` : '';
+      const span = okMonths.length && !fromBase ? `${shortMonth(okMonths[0].month)} a ${shortMonth(okMonths[okMonths.length - 1].month)}` : '';
       $('footInfo').textContent = demo
         ? `Fonte: dados de exemplo · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`
+        : fromBase ? `Fonte: planilha ${state.sheetName || 'do hub'} · ${state.model.dates.length} dias · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`
         : `Fonte: ${okMonths.length} planilha(s) (${span}) · ${state.model.dates.length} dias · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`;
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#rpStage');
       if (!typing) renderAll();
-      if (bad.length) toast(`${bad.length} mês(es) com erro: ${bad.map(x => `${monthName(x.month)} — ${x.error}`).join(' · ')}`, true);
+      if (bad.length) toast(fromBase ? bad[0].error : `${bad.length} mês(es) com erro: ${bad.map(x => `${monthName(x.month)} — ${x.error}`).join(' · ')}`, true);
       else if (!silent) toast(demo ? 'Dados de exemplo carregados' : full ? 'Todos os meses recarregados' : 'Dados atualizados da planilha');
     } catch (err) {
       console.error(err);
@@ -317,7 +358,7 @@
   // ================= Render =================
   function renderTabs() {
     let group = '';
-    $('tabs').innerHTML = TABS.map(t => {
+    $('tabs').innerHTML = visTabs().map(t => {
       const g = t.group !== group ? `<div class="nav-group">${t.group}</div>` : '';
       group = t.group;
       return `${g}<button class="nav-item" data-tab="${t.id}" aria-current="${t.id === state.tab ? 'page' : 'false'}" title="${t.label}">
@@ -362,11 +403,15 @@
   // Contexto da tela Avarias (js/avarias.js).
   const avCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'avarias', range: () => uiCtx.range() };
 
+  // Contexto da Administração (js/admin.js).
+  const csCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'consol', range: () => uiCtx.range() };
+  const adCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'admin', refresh: () => refresh() };
+
   function renderAll() {
     if (!state.model) return;
-    if (!TABS.some(t => t.id === state.tab)) state.tab = 'overview';
+    if (!visTabs().some(t => t.id === state.tab)) state.tab = 'overview';
     renderTabs();
-    const tab = TABS.find(t => t.id === state.tab);
+    const tab = visTabs().find(t => t.id === state.tab);
     $('filters').classList.toggle('hidden', !tab.daily || !!tab.report);
     document.body.classList.toggle('report-mode', !!tab.report);
     document.body.classList.toggle('audit-mode', tab.id === 'audit');
@@ -375,7 +420,7 @@
     tab.render();
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'consol' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);
@@ -811,8 +856,8 @@
     if (on) {
       if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
       state.tvTimer = setInterval(() => {
-        const k = TABS.findIndex(t => t.id === state.tab);
-        selectTab(TABS[(k + 1) % TABS.length].id);
+        const tv = visTabs().filter(t => t.id !== 'admin'), k = tv.findIndex(t => t.id === state.tab);
+        selectTab(tv[(k + 1) % tv.length].id);
       }, (C.TV_ROTATE_SEC || 30) * 1000);
       toast('Modo TV ligado — Esc para sair');
     } else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -827,6 +872,23 @@
   function bind() {
     $('hubTitle').textContent = C.HUB_NAME;
     $('hubSub').textContent = `${C.HUB_CITY} · Painel operacional`;
+    // Multi-hub: quem tem mais de um hub troca por aqui (recarrega o app com os dados do hub escolhido).
+    const CT = window.Central;
+    if (CT && CT.on() && CT.state() !== 'off') {
+      // Quem acompanha vários hubs (Admin, Gerente, Qualidade) sempre vê o seletor, com a opção do consolidado.
+      const list = CT.myHubs(), cur = CT.hub(), multiRole = CT.MULTI.includes(CT.role());
+      if (cur && (list.length > 1 || multiRole)) {
+        $('hubTitle').innerHTML = `<select class="hub-sel" id="hubSel" aria-label="Hub">${list.map(h => `<option value="${esc(h.id)}" ${h.id === cur.id ? 'selected' : ''}>${esc(h.nome || h.id)}</option>`).join('')}
+          ${multiRole ? '<option value="__all">Todos os hubs (consolidado)</option>' : ''}</select>`;
+        $('hubSel').addEventListener('change', e => {
+          if (e.target.value === '__all') { e.target.value = cur.id; selectTab('consol'); return; }
+          CT.setHub(e.target.value); location.reload();
+        });
+      }
+      const me = CT.me();
+      if (me) $('hubSub').textContent = `${C.HUB_CITY ? C.HUB_CITY + ' · ' : ''}${me.nome || me.email} · ${me.papel}${CT.readOnly() ? ' (só consulta)' : ''}`;
+      if (CT.state() === 'nofile') toast(`O hub ${cur ? cur.id : ''} ainda não tem planilha de dados de ${CT.year()}: nada será salvo até o administrador vincular uma.`, true);
+    }
     document.title = `Dashboard ${C.HUB_NAME}`;
 
     $('btnRefresh').addEventListener('click', () => refresh());
@@ -970,6 +1032,13 @@
     const openSettings = async () => {
       msg('');
       baseInfo();
+      // Multi-hub: sem links de planilhas mensais; os dados vêm da planilha do hub (Administração → Hubs).
+      const multi = !!(window.Central && window.Central.on() && window.Central.state() !== 'off');
+      document.querySelectorAll('#settings [data-months]').forEach(el => { el.hidden = multi; });
+      if (multi) {
+        const CT = window.Central, h = CT.hub(), f = CT.dataFile();
+        $('baseTitle').textContent = `☁️ Planilha de dados${h ? ` · ${h.nome || h.id}` : ''}${f ? ` ${f.ano}` : ''}`;
+      }
       $('cfgCurrent').hidden = !state.sheetName;
       $('cfgCurrent').innerHTML = state.sheetName ? `Conectado agora: <b>${esc(state.sheetName)}</b>.` : '';
       if (!api) {
@@ -989,6 +1058,7 @@
     $('btnSettings').addEventListener('click', openSettings);
     $('btnConn').addEventListener('click', () => { document.body.classList.remove('nav-open'); openSettings(); });
     main.addEventListener('click', e => { if (e.target.closest('[data-open-conn]')) openSettings(); });
+    main.addEventListener('click', e => { if (e.target.closest('[data-access-retry]')) location.reload(); });
     main.addEventListener('click', e => {
       const b = e.target.closest('[data-goto-last]');
       if (!b) return;
@@ -1105,10 +1175,17 @@
     gate.showModal();
   }
 
-  bind();
-  $('appVersion').textContent = window.APP_VERSION || '—';
-  window.Updater.start();
-  setAuto();
-  refresh({ silent: true }).then(() => window.Tour.autoStart());
-  loginGate();
+  (async () => {
+    // Multi-hub: lê a planilha Central antes de montar a tela (usuário, hub e configuração do hub).
+    if (window.Central && window.Central.on()) {
+      const r = await window.Central.init();
+      if (r.reload) { location.reload(); return; }
+    }
+    bind();
+    $('appVersion').textContent = window.APP_VERSION || '—';
+    window.Updater.start();
+    setAuto();
+    refresh({ silent: true }).then(() => { if (!accessBlock()) window.Tour.autoStart(); });
+    loginGate();
+  })();
 })();

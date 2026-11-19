@@ -203,8 +203,23 @@
     // Recebimento por hora (painel de produtividade do SPX) e a meta do turno. Vale o salvamento mais recente do dia/turno.
     RecebimentoHora: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Início', 'A receber', 'Recebido', 'Ritmo (pac/h)', 'Previsão de término', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)'],
     // Avarias: cada ocorrência (BR, origem, tipo, setor, quem recebeu no hub) e a tratativa. Vale a linha mais recente de cada ID.
+    // Indicadores do dia (o que antes vinha das planilhas mensais): uma linha por dia e indicador; vale a mais recente.
+    Indicadores: ['Data', 'Indicador', 'Valor', 'Status', 'Usuário', 'Gravado em', 'Origem'],
+    // HSE do mês (pessoas, checklists, ginástica, DDS e links), em JSON; vale o salvamento mais recente do mês.
+    HSE: ['Mês', 'Status', 'Usuário', 'Gravado em', 'Origem', 'HSE (JSON 1)', 'HSE (JSON 2)', 'HSE (JSON 3)'],
     Avarias: ['ID', 'Data', 'BR', 'Origem', 'Tipo', 'Setor', 'Observação', 'Responsável (recebeu no hub)', 'Recebido em', 'Tratativa', 'Ação tomada', 'Evidência', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Detalhe (JSON)'],
   };
+  // ---------- Planilha Central (multi-hub): usuários, hubs e arquivos de dados de cada hub ----------
+  // Só cadastro: os dados da operação ficam na planilha de cada hub. Vale a linha mais recente de cada chave
+  // (Usuarios: e-mail · Hubs: ID · Arquivos: hub + ano). Leitura para todos; gravação só para os admins (compartilhamento).
+  const CENTRAL_TABS = {
+    Usuarios: ['E-mail', 'Nome', 'Papel', 'Hubs', 'Status', 'Atualizado por', 'Atualizado em'],
+    Hubs: ['ID', 'Nome', 'Cidade', 'Status', 'Atualizado por', 'Atualizado em', 'Configuração (JSON)'],
+    Arquivos: ['Hub', 'Ano', 'Planilha de dados', 'Status', 'Atualizado por', 'Atualizado em'],
+  };
+  // Planilhas atuais (planilha-base antiga e planilhas mensais): o app só LÊ. Qualquer gravação nelas é recusada aqui.
+  const READ_ONLY_SHEETS = new Set(['10e4zgv7kzpx8L4Gbx1TJUgmnBr3-ccSm_ty_JXvByIU', '1NkE0vyBZBztc6BnEppSfGD40nN-JTsQdfMHfPvfsCac', '1bS4L0tZ1UmbFN27RDyCaTRvvfrQsLaqDtdytbf9VzuU', '1lzYnReuKdwJ107eB7F9zNOWtOPZrNBrscuLFrZZCs7k', '1hsO3OzMM8v4xWIO_CRwTRQ0y6EG1ZWzchxR-guFKJQU', '1HZ67FxxF3OBIY45PiCy64lk79Gsh8RmsQ_wI1F0hNQU', '1R5iGLhMuze9sLy6yqtUgFWTnxpTnGcZy-CmCo9xDvjc', '1CnMff3cP7xQQpyxvGcXZrKSrgmm1IwLagi-LDG4s_gg']);
+  const writable = id => { if (READ_ONLY_SHEETS.has(String(id))) throw new Error('Esta planilha é só leitura no app (dados atuais).'); return id; };
   const q = tab => encodeURIComponent(`'${tab}'`);
   const baseUrl = id => {
     if (!/^[a-zA-Z0-9-_]{20,}$/.test(String(id || ''))) throw new Error('Link da planilha-base inválido.');
@@ -218,35 +233,54 @@
     if (res.status === 404) throw new Error('Planilha-base não encontrada. Confira BASE_SHEET_URL em js/config.js.');
     throw new Error('Erro ao gravar na planilha-base: ' + ((out.error && out.error.message) || res.status));
   }
-  async function baseEnsure(id) {
+  async function ensureTabs(id, TABS) {
+    writable(id);
     const token = await getValidAccessToken();
     const base = baseUrl(id);
     const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token);
     const have = (meta.sheets || []).map(x => x.properties.title);
-    const missing = Object.keys(BASE_TABS).filter(t => !have.includes(t));
+    const missing = Object.keys(TABS).filter(t => !have.includes(t));
     if (missing.length) {
       await sheetsSend('POST', `${base}:batchUpdate`, token, { requests: missing.map(title => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) });
-      for (const t of missing) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] });
+      for (const t of missing) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [TABS[t]] });
     }
     // Guias que já existiam: atualiza o cabeçalho quando o app ganhou colunas novas (ex.: ErrosPiso).
-    const old = Object.keys(BASE_TABS).filter(t => have.includes(t));
+    const old = Object.keys(TABS).filter(t => have.includes(t));
     if (old.length) {
       const heads = await sheetsGet(`${base}/values:batchGet?${old.map(t => `ranges=${q(t)}!1:1`).join('&')}`, token);
       for (const [k, t] of old.entries()) {
         const cur = ((((heads.valueRanges || [])[k] || {}).values || [])[0] || []).map(String);
-        if (cur.join('|') !== BASE_TABS[t].join('|')) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [BASE_TABS[t]] });
+        if (cur.join('|') !== TABS[t].join('|')) await sheetsSend('PUT', `${base}/values/${q(t)}!A1?valueInputOption=RAW`, token, { values: [TABS[t]] });
       }
     }
     return { title: meta.properties.title, created: missing };
   }
+  const baseEnsure = id => ensureTabs(id, BASE_TABS);
+  const centralEnsure = id => ensureTabs(id, CENTRAL_TABS);
+  async function centralRead(id) {
+    const token = await getValidAccessToken();
+    const tabs = Object.keys(CENTRAL_TABS);
+    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?${tabs.map(t => `ranges=${q(t)}!A2:Z`).join('&')}&valueRenderOption=UNFORMATTED_VALUE`, token);
+    return Object.fromEntries(tabs.map((t, k) => [t, ((data.valueRanges || [])[k] || {}).values || []]));
+  }
+  async function centralAppend(id, tab, rows) {
+    writable(id);
+    if (!CENTRAL_TABS[tab]) throw new Error('Guia inválida.');
+    if (!Array.isArray(rows) || !rows.length) return true;
+    const token = await getValidAccessToken();
+    await sheetsSend('POST', `${baseUrl(id)}/values/${q(tab)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, token, { values: rows });
+    return true;
+  }
   async function baseRead(id) {
     const token = await getValidAccessToken();
-    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&valueRenderOption=UNFORMATTED_VALUE`, token);
-    const [rep, aud, par, mapa, err, rh, av] = data.valueRanges || [];
+    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&ranges=${q('Indicadores')}!A2:G&ranges=${q('HSE')}!A2:H&valueRenderOption=UNFORMATTED_VALUE`, token);
+    const [rep, aud, par, mapa, err, rh, av, ind, hse] = data.valueRanges || [];
     return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [],
-      mapa: (mapa && mapa.values) || [], erros: (err && err.values) || [], receb: (rh && rh.values) || [], avarias: (av && av.values) || [] };
+      mapa: (mapa && mapa.values) || [], erros: (err && err.values) || [], receb: (rh && rh.values) || [], avarias: (av && av.values) || [],
+      indicadores: (ind && ind.values) || [], hse: (hse && hse.values) || [] };
   }
   async function baseAppend(id, tab, rows) {
+    writable(id);
     if (!BASE_TABS[tab]) throw new Error('Guia inválida.');
     if (!Array.isArray(rows) || !rows.length) return true;
     const token = await getValidAccessToken();
@@ -322,7 +356,7 @@
     },
     fetchSheets,
     auditList, auditSave, auditDelete,
-    baseEnsure, baseRead, baseAppend, reportsListLocal,
+    baseEnsure, baseRead, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
     os: Cap.getPlatform(), // 'android' | 'ios'
     openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),

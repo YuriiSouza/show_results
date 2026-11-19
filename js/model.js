@@ -22,8 +22,6 @@ window.buildModel = function buildModel(raw) {
     packedXpt: pick(g('recebimento', 'Packed XPT'), g('gerencial', 'Packed XPT')),
     projetado: pick(g('recebimento', 'Vol projetado')),
   };
-  rec.pctXpt = rec.packedXpt.map((v, i) => v != null && rec.total[i] ? v / rec.total[i] : null);
-  rec.aderencia = rec.total.map((v, i) => rec.projetado[i] ? (v || 0) / rec.projetado[i] : null);
 
   const hcBlock = (title, labels) => Object.fromEntries(labels.map(([k, l]) => [k, pick(g('hc', l, title))]));
   const hc = {
@@ -32,24 +30,6 @@ window.buildModel = function buildModel(raw) {
     am: hcBlock('HC AM', [['hc', 'HC AM'], ['dsr', 'DSR'], ['abs', 'ABS'], ['ferias', 'FERIAS'], ['desligado', 'Desligado'], ['afastamento', 'Afastamento'], ['presente', 'TOTAL']]),
     pm: hcBlock('HC PM', [['hc', 'HC PM'], ['dsr', 'DSR'], ['abs', 'ABS'], ['ferias', 'FERIAS'], ['desligado', 'Desligado'], ['afastamento', 'Afastamento'], ['presente', 'TOTAL']]),
     total: hcBlock('HC TOTAL', [['hc', 'HC'], ['abs', 'ABS'], ['dsr', 'DSR'], ['ferias', 'FERIAS'], ['diaristas', 'DIARISTAS'], ['desligado', 'Desligado'], ['afastamento', 'Afastamento'], ['presente', 'TOTAL']]),
-  };
-  hc.total.pctAbs = hc.total.abs.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
-  hc.total.pctDw = hc.total.diaristas.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
-  // HC planejado do dia = linha TOTAL do bloco HC TOTAL (linha 40 da guia HC); a soma dos dias é o "HC Planejado" do mês.
-  // HC presente do dia = TOTAL do HC AM (linha 17) + TOTAL do HC PM (linha 29).
-  hc.planDia = hc.total.presente;
-  hc.presente = dates.map((_, i) => (hc.am.presente[i] == null && hc.pm.presente[i] == null ? null : (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0)));
-
-  // PHD calculado (não vem da planilha): pacotes recebidos ÷ (pessoas presentes AM + PM + diaristas).
-  const phdPeople = dates.map((_, i) => (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0));
-  const phdDw = dates.map((_, i) => (hc.dwAM[i] || 0) + (hc.dwPM[i] || 0));
-  const phd = {
-    people: phdPeople,
-    dw: phdDw,
-    phd: dates.map((_, i) => {
-      const vol = rec.total[i], den = phdPeople[i] + phdDw[i];
-      return vol && den ? Math.round(vol / den) : null;
-    }),
   };
 
   const maBlock = t => Object.fromEntries([
@@ -81,11 +61,10 @@ window.buildModel = function buildModel(raw) {
   };
 
 
-  return {
-    raw, dates, rec, hc, phd, inv, rev, tr,
-    hse: parseHSE(sheet(S.hse)),
+  return window.finishModel(dates, { rec, hc, inv, rev, tr }, {
+    raw, hse: parseHSE(sheet(S.hse)),
     sheetsFound: Object.fromEntries(Object.entries(S).map(([k, n]) => [k, !!(raw.sheets || {})[n]])),
-  };
+  });
 
   function parseHSE(grid) {
     const f = P.finder(grid);
@@ -213,4 +192,84 @@ window.mergeModels = function mergeModels(models) {
     hseByMonth,
     months: list.map(m => m.monthKey).filter(Boolean),
   };
+};
+
+// Indicadores calculados a partir das séries lidas (planilha mensal ou guia Indicadores da planilha do hub).
+window.finishModel = function finishModel(dates, base, extra = {}) {
+  const { rec, hc, inv, rev, tr } = base;
+  rec.pctXpt = rec.packedXpt.map((v, i) => v != null && rec.total[i] ? v / rec.total[i] : null);
+  rec.aderencia = rec.total.map((v, i) => rec.projetado[i] ? (v || 0) / rec.projetado[i] : null);
+  hc.total.pctAbs = hc.total.abs.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
+  hc.total.pctDw = hc.total.diaristas.map((v, i) => hc.total.presente[i] ? (v || 0) / hc.total.presente[i] : null);
+  // HC planejado do dia = linha TOTAL do bloco HC TOTAL (linha 40 da guia HC); a soma dos dias é o "HC Planejado" do mês.
+  // HC presente do dia = TOTAL do HC AM (linha 17) + TOTAL do HC PM (linha 29).
+  hc.planDia = hc.total.presente;
+  hc.presente = dates.map((_, i) => (hc.am.presente[i] == null && hc.pm.presente[i] == null ? null : (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0)));
+  // PHD calculado (não vem da planilha): pacotes recebidos ÷ (pessoas presentes AM + PM + diaristas).
+  const phdPeople = dates.map((_, i) => (hc.am.presente[i] || 0) + (hc.pm.presente[i] || 0));
+  const phdDw = dates.map((_, i) => (hc.dwAM[i] || 0) + (hc.dwPM[i] || 0));
+  const phd = {
+    people: phdPeople, dw: phdDw,
+    phd: dates.map((_, i) => { const vol = rec.total[i], den = phdPeople[i] + phdDw[i]; return vol && den ? Math.round(vol / den) : null; }),
+  };
+  return { raw: null, hse: null, sheetsFound: {}, ...extra, dates, rec, hc, phd, inv, rev, tr };
+};
+
+// Séries "de origem" do modelo (as calculadas ficam de fora). É o que vai para a guia Indicadores da planilha do hub:
+// uma linha por dia e indicador. inv.aging.N = faixa N do aging do inventário.
+window.MODEL_SERIES = (() => {
+  const blk = (p, ks) => ks.map(k => `${p}.${k}`);
+  const HC = ['hc', 'dsr', 'abs', 'ferias', 'desligado', 'afastamento', 'presente'];
+  const MA = ['total', 'backlog', 'emRota', 'enviadoSoc', 'semRastreio', 'lost'];
+  return [
+    ...blk('rec', ['am', 'pm', 'total', 'xptCarregado', 'packedXpt', 'projetado']),
+    'hc.dwAM', 'hc.dwPM', ...blk('hc.am', HC), ...blk('hc.pm', HC),
+    ...blk('hc.total', ['hc', 'abs', 'dsr', 'ferias', 'diaristas', 'desligado', 'afastamento', 'presente']),
+    'inv.aging.0', 'inv.aging.1', 'inv.aging.2', 'inv.aging.3', 'inv.aging.4', 'inv.total', ...blk('inv.ma.T1', MA), ...blk('inv.ma.T3', MA),
+    ...blk('rev', ['onHold', 'avariaHub', 'avariaSoc', 'retornoSoc']),
+    ...blk('tr', ['rotas', 'ats', 'spr', 'ds', 'dsD0']),
+  ];
+})();
+window.AGING_NAMES = ['0 dias', '1 - 2 dias', '3 - 7 dias', '8 - 14 dias', '15+ dias'];
+// Série de um caminho ("rec.total", "inv.aging.2"…) dentro do modelo.
+window.seriesAt = (m, path) => {
+  const k = path.split('.');
+  if (k[0] === 'inv' && k[1] === 'aging') return ((m.inv.aging || [])[+k[2]] || {}).data;
+  return k.reduce((o, x) => (o == null ? o : o[x]), m);
+};
+// Modelo -> linhas { iso, path, v } (só valores lançados).
+window.modelRows = m => {
+  const iso = d => d.split('/').reverse().join('-'), out = [];
+  window.MODEL_SERIES.forEach(path => {
+    const arr = window.seriesAt(m, path) || [];
+    m.dates.forEach((d, i) => { const v = arr[i]; if (v != null && isFinite(v)) out.push({ iso: iso(d), path, v }); });
+  });
+  return out;
+};
+// Linhas { iso, path, v } -> modelo, com todos os dias de "from" até "to" (AAAA-MM-DD).
+window.modelFromRows = (rows, { from, to, hseByMonth = {} } = {}) => {
+  const isos = rows.map(r => r.iso).sort();
+  const start = from || isos[0], end = to || isos[isos.length - 1];
+  const dates = [], index = new Map();
+  if (start && end) {
+    const p = n => String(n).padStart(2, '0');
+    for (let d = new Date(start + 'T12:00:00Z'); d.toISOString().slice(0, 10) <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const k = d.toISOString().slice(0, 10);
+      index.set(k, dates.length);
+      dates.push(`${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`);
+    }
+  }
+  const arr = () => dates.map(() => null);
+  const HC = () => Object.fromEntries(['hc', 'dsr', 'abs', 'ferias', 'desligado', 'afastamento', 'presente'].map(k => [k, arr()]));
+  const MA = () => Object.fromEntries(['total', 'backlog', 'emRota', 'enviadoSoc', 'semRastreio', 'lost'].map(k => [k, arr()]));
+  const base = {
+    rec: Object.fromEntries(['am', 'pm', 'total', 'xptCarregado', 'packedXpt', 'projetado'].map(k => [k, arr()])),
+    hc: { dwAM: arr(), dwPM: arr(), am: HC(), pm: HC(), total: Object.fromEntries(['hc', 'abs', 'dsr', 'ferias', 'diaristas', 'desligado', 'afastamento', 'presente'].map(k => [k, arr()])) },
+    inv: { aging: window.AGING_NAMES.map(name => ({ name, data: arr() })), total: arr(), ma: { T1: MA(), T3: MA() } },
+    rev: Object.fromEntries(['onHold', 'avariaHub', 'avariaSoc', 'retornoSoc'].map(k => [k, arr()])),
+    tr: Object.fromEntries(['rotas', 'ats', 'spr', 'ds', 'dsD0'].map(k => [k, arr()])),
+  };
+  rows.forEach(r => { const i = index.get(r.iso), a = window.seriesAt(base, r.path); if (i != null && a) a[i] = r.v; });
+  const months = Object.keys(hseByMonth).sort();
+  return window.finishModel(dates, base, { hse: months.length ? hseByMonth[months[months.length - 1]] : null, hseByMonth });
 };

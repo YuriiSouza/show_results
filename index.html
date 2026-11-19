@@ -178,7 +178,7 @@
   <dialog id="settings">
     <form method="dialog" class="settings">
       <div class="dlg-head"><h2>Conectar planilhas</h2><button type="submit" class="dlg-x" value="cancel" formnovalidate title="Fechar" aria-label="Fechar">×</button></div>
-      <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e cada pessoa acessa só o que foi compartilhado com a própria conta Google.</p>
+      <p class="muted" data-months>Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e cada pessoa acessa só o que foi compartilhado com a própria conta Google.</p>
       <div class="conn-current" id="cfgCurrent" hidden></div>
 
       <div class="conn-step">
@@ -194,7 +194,7 @@
         </div>
       </div>
 
-      <div class="conn-step">
+      <div class="conn-step" data-months>
         <span class="conn-num">2</span>
         <div class="grow">
           <div class="months-head">
@@ -206,13 +206,13 @@
         </div>
       </div>
 
-      <div class="conn-step">
+      <div class="conn-step" data-months>
         <span class="conn-num">3</span>
         <div class="key-title conn-last">Clique em <b>Testar</b> (confere todos os links do ano) e depois em <b>Salvar e atualizar</b>.</div>
       </div>
 
       <div class="settings-msg" id="cfgMsg" role="status"></div>
-      <div class="settings-actions">
+      <div class="settings-actions" data-months>
         <button type="button" class="btn-ghost" id="cfgDemo">Usar dados de exemplo</button>
         <button type="button" class="btn-ghost" id="cfgReloadAll" title="Baixa de novo todos os meses, ignorando as cópias salvas">Recarregar todos os meses</button>
         <button type="button" class="btn-ghost" id="cfgTest">Testar</button>
@@ -222,13 +222,13 @@
       <div class="base-box">
         <div class="key-row">
           <div>
-            <div class="key-title">☁️ Planilha-base compartilhada</div>
-            <div class="muted small">Reports preenchidos e Audits importados de todos os usuários. Precisa estar compartilhada com a sua conta como <b>Editor</b>.</div>
+            <div class="key-title" id="baseTitle">☁️ Planilha-base compartilhada</div>
+            <div class="muted small" data-months>Reports preenchidos e Audits importados de todos os usuários. Precisa estar compartilhada com a sua conta como <b>Editor</b>.</div>
             <div class="small" id="baseStatus"></div>
           </div>
           <a class="btn-ghost" id="baseOpen" href="#" target="_blank" rel="noopener">Abrir</a>
         </div>
-        <label class="user-row">Seu nome (aparece em cada gravação)
+        <label class="user-row" data-months>Seu nome (aparece em cada gravação)
           <input id="cfgUser" type="text" maxlength="60" placeholder="Ex.: Yuri Souza" autocomplete="name">
         </label>
       </div>
@@ -319,6 +319,7 @@
   <script src="js/sample-data.js"></script>
   <script src="js/model.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/central.js"></script>
   <script src="js/base.js"></script>
   <script src="js/audit.js"></script>
   <script src="js/ui-confirm.js"></script>
@@ -331,6 +332,8 @@
   <script src="js/piso.js"></script>
   <script src="js/receb.js"></script>
   <script src="js/updater.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/consol.js"></script>
   <script src="js/tour.js"></script>
   <script src="js/app.js"></script>
 </body>

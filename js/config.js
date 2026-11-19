@@ -28,10 +28,17 @@ window.APP_CONFIG = {
   // importados, para todos os usuários verem. Compartilhe como EDITOR com as contas de quem usa o app.
   BASE_SHEET_URL: 'https://docs.google.com/spreadsheets/d/10e4zgv7kzpx8L4Gbx1TJUgmnBr3-ccSm_ty_JXvByIU/edit',
 
-  // Planilhas mensais padrão (já vêm conectadas em todo aparelho). Chave: 'AAAA-MM'.
-  // Um link salvo pelo usuário em "Conectar planilhas" para o mesmo mês tem prioridade.
-  // Cada planilha precisa estar compartilhada (como Leitor) com as contas de quem usa o app.
-  DEFAULT_MONTHS: {
+  // Multi-hub: planilha Central com os usuários (e-mail Google), papéis, hubs e a planilha de dados de cada hub por ano.
+  // Com ela, a planilha-base passa a ser a do hub escolhido. Vazio = modo antigo (um hub só, BASE_SHEET_URL acima).
+  // Compartilhe como LEITOR com todos os usuários e como EDITOR só com os administradores.
+  CENTRAL_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1pf_sIDFg4RlPCaF47rWAC7Qr_QT8O1_yIw8-rycKOOI/edit',
+  // Primeiro uso (planilha Central vazia): quem abrir vira Admin e este hub é cadastrado com a sua planilha de dados.
+  CENTRAL_SEED: { hub: 'LGO03', ano: '2026', file: 'https://docs.google.com/spreadsheets/d/1WREWw-KjOREFAR495ZDEHpr6EdXXSCooBkZoitlCMRg/edit' },
+
+  // Planilhas mensais antigas (preenchidas à mão). Com a planilha Central (multi-hub), o app NÃO lê mais estas planilhas:
+  // elas só aparecem como sugestão em Administração → Hubs → "Importar planilhas mensais", que copia os dados (só leitura)
+  // para a planilha de dados do hub. Sem a planilha Central, continuam sendo lidas como antes.
+  MONTHLY_SHEETS_IMPORT: {
     '2026-06': 'https://docs.google.com/spreadsheets/d/1NkE0vyBZBztc6BnEppSfGD40nN-JTsQdfMHfPvfsCac/edit',
     '2026-07': 'https://docs.google.com/spreadsheets/d/1bS4L0tZ1UmbFN27RDyCaTRvvfrQsLaqDtdytbf9VzuU/edit',
     '2026-08': 'https://docs.google.com/spreadsheets/d/1lzYnReuKdwJ107eB7F9zNOWtOPZrNBrscuLFrZZCs7k/edit',

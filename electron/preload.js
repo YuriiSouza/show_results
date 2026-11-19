@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('hubApi', {
   baseEnsure: id => ipcRenderer.invoke('base:ensure', id),
   baseRead: id => ipcRenderer.invoke('base:read', id),
   baseAppend: (id, tab, rows) => ipcRenderer.invoke('base:append', id, tab, rows),
+  centralEnsure: id => ipcRenderer.invoke('central:ensure', id),
+  centralRead: id => ipcRenderer.invoke('central:read', id),
+  centralAppend: (id, tab, rows) => ipcRenderer.invoke('central:append', id, tab, rows),
   reportsListLocal: () => ipcRenderer.invoke('reports:listLocal'),
   platform: 'desktop',
   os: process.platform, // 'win32' | 'linux' | 'darwin'
