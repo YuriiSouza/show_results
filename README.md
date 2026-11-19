@@ -367,6 +367,10 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
 - **Migrar a planilha-base antiga** (Administração → Hubs → LGO03): copia todas as guias da planilha-base antiga (reports,
   Audit, Parcel, mapa de piso, erros de piso, recebimento por hora, avarias) para a planilha do hub do ano. A antiga só é
   lida; linhas já copiadas não entram de novo (pode repetir).
+- **Lançamentos do dia** (menu Lançamentos): substitui o preenchimento das planilhas mensais. Recebimento, HC (AM, PM),
+  Inventário (aging e MA T1/T3), Reversa e Transporte; só o que mudou vai para a guia Indicadores. Calculados como na
+  planilha mensal: total recebido = AM + PM; presentes = HC − DSR − ABS − Férias − Desligado − Afastamento; total do dia
+  = AM + PM; total do inventário = soma do aging. Gerente vê, mas não altera. O HSE continua vindo da importação.
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

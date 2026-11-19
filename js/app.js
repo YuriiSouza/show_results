@@ -34,11 +34,14 @@
     rpP1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="12" cy="15" r="3"/><path d="M12 13.5V15l1 .8"/>',
     rpF1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 15l2 2 4-4"/>',
     rpAll: '<path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10M15 10v10"/>',
+    lanc: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M14 20h6"/>',
     consol: '<rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>',
     admin: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="18" cy="16" r="2.5"/><path d="M18 11.5v2M18 18.5v2M13.5 16h2M20.5 16h2"/>',
     report: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
   };
   const TABS = [
+    // Multi-hub: os indicadores do dia são lançados no app (antes, nas planilhas mensais).
+    { id: 'lanc', group: 'Lançamentos', label: 'Lançamentos do dia', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.hub()), render: () => window.Lanc.render(lcCtx) },
     { id: 'overview', group: 'Operação', label: 'Visão geral', daily: true, render: renderOverview },
     { id: 'recebimento', group: 'Operação', label: 'Recebimento', daily: true, render: renderRecebimento },
     { id: 'pessoas', group: 'Operação', label: 'HC & PHD', daily: true, render: renderPessoas },
@@ -404,6 +407,7 @@
   const avCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'avarias', range: () => uiCtx.range() };
 
   // Contexto da Administração (js/admin.js).
+  const lcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'lanc', rebuild: () => refresh({ silent: true }) };
   const csCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'consol', range: () => uiCtx.range() };
   const adCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'admin', refresh: () => refresh() };
 
@@ -841,6 +845,7 @@
   }
 
   function selectTab(id) {
+    if (state.tab === 'lanc' && id !== 'lanc' && window.Lanc && window.Lanc.hasDraft() && !window.confirm('Há lançamentos não salvos. Sair mesmo assim?')) return;
     if (state.tab === 'mapa' && id !== 'mapa' && window.Piso && window.Piso.leave) window.Piso.leave();
     if (window.Tour) window.Tour.stop(true);
     state.tab = id; LS.set('tab', id);

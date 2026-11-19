@@ -520,6 +520,7 @@ window.Base = (() => {
     mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
     avariaList, avariaSave, avariaDelete,
     indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hasIndicadores: () => indic.size > 0,
+    indicadorGet: (iso, path) => indic.get(`${iso}|${path}`) || null,
     sheetUrl: () => (curId() ? `https://docs.google.com/spreadsheets/d/${curId()}/edit` : ''),
   };
 })();

@@ -1093,3 +1093,21 @@ body.tv #btnTour { display: none; }
 .adm-grid3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .adm-form textarea { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; }
 .cs-table td, .cs-table th { white-space: nowrap; }
+
+/* ---------- Lançamentos do dia ---------- */
+.lc-bar { flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; position: sticky; top: 0; z-index: 5; }
+.lc-date input { font: inherit; font-size: 15px; font-weight: 700; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface); color: var(--text); }
+.lc-state { flex: 1; }
+.lc-last { text-align: right; line-height: 1.4; }
+.lc-group + .lc-group { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.lc-gt { font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+.lc-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px 10px; }
+.lc-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.lc-fields input { font: inherit; font-size: 15px; font-weight: 600; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; text-align: right; font-variant-numeric: tabular-nums; }
+.lc-fields input:focus { outline: 2px solid var(--shopee); outline-offset: -1px; }
+.lc-fields input[readonly] { background: var(--surface-2); }
+.lc-fields label.lc-ch input { border-color: var(--shopee); background: color-mix(in srgb, var(--shopee) 7%, var(--surface)); }
+.lc-fields input.lc-bad { border-color: #d33; color: #d33; }
+.lc-calc output { display: block; font-size: 15px; font-weight: 700; color: var(--text-2); background: var(--surface-2); border-radius: 8px; padding: 7px 9px; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 1100px) { .lc-card { grid-column: span 12; } }
+.lc-grid { align-items: start; }
