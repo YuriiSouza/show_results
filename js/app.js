@@ -251,6 +251,14 @@
     applyRef();
     fillFilters();
   }
+  // Setas do filtro: anda o período para trás/para frente pelo próprio tamanho (1 dia → dia a dia; 7 dias → semana a semana).
+  function stepRange(dir) {
+    const last = state.model.dates.length - 1, n = state.to - state.from + 1;
+    let from = state.from + dir * n, to = state.to + dir * n;
+    if (from < 0) { from = 0; to = Math.min(last, n - 1); }
+    if (to > last) { to = last; from = Math.max(0, last - n + 1); }
+    if (from !== state.from || to !== state.to) setRange(from, to);
+  }
   function setRange(from, to) {
     state.from = Math.min(from, to); state.to = Math.max(from, to);
     applyRef(); saveRange(); fillFilters(); renderAll();
@@ -264,6 +272,7 @@
     const n = state.to - state.from + 1;
     $('rangeLabel').textContent = `${d[state.from]} – ${d[state.to]}`;
     $('rangeDays').textContent = `${n} ${n === 1 ? 'dia' : 'dias'}`;
+    $('rangePrev').disabled = state.from === 0; $('rangeNext').disabled = state.to === d.length - 1;
     $('refInfo').innerHTML = dataIdx(state.model, state.from, state.to) < 0
       ? '<span class="bad">Sem dados lançados no período</span>'
       : `Indicadores do dia <b>${d[state.ref]}</b> <span class="muted">· último dia com dados no período</span>`;
@@ -413,6 +422,12 @@
   const csCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'consol', range: () => uiCtx.range() };
   const adCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'admin', refresh: () => refresh() };
 
+  // Créditos no rodapé de cada tela.
+  const CREDITS = {
+    avarias: 'Desenvolvido por Flavio Costa e Yuri Peixoto',
+    parcel: 'Desenvolvido por Pablo Diego e Yuri Peixoto',
+    mapa: 'Idealizado por Guilherme Nogueira e desenvolvido por Yuri Peixoto',
+  };
   function renderAll() {
     if (!state.model) return;
     if (!visTabs().some(t => t.id === state.tab)) state.tab = 'overview';
@@ -424,6 +439,7 @@
     H.destroyAll();
     H.applyDefaults();
     tab.render();
+    $('footCredit').textContent = CREDITS[tab.id] || 'Desenvolvido por Yuri Peixoto';
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
     if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'consol' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
@@ -939,6 +955,8 @@
 
     // Seletor de intervalo: um clique no início, outro no fim.
     $('rangeBtn').addEventListener('click', e => { e.stopPropagation(); openRange(!range.open); });
+    $('rangePrev').addEventListener('click', () => stepRange(-1));
+    $('rangeNext').addEventListener('click', () => stepRange(1));
     $('rangePop').addEventListener('click', e => {
       e.stopPropagation();
       const day = e.target.closest('[data-day]');
@@ -1044,10 +1062,16 @@
       // Multi-hub: sem links de planilhas mensais; os dados vêm da planilha do hub (Administração → Hubs).
       const multi = !!(window.Central && window.Central.on() && window.Central.state() !== 'off');
       document.querySelectorAll('#settings [data-months]').forEach(el => { el.hidden = multi; });
+      document.querySelectorAll('#settings [data-multi]').forEach(el => { el.hidden = !multi; });
+      $('cfgMe').hidden = !multi;
       if (multi) {
-        const CT = window.Central, h = CT.hub(), f = CT.dataFile();
-        $('baseTitle').textContent = `☁️ Planilha de dados${h ? ` · ${h.nome || h.id}` : ''}${f ? ` ${f.ano}` : ''}`;
+        const CT = window.Central, h = CT.hub(), f = CT.dataFile(), me = CT.me();
+        $('baseTitle').textContent = `Planilha de dados${h ? ` · ${h.nome || h.id}` : ''}${f ? ` ${f.ano}` : ''}`;
+        $('cfgMe').innerHTML = me ? `<span><b>${esc(me.nome || me.email)}</b></span><span class="pill">${esc(me.papel)}${CT.readOnly() ? ' · só consulta' : ''}</span>
+          <span class="muted small">Hubs: ${esc(CT.myHubs().map(x => x.id).join(', ') || '—')}</span>${CT.isAdmin() ? ` <a class="link" href="${esc(CT.sheetUrl())}" target="_blank" rel="noopener">abrir planilha Central</a>` : ''}`
+          : `<span class="muted small">${esc(CT.email())} · ${CT.state() === 'nouser' ? 'não cadastrado: peça ao administrador' : esc(CT.state())}</span>`;
       }
+      $('cfgUpdMsg').textContent = '';
       $('cfgCurrent').hidden = !state.sheetName;
       $('cfgCurrent').innerHTML = state.sheetName ? `Conectado agora: <b>${esc(state.sheetName)}</b>.` : '';
       if (!api) {
@@ -1065,6 +1089,12 @@
       dlg.showModal();
     };
     $('btnSettings').addEventListener('click', openSettings);
+    $('cfgUpd').addEventListener('click', async () => {
+      $('cfgUpd').disabled = true; $('cfgUpdMsg').textContent = 'Procurando…';
+      const r = window.Updater && window.Updater.checkNow ? await window.Updater.checkNow() : 'error';
+      $('cfgUpd').disabled = false;
+      $('cfgUpdMsg').textContent = { available: 'Nova versão encontrada: veja o aviso.', none: `Você já está na versão mais recente (${window.APP_VERSION}).`, dev: 'Versão de desenvolvimento: sem atualização automática.', error: 'Não foi possível verificar agora (internet?).' }[r] || '';
+    });
     $('btnConn').addEventListener('click', () => { document.body.classList.remove('nav-open'); openSettings(); });
     main.addEventListener('click', e => { if (e.target.closest('[data-open-conn]')) openSettings(); });
     main.addEventListener('click', e => { if (e.target.closest('[data-access-retry]')) location.reload(); });
@@ -1162,6 +1192,32 @@
   let balQueued = false;
   const queueBalance = () => { if (balQueued) return; balQueued = true; requestAnimationFrame(() => { balQueued = false; balanceKpis(); }); };
   new MutationObserver(queueBalance).observe(main, { childList: true, subtree: true });
+
+  // Setas ‹ › ao lado de todo campo de data das telas: muda um dia sem abrir o calendário (dispara "change", como se
+  // a pessoa tivesse escolhido no calendário). Respeita o mínimo e o máximo do campo.
+  const dayShift = (iso, d) => { const x = new Date(iso + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + d); return x.toISOString().slice(0, 10); };
+  function decorateDates() {
+    main.querySelectorAll('input[type="date"]:not([data-step]):not(#lcDate)').forEach(inp => {
+      inp.dataset.step = '1';
+      const mk = (dir, txt) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'date-step'; b.textContent = txt; b.dataset.dir = dir;
+        b.title = dir < 0 ? 'Dia anterior' : 'Próximo dia'; b.setAttribute('aria-label', b.title); return b; };
+      inp.before(mk(-1, '‹')); inp.after(mk(1, '›'));
+    });
+  }
+  new MutationObserver(decorateDates).observe(main, { childList: true, subtree: true });
+  main.addEventListener('click', e => {
+    const b = e.target.closest('.date-step');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const inp = +b.dataset.dir < 0 ? b.nextElementSibling : b.previousElementSibling;
+    if (!inp || !inp.value) return;
+    let v = dayShift(inp.value, +b.dataset.dir);
+    if (inp.max && v > inp.max) return;
+    if (inp.min && v < inp.min) return;
+    inp.value = v;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+  }, true);
   window.addEventListener('resize', queueBalance);
   if (window.ResizeObserver) new ResizeObserver(queueBalance).observe(main);
 
