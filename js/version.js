@@ -1,2 +1,2 @@
 // Gerado por scripts/set-version.js a partir do package.json — não edite à mão.
-window.APP_VERSION = '1.10.3';
+window.APP_VERSION = '1.10.4';

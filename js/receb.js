@@ -8,7 +8,7 @@ window.Receb = (() => {
   const TURNOS = ['AM', 'PM1', 'PM2'];
   const INICIO = { AM: '06:00', PM1: '14:00', PM2: '22:00' }; // início padrão de cada turno (o líder ajusta)
   const AUTO_MIN = 10;              // atualização automática enquanto a tela está aberta
-  const AUTOSAVE_MIN = 60;          // grava o resultado sozinho no máximo uma vez por hora
+  const AUTOSAVE_MIN = 60;          // sem hora nova, grava o resultado sozinho no máximo uma vez por hora
   const $ = id => document.getElementById(id);
   const api = () => window.hubApi || null;
   const B = () => window.Base;
@@ -60,7 +60,7 @@ window.Receb = (() => {
   }
 
   // ---------- Tela ----------
-  const st = { date: new Date().toLocaleDateString('sv-SE', { timeZone: TZ }), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', live: null, busy: false, msg: '', timer: null, lastAuto: 0 };
+  const st = { date: new Date().toLocaleDateString('sv-SE', { timeZone: TZ }), turno: TURNOS.includes(ls.turno) ? ls.turno : 'AM', live: null, busy: false, msg: '', timer: null };
   let ui = null, bound = false;
   const inicio = () => (ls.inicio && ls.inicio[st.turno]) || INICIO[st.turno];
   // Dia do turno: o dia em que ele começou. Turno da noite (início a partir das 18:00) consultado de madrugada
@@ -300,11 +300,22 @@ window.Receb = (() => {
       if (!r.ok) st.msg = r.error || 'Falha na consulta.';
       else {
         st.live = { key: `${st.date}|${st.turno}`, parsed: parse(r.data), at: nowTs() };
-        if (baseOn() && (!auto || Date.now() - st.lastAuto > AUTOSAVE_MIN * 60000)) { st.lastAuto = Date.now(); await save(true); }
+        if (baseOn() && saveDue()) await save(true);
       }
     } catch (e) { st.msg = 'Falha na consulta.'; }
     st.busy = false;
     if (ui.isActive()) draw();
+  }
+  // A consulta (manual ou automática) só grava uma linha nova na planilha-base quando vale a pena: ainda não há nada
+  // salvo deste dia/turno, começou uma hora nova (a linha fecha o total da hora anterior) ou o último salvo tem mais de
+  // AUTOSAVE_MIN. Usa o último salvo da planilha (de qualquer aparelho), não um relógio local. "Salvar" grava na hora.
+  function saveDue() {
+    const r = current(), s = saved();
+    if (r.empty || !r.live) return false;
+    if (!s || !s.res) return true;
+    const lastHour = h => (h && h.length ? h[h.length - 1].ts : 0);
+    if (lastHour(r.hours) > lastHour(s.res.hours)) return true;
+    return !(Date.now() - Date.parse(s.at) < AUTOSAVE_MIN * 60000);
   }
   // Grava a meta e o resultado mostrado (ao vivo ou o último salvo) na planilha-base.
   async function save(quiet = false) {
