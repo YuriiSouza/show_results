@@ -476,6 +476,15 @@ window.Base = (() => {
     if (chunks.length > HSE_CHUNKS) throw new Error('HSE grande demais para a planilha.');
     return [month, 'ativo', who, at, origem || device(), ...chunks];
   };
+  // HSE do mês lançado no app (tela Lançar indicadores → HSE do mês).
+  const hseByMonth = () => { const o = {}; hses.forEach(h => { if (h.hse) o[h.month] = h.hse; }); return o; };
+  const hseGet = month => { const h = hses.get(month); return h && h.hse ? h.hse : null; };
+  const hseMeta = month => { const h = hses.get(month); return h ? { user: h.user, at: h.at } : null; };
+  async function hseSave(month, hse) {
+    const row = hseRow(month, hse, await ensureUser(), nowIso(), 'Lançamento no app');
+    applyHseRow(row);
+    queue('HSE', [row]);
+  }
   // Para a importação das planilhas mensais numa planilha de hub qualquer (Administração): lê o que ela já tem.
   function parseExisting(data) {
     const keep = [indic, hses];
@@ -519,7 +528,7 @@ window.Base = (() => {
     recebList, recebGet, recebSave,
     mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
     avariaList, avariaSave, avariaDelete,
-    indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hasIndicadores: () => indic.size > 0,
+    indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hseGet, hseMeta, hseSave, hseByMonth, hasIndicadores: () => indic.size > 0,
     indicadorGet: (iso, path) => indic.get(`${iso}|${path}`) || null,
     sheetUrl: () => (curId() ? `https://docs.google.com/spreadsheets/d/${curId()}/edit` : ''),
   };

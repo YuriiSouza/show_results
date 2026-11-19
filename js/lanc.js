@@ -84,6 +84,7 @@ window.Lanc = (() => {
   function render(ctx) {
     ui = ctx;
     if (!bound) { bound = true; bind(); }
+    HS().attach(ui, hseChanged);
     draw();
   }
   const brDate = iso => iso.split('-').reverse().join('/');
@@ -115,7 +116,9 @@ window.Lanc = (() => {
       <nav class="lc-areas">${AREAS.map(a => {
         const p = progress(a.id), cls = p.changed ? 'ch' : p.done === p.total ? 'full' : p.done ? 'part' : '';
         return `<button class="lc-area ${a.id === st.area ? 'on' : ''}" data-lc-area="${a.id}"><span class="lc-dot ${cls}"></span><span class="lc-area-t">${a.title}</span><span class="lc-area-n">${p.done}/${p.total}</span></button>`;
-      }).join('')}</nav>
+      }).join('')}
+        <div class="lc-sep">Do mês</div>
+        <button class="lc-area ${st.area === 'hse' ? 'on' : ''}" data-lc-area="hse"><span class="lc-dot ${HS().dirty() ? 'ch' : B().hseGet(st.date.slice(0, 7)) ? 'full' : ''}" id="lcHseDot"></span><span class="lc-area-t">HSE</span><span class="lc-area-n">${HS().monthName(st.date.slice(0, 7)).slice(0, 3).toLowerCase()}</span></button></nav>
     </aside>`;
   }
   const inputHtml = (p, type, ro) => `<input class="lc-in" type="text" inputmode="decimal" data-lc-f="${p}" value="${esc(show(cur(p), type))}" ${ro ? 'readonly' : ''} autocomplete="off" aria-label="${esc(FIELDS.get(p).label)}">${type === 'pct' ? '<span class="lc-unit">%</span>' : ''}`;
@@ -137,7 +140,30 @@ window.Lanc = (() => {
       </tbody></table></div>`;
   }
 
+  const HS = () => window.HseLanc;
+  const hseState = () => (HS().dirty() ? '<b>Alterações no HSE</b> não salvas' : '<span class="lc-ok">✓ HSE salvo</span>');
+  function drawHse(ro) {
+    const hub = CT() && CT().hub(), last = AREAS[AREAS.length - 1];
+    ui.main.innerHTML = ui.head('Lançar indicadores', `${hub ? esc(hub.nome || hub.id) + ' · ' : ''}grava na planilha de dados do hub`) +
+      (ro ? `<div class="au-demo">${B().enabled() ? 'Seu acesso é só de consulta.' : 'Para lançar é preciso entrar com a conta Google e ter a planilha de dados do hub.'}</div>` : '') + `
+      <div class="lc">${navHtml()}
+        <section class="lc-main">${HS().panel(st.date.slice(0, 7), ro)}
+          <footer class="lc-foot"><div class="lc-foot-l"><button class="btn-ghost" data-lc-area="${last.id}">‹ ${last.title}</button></div>
+            <span class="lc-state">${dirty().length ? stateTxt(dirty()) + ' · ' : ''}${hseState()}</span>
+            <button class="btn-primary solid" id="lcSave" data-lc="save" ${(HS().dirty() || dirty().length) && !ro && !st.saving ? '' : 'disabled'}>${st.saving ? 'Salvando…' : 'Salvar'}</button></footer>
+        </section></div>`;
+  }
+  // Mudança no HSE: redesenha (estrutura mudou) ou só atualiza a barra e o ponto do menu.
+  function hseChanged(full) {
+    if (!ui.isActive() || st.area !== 'hse') return;
+    if (full) { const y = window.scrollY, sc = document.querySelector('.content'), sy = sc && sc.scrollTop; draw(); window.scrollTo(0, y); if (sc) sc.scrollTop = sy; return; }
+    const s = ui.main.querySelector('.lc-state'), b = $('lcSave'), dot = $('lcHseDot');
+    if (s) s.innerHTML = (dirty().length ? stateTxt(dirty()) + ' · ' : '') + hseState();
+    if (b) b.disabled = !(HS().dirty() || dirty().length) || st.saving || readOnly();
+    if (dot) dot.className = `lc-dot ${HS().dirty() ? 'ch' : 'full'}`;
+  }
   function draw() {
+    if (st.area === 'hse') return drawHse(readOnly());
     const ro = readOnly(), c = calcs(), d = dirty(), hub = CT() && CT().hub();
     const a = AREAS.find(x => x.id === st.area) || AREAS[0], last = lastOf(a.id), k = AREAS.indexOf(a);
     ui.main.innerHTML = ui.head('Lançar indicadores', `${hub ? esc(hub.nome || hub.id) + ' · ' : ''}grava na planilha de dados do hub`) +
@@ -150,7 +176,7 @@ window.Lanc = (() => {
           ${a.sections.map(s => sectionHtml(s, ro, c)).join('')}
           <footer class="lc-foot">
             <div class="lc-foot-l">${k > 0 ? `<button class="btn-ghost" data-lc-area="${AREAS[k - 1].id}">‹ ${AREAS[k - 1].title}</button>` : ''}
-              ${k < AREAS.length - 1 ? `<button class="btn-ghost" data-lc-area="${AREAS[k + 1].id}">${AREAS[k + 1].title} ›</button>` : ''}</div>
+              ${k < AREAS.length - 1 ? `<button class="btn-ghost" data-lc-area="${AREAS[k + 1].id}">${AREAS[k + 1].title} ›</button>` : '<button class="btn-ghost" data-lc-area="hse">HSE do mês ›</button>'}</div>
             <span class="lc-state">${stateTxt(d)}</span>
             <button class="btn-primary solid" id="lcSave" data-lc="save" ${d.length && !ro && !st.saving ? '' : 'disabled'}>${st.saving ? 'Salvando…' : 'Salvar'}</button>
           </footer>
@@ -177,7 +203,16 @@ window.Lanc = (() => {
 
   async function save() {
     const d = dirty();
-    if (!d.length || st.saving) return;
+    if (st.saving) return;
+    // HSE do mês (e os indicadores do dia, se houver alteração também).
+    if (HS().dirty()) {
+      st.saving = true; hseChanged(false);
+      try { await HS().save(); ui.toast(`HSE de ${HS().monthName(st.date.slice(0, 7)).toLowerCase()} salvo`); if (!d.length && ui.rebuild) ui.rebuild(); }
+      catch (e) { ui.toast(String(e.message || e), true); st.saving = false; if (ui.isActive()) draw(); return; }
+      st.saving = false;
+      if (!d.length) { if (ui.isActive()) draw(); return; }
+    }
+    if (!d.length) return;
     const bad = d.filter(p => st.draft[p] === undefined);
     if (bad.length) return ui.toast(`Valor inválido em: ${bad.map(p => FIELDS.get(p).label).join(', ')}`, true);
     const c = calcs();
@@ -193,8 +228,11 @@ window.Lanc = (() => {
   }
   async function goDate(iso) {
     if (!iso || iso === st.date) return;
-    if (dirty().length && !(await window.uiConfirm(`Há ${dirty().length} alteração(ões) não salva(s) em ${brDate(st.date)}. Descartar?`, { ok: 'Descartar' }))) { draw(); return; }
-    st.date = iso > today() ? today() : iso; st.draft = {}; draw();
+    iso = iso > today() ? today() : iso;
+    const hseLost = HS().dirty() && iso.slice(0, 7) !== st.date.slice(0, 7);
+    if ((dirty().length || hseLost) && !(await window.uiConfirm(`Há alterações não salvas${dirty().length ? ` em ${brDate(st.date)}` : ''}${hseLost ? ' no HSE do mês' : ''}. Descartar?`, { ok: 'Descartar' }))) { draw(); return; }
+    if (hseLost) HS().reset();
+    st.date = iso; st.draft = {}; draw();
   }
   function goArea(id) {
     st.area = id; draw();
@@ -246,6 +284,6 @@ window.Lanc = (() => {
     });
   }
 
-  const hasDraft = () => dirty().length > 0;
+  const hasDraft = () => dirty().length > 0 || HS().dirty();
   return { render, hasDraft, _: { AREAS, FIELDS } };
 })();

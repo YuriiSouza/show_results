@@ -370,7 +370,7 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
 - **Lançar indicadores** (menu Ferramentas, no fim; não aparece para Gerente): substitui o preenchimento das planilhas mensais. Recebimento, HC (AM, PM),
   Inventário (aging e MA T1/T3), Reversa e Transporte; só o que mudou vai para a guia Indicadores. Calculados como na
   planilha mensal: total recebido = AM + PM; presentes = HC − DSR − ABS − Férias − Desligado − Afastamento; total do dia
-  = AM + PM; total do inventário = soma do aging. Gerente vê, mas não altera. O HSE continua vindo da importação.
+  = AM + PM; total do inventário = soma do aging. Gerente não vê a tela. **HSE do mês** (no fim da lista de áreas): colaboradores, checklists, ginástica laboral, DDS e links, gravados por mês na guia HSE; "Copiar do mês anterior" traz a estrutura sem os status.
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

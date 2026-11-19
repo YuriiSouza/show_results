@@ -116,6 +116,8 @@
       await B.ready; await B.recheck(); B.setActive(true);
       const ok = await B.load(true);
       const model = B.indicadoresModel() || emptyModel();
+      // HSE do mês vem da guia HSE mesmo sem indicadores lançados.
+      if (!model.hseByMonth || !Object.keys(model.hseByMonth).length) { model.hseByMonth = B.hseByMonth(); const ks = Object.keys(model.hseByMonth).sort(); model.hse = ks.length ? model.hseByMonth[ks[ks.length - 1]] : null; }
       const f = CT.dataFile();
       return { model, demo: false, fromBase: true, sources: [{ month: '', ok: !!ok, name: f ? `${CT.hub().nome || CT.hub().id} ${f.ano}` : '', error: ok ? '' : (B.status.msg || 'Falha ao ler a planilha do hub') }] };
     }
@@ -758,7 +760,7 @@
     const mk = hseKeys.includes(state.hseMonth) ? state.hseMonth : hseKeys.includes(nowKey) ? nowKey : hseKeys[hseKeys.length - 1];
     const hse = (mk && byMonth[mk]) || state.model.hse;
     const monthSel = hseKeys.length ? `<label class="hse-month">Mês <select id="hseMonth" aria-label="Mês do HSE">${hseKeys.map(k => `<option value="${k}" ${k === mk ? 'selected' : ''}>${monthName(k)}</option>`).join('')}</select></label>` : '';
-    if (!hse) { main.innerHTML = head('HSE') + empty(`Guia ${C.SHEETS.hse} não encontrada.`); return; }
+    if (!hse) { main.innerHTML = head('HSE') + empty(window.Central && window.Central.on() ? 'Nenhum HSE lançado. Lance em Ferramentas → Lançar indicadores → HSE.' : `Guia ${C.SHEETS.hse} não encontrada.`); return; }
     const ppl = hse.people;
     const count = (arr, fn) => arr.reduce((m, x) => { const k = fn(x) || '—'; m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
     const byLider = count(ppl, p => p.lider);
