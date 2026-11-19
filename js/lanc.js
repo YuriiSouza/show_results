@@ -11,7 +11,7 @@ window.Lanc = (() => {
   const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
   const $ = id => document.getElementById(id);
   let ui = null, bound = false;
-  const st = { date: today(), draft: {}, saving: false, area: 'rec', sug: {}, sugBusy: '' };
+  const st = { date: today(), draft: {}, saving: false, area: 'rec', sug: {}, sugBusy: '', fromSug: new Set() };
 
   // Seções: lista (rótulo | dia anterior | valor) ou tabela (linhas × colunas, ex.: HC por turno).
   // Campo: [caminho, rótulo, tipo] — tipo: int (padrão), pct (digitado em %, gravado em fração), dec. calc = calculado.
@@ -132,11 +132,19 @@ window.Lanc = (() => {
     st.sugBusy = '';
     const changed = JSON.stringify(out) !== JSON.stringify(st.sug[iso] || null);
     st.sug[iso] = out;
+    if (st.date === iso) applySug();
     if (changed && ui.isActive() && st.date === iso && st.area !== 'hse') draw();
   }
   const sugOf = p => (st.sug[st.date] || {})[p] || null;
-  // Sugestão diferente do valor atual (as iguais não aparecem).
-  const sugDiff = p => { const x = sugOf(p); return x && x.v !== cur(p) ? x : null; };
+  // Como no report: campo ainda sem valor salvo (e não digitado) já vem preenchido com a sugestão, marcado em verde.
+  // Ao salvar, a sugestão é gravada como os outros valores; digitar no campo tira a marca.
+  function applySug() {
+    if (readOnly()) return;
+    Object.entries(st.sug[st.date] || {}).forEach(([p, x]) => {
+      if (x.v == null || p in st.draft || saved(p) != null) return;
+      st.draft[p] = x.v; st.fromSug.add(p);
+    });
+  }
 
   // ---------- Tela ----------
   function render(ctx) {
@@ -144,6 +152,7 @@ window.Lanc = (() => {
     if (!bound) { bound = true; bind(); }
     HS().attach(ui, hseChanged);
     st.sug = {};   // relê as sugestões (as outras telas podem ter mudado)
+    [...st.fromSug].forEach(p => delete st.draft[p]); st.fromSug.clear();
     draw();
   }
   const brDate = iso => iso.split('-').reverse().join('/');
@@ -180,7 +189,7 @@ window.Lanc = (() => {
         <button class="lc-area ${st.area === 'hse' ? 'on' : ''}" data-lc-area="hse"><span class="lc-dot ${HS().dirty() ? 'ch' : B().hseGet(st.date.slice(0, 7)) ? 'full' : ''}" id="lcHseDot"></span><span class="lc-area-t">HSE</span><span class="lc-area-n">${HS().monthName(st.date.slice(0, 7)).slice(0, 3).toLowerCase()}</span></button></nav>
     </aside>`;
   }
-  const inputHtml = (p, type, ro) => `<input class="lc-in" type="text" inputmode="decimal" data-lc-f="${p}" value="${esc(show(cur(p), type))}" ${ro ? 'readonly' : ''} autocomplete="off" aria-label="${esc(FIELDS.get(p).label)}">${type === 'pct' ? '<span class="lc-unit">%</span>' : ''}`;
+  const inputHtml = (p, type, ro) => `<input class="lc-in" type="text" inputmode="decimal" data-lc-f="${p}" value="${esc(show(cur(p), type))}" ${ro ? 'readonly' : ''} autocomplete="off" aria-label="${esc(FIELDS.get(p).label)}" ${st.fromSug.has(p) && sugOf(p) ? `title="Sugerido pelo app: ${esc(sugOf(p).how)}. Confira antes de salvar."` : ''}>${type === 'pct' ? '<span class="lc-unit">%</span>' : ''}`;
   function sectionHtml(s, ro, c) {
     const prev = shift(st.date, -1);
     if (s.kind === 'list') {
@@ -188,8 +197,8 @@ window.Lanc = (() => {
         <div class="lc-list"><div class="lc-lh"><span></span><span>Dia anterior</span><span>${brDate(st.date).slice(0, 5)}</span></div>
         ${s.rows.map(([p, l, t, calc]) => {
           const type = t || 'int', pv = savedAt(prev, p);
-          const sg = !calc && !ro && sugDiff(p);
-          return `<div class="lc-row ${calc ? 'calc' : ''} ${!calc && isDirty(p) ? 'ch' : ''}" data-lc-row="${p}"><span class="lc-lbl">${esc(l)}${sg ? `<span class="lc-sug" title="${esc(sg.how)}">Sugerido <b>${fmtv(sg.v, type)}</b> · ${esc(sg.how)} <button data-lc-use="${p}">usar</button></span>` : ''}</span>
+          const sg = !calc && st.fromSug.has(p) && sugOf(p);
+          return `<div class="lc-row ${calc ? 'calc' : ''} ${sg ? 'sug' : !calc && isDirty(p) ? 'ch' : ''}" data-lc-row="${p}"><span class="lc-lbl">${esc(l)}${sg ? `<span class="lc-sug" title="${esc(sg.how)}">sugerido · ${esc(sg.how.split(' · ')[0])}</span>` : ''}</span>
             <span class="lc-prev">${fmtv(pv, type)}</span>
             <span class="lc-val">${calc ? `<output data-lc-c="${p}">${fmtv(c[p], type)}</output>` : inputHtml(p, type, ro)}</span></div>`;
         }).join('')}</div></div>`;
@@ -234,7 +243,7 @@ window.Lanc = (() => {
         <section class="lc-main">
           <header class="lc-mh"><div><h2>${a.title}</h2><p>${esc(a.desc)}</p></div>
             <div class="lc-last">${last ? `Último lançamento<br><b>${esc(last.user)}</b> · ${esc(when(last.at))}` : 'Nada lançado neste dia'}</div></header>
-          ${(() => { const n = ro ? 0 : [...FIELDS.entries()].filter(([p, f]) => f.area === a.id && !f.calc && sugDiff(p)).length; return n ? `<div class="lc-sugbar">💡 ${n} valor(es) sugerido(s) a partir de outras telas do app <button class="btn-ghost" data-lc="useAll">Usar ${n === 1 ? 'a sugestão' : `as ${n} sugestões`}</button></div>` : ''; })()}
+          ${(() => { const n = [...st.fromSug].filter(p => FIELDS.get(p).area === a.id).length; return n ? `<div class="lc-sugbar"><span class="lc-sw"></span>${n} campo(s) preenchido(s) com sugestão de outras telas do app (borda verde). Confira e salve; digitar no campo substitui.</div>` : ''; })()}
           ${a.sections.map(s => sectionHtml(s, ro, c)).join('')}
           <footer class="lc-foot">
             <div class="lc-foot-l">${k > 0 ? `<button class="btn-ghost" data-lc-area="${AREAS[k - 1].id}">‹ ${AREAS[k - 1].title}</button>` : ''}
@@ -245,7 +254,7 @@ window.Lanc = (() => {
         </section>
       </div>`;
   }
-  const stateTxt = d => (d.length ? `<b>${d.length}</b> alteração(ões) não salva(s)` : '<span class="lc-ok">✓ Tudo salvo</span>');
+  const stateTxt = d => (d.length ? `<b>${d.length}</b> alteração(ões) não salva(s)${st.fromSug.size ? ` · ${[...st.fromSug].filter(p => d.includes(p)).length} sugerida(s)` : ''}` : '<span class="lc-ok">✓ Tudo salvo</span>');
   // Enquanto digita: atualiza só os calculados, a barra e o menu das áreas (sem redesenhar os campos).
   function refreshLive() {
     const c = calcs(), d = dirty();
@@ -254,6 +263,8 @@ window.Lanc = (() => {
     if (b) b.disabled = !d.length || st.saving || readOnly();
     const s = ui.main.querySelector('.lc-state');
     if (s) s.innerHTML = stateTxt(d);
+    const bar = ui.main.querySelector('.lc-sugbar'), nSug = [...st.fromSug].filter(p => FIELDS.get(p).area === st.area).length;
+    if (bar) { if (!nSug) bar.remove(); else bar.innerHTML = `<span class="lc-sw"></span>${nSug} campo(s) preenchido(s) com sugestão de outras telas do app (borda verde). Confira e salve; digitar no campo substitui.`; }
     const nav = ui.main.querySelector('.lc-areas');
     if (nav) AREAS.forEach(a => {
       const btn = nav.querySelector(`[data-lc-area="${a.id}"]`), p = progress(a.id);
@@ -282,7 +293,7 @@ window.Lanc = (() => {
     st.saving = true; refreshLive();
     try {
       const n = await B().indicadoresSave(items, 'Lançamento no app');
-      st.draft = {};
+      st.draft = {}; st.fromSug.clear();
       ui.toast(`${n} valor(es) salvo(s) para ${brDate(st.date)}`);
       if (ui.rebuild) ui.rebuild();
     } catch (e) { ui.toast(String(e.message || e), true); }
@@ -294,7 +305,7 @@ window.Lanc = (() => {
     const hseLost = HS().dirty() && iso.slice(0, 7) !== st.date.slice(0, 7);
     if ((dirty().length || hseLost) && !(await window.uiConfirm(`Há alterações não salvas${dirty().length ? ` em ${brDate(st.date)}` : ''}${hseLost ? ' no HSE do mês' : ''}. Descartar?`, { ok: 'Descartar' }))) { draw(); return; }
     if (hseLost) HS().reset();
-    st.date = iso; st.draft = {}; draw();
+    st.date = iso; st.draft = {}; st.fromSug.clear(); applySug(); draw();
   }
   function goArea(id) {
     st.area = id; draw();
@@ -306,15 +317,12 @@ window.Lanc = (() => {
     const main = ui.main;
     main.addEventListener('click', e => {
       if (!ui.isActive()) return;
-      const use = e.target.closest('[data-lc-use]');
-      if (use) { const x = sugOf(use.dataset.lcUse); if (x) { st.draft[use.dataset.lcUse] = x.v; draw(); } return; }
       const ar = e.target.closest('[data-lc-area]');
       if (ar) { goArea(ar.dataset.lcArea); return; }
       const t = e.target.closest('[data-lc]');
       if (!t) return;
       const a = t.dataset.lc;
       if (a === 'save') save();
-      else if (a === 'useAll') { FIELDS.forEach((f, p) => { const x = f.area === st.area && !f.calc && sugDiff(p); if (x) st.draft[p] = x.v; }); draw(); }
       else if (a === 'prev') goDate(shift(st.date, -1));
       else if (a === 'next') goDate(shift(st.date, 1));
       else if (a === 'today') goDate(today());
@@ -324,6 +332,7 @@ window.Lanc = (() => {
       const p = e.target.dataset.lcF, f = FIELDS.get(p);
       st.draft[p] = parse(e.target.value, f.type);
       const row = main.querySelector(`[data-lc-row="${p}"]`);
+      if (st.fromSug.delete(p) && row) { row.classList.remove('sug'); const t = row.querySelector('.lc-sug'); if (t) t.remove(); e.target.removeAttribute('title'); }
       if (row) row.classList.toggle('ch', isDirty(p));
       e.target.classList.toggle('bad', st.draft[p] === undefined);
       refreshLive();

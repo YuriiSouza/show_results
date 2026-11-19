@@ -1223,3 +1223,7 @@ body.tv #btnTour { display: none; }
 .lc-sugbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, #1f6fd1 8%, var(--surface)); border: 1px solid color-mix(in srgb, #1f6fd1 25%, var(--border)); }
 .lc-sugbar button { margin-left: auto; }
 .lc-list { max-width: 760px; }
+.lc-row.sug .lc-in, td.sug .lc-in { border-color: var(--good); border-left: 4px solid var(--good); background: color-mix(in srgb, var(--good) 7%, var(--surface)); }
+.lc-sug { font-size: 11px; font-weight: 700; color: var(--good); text-transform: none; }
+.lc-sugbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border-radius: 10px; font-size: 13px; color: var(--text-2); background: color-mix(in srgb, var(--good) 7%, var(--surface)); border: 1px solid color-mix(in srgb, var(--good) 30%, var(--border)); }
+.lc-sw { width: 4px; height: 18px; border-radius: 2px; background: var(--good); flex: none; }
