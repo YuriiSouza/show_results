@@ -174,6 +174,7 @@
 
   async function refresh({ silent = false, full = false } = {}) {
     if (state.loading) return;
+    const endTimer = window.AppLog ? window.AppLog.timer('refresh', full ? 'Recarregar todos os dados' : 'Atualizar os dados') : () => {};
     const blocked = accessBlock();
     if (blocked) { main.innerHTML = blocked; $('tabs').innerHTML = ''; $('filters').classList.add('hidden'); setStatus('err', 'Sem acesso'); return; }
     state.loading = true;
@@ -201,6 +202,8 @@
         : `Fonte: ${okMonths.length} planilha(s) (${span}) · ${state.model.dates.length} dias · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`;
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#rpStage');
       if (!typing) renderAll();
+      endTimer();
+      if (bad.length && window.AppLog) window.AppLog.warn('falha', `Atualizar: ${bad.map(x => x.error).join(' · ')}`.slice(0, 400));
       if (bad.length) toast(fromBase ? bad[0].error : `${bad.length} mês(es) com erro: ${bad.map(x => `${monthName(x.month)} — ${x.error}`).join(' · ')}`, true);
       else if (!silent) toast(demo ? 'Dados de exemplo carregados' : full ? 'Todos os meses recarregados' : 'Dados atualizados da planilha');
     } catch (err) {
@@ -438,7 +441,9 @@
     document.body.classList.toggle('audit-mode', tab.id === 'audit');
     H.destroyAll();
     H.applyDefaults();
-    tab.render();
+    const endRender = window.AppLog ? window.AppLog.timer('render', `Abrir a tela ${tab.label}`) : () => {};
+    try { tab.render(); } catch (err) { if (window.AppLog) window.AppLog.error('erro', `Tela ${tab.label}: ${err.message}`, err.stack); throw err; }
+    endRender();
     $('footCredit').textContent = CREDITS[tab.id] || 'Desenvolvido por Yuri Peixoto';
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
@@ -1243,7 +1248,10 @@
   (async () => {
     // Multi-hub: lê a planilha Central antes de montar a tela (usuário, hub e configuração do hub).
     if (window.Central && window.Central.on()) {
+      const endC = window.AppLog ? window.AppLog.timer('central', 'Ler a planilha Central') : () => {};
       const r = await window.Central.init();
+      endC();
+      if (window.Central.state() === 'error' && window.AppLog) window.AppLog.error('falha', `Planilha Central: ${window.Central.error()}`);
       if (r.reload) { location.reload(); return; }
     }
     bind();

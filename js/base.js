@@ -208,6 +208,7 @@ window.Base = (() => {
     loading = (async () => {
       try {
         setStatus('sync', 'Sincronizando…');
+        const endT = window.AppLog ? window.AppLog.timer('base', 'Ler a planilha de dados') : () => {};
         const ID = curId();
         if (ensured !== ID) { await api.baseEnsure(ID); ensured = ID; }
         await flush();
@@ -226,13 +227,14 @@ window.Base = (() => {
         (data.avarias || []).forEach(applyAvariaRow);
         // O que ainda está na fila (não enviado) vale por cima do que veio da planilha (só o que é desta planilha).
         ls.get('basePending', []).filter(op => target(op) === ID).forEach(op => op.rows.forEach(APPLY[op.tab] || (() => {})));
-        loadedAt = Date.now();
+        loadedAt = Date.now(); endT();
         const pend = ls.get('basePending', []).length;
         setStatus(pend ? 'pending' : 'ok', pend ? `${pend} envio(s) pendente(s)` : 'Sincronizado');
         if (!multi()) migrateOnce();   // multi-hub: a migração para a planilha do hub é feita à parte
         return true;
       } catch (err) {
         setStatus('error', clean(err));
+        if (window.AppLog) window.AppLog.error('falha', `Ler a planilha de dados: ${clean(err)}`);
         return false;
       } finally { loading = null; }
     })();

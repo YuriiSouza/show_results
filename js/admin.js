@@ -24,11 +24,12 @@ window.Admin = (() => {
     if (!bound) { bound = true; bind(); }
     draw();
   }
-  const tabs = () => `<div class="pc-tabs" role="tablist">${[['users', 'Usuários'], ['hubs', 'Hubs']].map(([k, l]) =>
+  const tabs = () => `<div class="pc-tabs" role="tablist">${[['users', 'Usuários'], ['hubs', 'Hubs'], ['logs', 'Registros']].map(([k, l]) =>
     `<button role="tab" class="${st.view === k ? 'active' : ''}" aria-selected="${st.view === k}" data-ad-view="${k}">${l}</button>`).join('')}</div>`;
   function draw() {
     if (!CT() || !CT().isAdmin()) { ui.main.innerHTML = ui.head('Administração') + ui.empty('Só o administrador acessa esta tela.'); return; }
     if (st.view === 'hubs') return drawHubs();
+    if (st.view === 'logs') return drawLogs();
     return drawUsers();
   }
   const fileLinks = hubIds => CT().files().filter(f => f.status !== 'inativo' && (hubIds.includes('*') || hubIds.includes(f.hub)))
@@ -295,6 +296,45 @@ window.Admin = (() => {
     finally { st.migrating = false; draw(); }
   }
 
+  // ---------- Registros (erros e alertas enviados pelos aparelhos para a guia Logs da planilha de cada hub) ----------
+  const lg = { hub: '', level: '', rows: null, loading: false, err: '' };
+  async function loadLogs() {
+    const h = CT().hubs().find(x => x.id === lg.hub) || CT().hub() || CT().hubs()[0];
+    if (!h) return;
+    lg.hub = h.id;
+    const f = CT().dataFile(h);
+    if (!f) { lg.rows = []; lg.err = `O hub ${h.id} não tem planilha de dados.`; return; }
+    lg.loading = true; lg.err = '';
+    try { lg.rows = (await window.hubApi.baseReadTab(f.id, 'Logs')).map(r => r.map(x => (x == null ? '' : x))); }
+    catch (e) { lg.rows = []; lg.err = String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+    lg.loading = false;
+  }
+  function drawLogs() {
+    if (lg.rows == null && !lg.loading) { loadLogs().then(() => { if (ui.isActive() && st.view === 'logs') draw(); }); }
+    const rows = (lg.rows || []).slice().reverse().filter(r => !lg.level || r[1] === lg.level);
+    const since = Date.now() - 7 * 864e5, week = (lg.rows || []).filter(r => Date.parse(r[0]) >= since);
+    const n = lv => week.filter(r => r[1] === lv).reduce((s, r) => s + (Number(r[9]) || 1), 0);
+    const local = window.AppLog ? window.AppLog.recent().slice().reverse() : [];
+    const when2 = t => (t ? new Date(t).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+    ui.main.innerHTML = ui.head('Administração', 'Erros e alertas enviados pelos aparelhos') + tabs() + `
+      <div class="adm-logbar"><label>Hub <select id="adLogHub">${CT().hubs().map(h => `<option value="${esc(h.id)}" ${h.id === lg.hub ? 'selected' : ''}>${esc(h.id)}</option>`).join('')}</select></label>
+        <label>Nível <select id="adLogLv"><option value="">Todos</option><option value="error" ${lg.level === 'error' ? 'selected' : ''}>Erros</option><option value="warn" ${lg.level === 'warn' ? 'selected' : ''}>Alertas</option></select></label>
+        <button class="tool" data-ad="logsReload">↻ Ler de novo</button>
+        ${window.AppLog && window.hubApi && window.hubApi.logOpen ? '<button class="tool" data-ad="logsFolder" title="Arquivos de registro deste computador (um por dia, 30 dias)">Abrir pasta deste computador</button>' : ''}</div>
+      <div class="kpis">${[
+        ui.kpi('Erros (7 dias)', H.fmt.int(n('error')), [`<span class="pill ${n('error') ? 'bad' : 'good'}">${n('error') ? '⚠ verificar' : '✓ nenhum'}</span>`]),
+        ui.kpi('Alertas de lentidão/falha (7 dias)', H.fmt.int(n('warn')), ['<span>demora acima do esperado ou resposta com erro</span>']),
+        ui.kpi('Aparelhos que enviaram', H.fmt.int(new Set(week.map(r => `${r[6]}|${r[8]}`)).size), ['<span>usuário + tipo de aparelho</span>']),
+      ].join('')}</div>
+      <section class="card w12"><div class="card-head"><div><div class="card-title">Registros do hub ${esc(lg.hub)}</div><div class="card-sub">${lg.loading ? 'Lendo…' : lg.err ? esc(lg.err) : `${rows.length} linha(s) · os mais recentes primeiro · os aparelhos enviam a cada 5 minutos`}</div></div></div>
+        <div class="table-wrap"><table class="pc-table adm-table"><thead><tr><th class="left">Quando</th><th class="left">Nível</th><th class="left">Tipo</th><th class="left">Mensagem</th><th>Duração</th><th>Vezes</th><th class="left">Tela</th><th class="left">Usuário</th><th class="left">Versão</th></tr></thead><tbody>
+        ${rows.slice(0, 500).map(r => `<tr><td class="left nowrap">${esc(when2(r[0]))}</td><td class="left"><span class="pill ${r[1] === 'error' ? 'bad' : 'warn'}">${r[1] === 'error' ? 'erro' : 'alerta'}</span></td><td class="left">${esc(r[2])}</td>
+          <td class="left adm-msg" title="${esc(r[10])}">${esc(r[3])}</td><td>${r[4] !== '' ? (Number(r[4]) / 1000).toFixed(1) + ' s' : ''}</td><td>${esc(r[9])}</td><td class="left">${esc(r[5])}</td><td class="left">${esc(r[6])}</td><td class="left">${esc(r[7])} ${esc(r[8])}</td></tr>`).join('')}
+        </tbody></table></div></section>
+      <section class="card w12" style="margin-top:16px"><div class="card-head"><div><div class="card-title">Desta sessão, neste aparelho</div><div class="card-sub">${local.length} registro(s) desde que o app abriu (inclui os ainda não enviados)</div></div></div>
+        ${local.length ? `<div class="table-wrap"><table class="pc-table adm-table"><tbody>${local.slice(0, 100).map(e => `<tr><td class="left nowrap">${esc(when2(e.t))}</td><td class="left"><span class="pill ${e.level === 'error' ? 'bad' : e.level === 'warn' ? 'warn' : ''}">${esc(e.level)}</span></td><td class="left">${esc(e.tipo)}</td><td class="left adm-msg">${esc(e.msg)}</td><td>${e.ms != null ? (e.ms / 1000).toFixed(1) + ' s' : ''}</td></tr>`).join('')}</tbody></table></div>` : ui.empty('Nada registrado nesta sessão. ✓')}</section>`;
+  }
+
   function bind() {
     const main = ui.main;
     main.addEventListener('click', e => {
@@ -308,6 +348,8 @@ window.Admin = (() => {
       if (d.ad === 'newuser') { st.user = null; draw(); }
       else if (d.ad === 'newhub') { st.hub = null; draw(); }
       else if (d.ad === 'migrate') migrateLegacy();
+      else if (d.ad === 'logsReload') { lg.rows = null; draw(); }
+      else if (d.ad === 'logsFolder') window.AppLog.openFolder();
     });
     main.addEventListener('submit', e => {
       if (!ui.isActive()) return;
@@ -317,6 +359,8 @@ window.Admin = (() => {
       else if (e.target.id === 'adImpForm') { e.preventDefault(); importMonthly(); }
     });
     main.addEventListener('change', e => {
+      if (ui.isActive() && e.target.id === 'adLogHub') { lg.hub = e.target.value; lg.rows = null; draw(); return; }
+      if (ui.isActive() && e.target.id === 'adLogLv') { lg.level = e.target.value; draw(); return; }
       if (!ui.isActive() || e.target.id !== 'adPapel') return;
       // Trocar o papel muda as regras de hubs (um ou vários): redesenha o formulário mantendo o que já foi digitado.
       const u = st.user || emptyUser();

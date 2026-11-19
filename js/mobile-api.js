@@ -203,6 +203,8 @@
     // Recebimento por hora (painel de produtividade do SPX) e a meta do turno. Vale o salvamento mais recente do dia/turno.
     RecebimentoHora: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Início', 'A receber', 'Recebido', 'Ritmo (pac/h)', 'Previsão de término', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)'],
     // Avarias: cada ocorrência (BR, origem, tipo, setor, quem recebeu no hub) e a tratativa. Vale a linha mais recente de cada ID.
+    // Registro de erros e alertas do app (falhas, lentidão), enviado de tempos em tempos por cada aparelho.
+    Logs: ['Quando', 'Nível', 'Tipo', 'Mensagem', 'Duração (ms)', 'Tela', 'Usuário', 'Versão', 'Aparelho', 'Vezes', 'Detalhe'],
     // Validação das rotas noshow do Audit de gestão: confirmado ou erro (não conta como noshow). Vale a mais recente de cada AT.
     NoShow: ['Data', 'Turno', 'AT', 'Validação', 'Observação', 'Usuário', 'Gravado em'],
     // Indicadores do dia (o que antes vinha das planilhas mensais): uma linha por dia e indicador; vale a mais recente.
@@ -272,6 +274,12 @@
     const token = await getValidAccessToken();
     await sheetsSend('POST', `${baseUrl(id)}/values/${q(tab)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, token, { values: rows });
     return true;
+  }
+  async function baseReadTab(id, tab) {
+    if (!BASE_TABS[tab]) throw new Error('Guia inválida.');
+    const token = await getValidAccessToken();
+    const data = await sheetsGet(`${baseUrl(id)}/values/${q(tab)}!A2:Z?valueRenderOption=UNFORMATTED_VALUE`, token);
+    return (data.values || []).slice(-2000);
   }
   async function baseReadAll(id) {
     const token = await getValidAccessToken();
@@ -366,7 +374,7 @@
     },
     fetchSheets,
     auditList, auditSave, auditDelete,
-    baseEnsure, baseRead, baseReadAll, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
+    baseEnsure, baseRead, baseReadAll, baseReadTab, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
     os: Cap.getPlatform(), // 'android' | 'ios'
     openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),

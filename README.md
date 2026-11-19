@@ -382,6 +382,10 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   HH:MM"), abaixo quem esteve antes e o total da bancada no turno.
 - **Mapa de piso → Gaioleiros**: nova função (auxiliares que puxam as gaiolas), com quantidade no layout.
 - **Audit de gestão**: topo enxuto (turno e "＋ Importar" ao lado do título; 6 indicadores; destaques abaixo).
+- **Registro de erros e alertas** (`js/applog.js` + `electron/main.js`): toda chamada ao Google Sheets/SPX é cronometrada
+  (falha = erro; acima do limite = alerta "lento"), assim como atualizar os dados, abrir uma tela e ler a Central. No
+  computador vai para `<pasta do app>/logs/AAAA-MM-DD.jsonl` (30 dias); a cada 5 min os erros e alertas vão para a guia
+  `Logs` da planilha do hub. O admin vê em Ferramentas → Usuários e hubs → **Registros**.
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

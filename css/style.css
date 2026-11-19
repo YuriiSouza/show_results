@@ -1267,3 +1267,8 @@ body.tv #btnTour { display: none; }
 .cfg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #settings [data-multi][hidden] { display: none !important; }
 .cfg2 .key-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0; } .cfg2 .key-row #baseStatus { flex: 1; }
+.adm-logbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.adm-logbar label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); font-weight: 600; }
+.adm-logbar select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; background: var(--surface); color: var(--text); }
+.adm-msg { max-width: 520px; white-space: normal; }
+.nowrap { white-space: nowrap; }
