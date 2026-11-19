@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('hubApi', {
   cacheClear: () => ipcRenderer.invoke('cache:clear'),
   baseEnsure: id => ipcRenderer.invoke('base:ensure', id),
   baseRead: id => ipcRenderer.invoke('base:read', id),
+  baseReadAll: id => ipcRenderer.invoke('base:readAll', id),
   baseAppend: (id, tab, rows) => ipcRenderer.invoke('base:append', id, tab, rows),
   centralEnsure: id => ipcRenderer.invoke('central:ensure', id),
   centralRead: id => ipcRenderer.invoke('central:read', id),

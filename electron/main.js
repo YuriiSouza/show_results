@@ -177,6 +177,17 @@ async function ensureTabs(id, TABS) {
 ipcMain.handle('base:ensure', (_e, id) => ensureTabs(id, BASE_TABS));
 
 // Lê o que o app precisa: Reports, o resumo de cada Audit importado e os resultados do Parcel.
+// Lê TODAS as colunas de todas as guias do app que existirem na planilha (só leitura). Usado na migração da planilha-base
+// antiga para a planilha do hub: { guia: linhas }.
+ipcMain.handle('base:readAll', async (_e, id) => {
+  const token = await baseToken();
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${baseId(id)}`;
+  const meta = await sheetsGet(`${base}?fields=properties.title,sheets.properties.title`, token);
+  const tabs = (meta.sheets || []).map(x => x.properties.title).filter(t => BASE_TABS[t]);
+  if (!tabs.length) return { title: meta.properties.title, tabs: {} };
+  const data = await sheetsGet(`${base}/values:batchGet?${tabs.map(t => `ranges=${q(t)}!A2:ZZ`).join('&')}&valueRenderOption=UNFORMATTED_VALUE`, token);
+  return { title: meta.properties.title, tabs: Object.fromEntries(tabs.map((t, k) => [t, ((data.valueRanges || [])[k] || {}).values || []])) };
+});
 ipcMain.handle('base:read', async (_e, id) => {
   const token = await baseToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${baseId(id)}`;

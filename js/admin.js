@@ -129,6 +129,14 @@ window.Admin = (() => {
               <p class="muted small">Crie a planilha no Drive do hub, compartilhe com você como Editor e cole o link: o app cria as guias.</p>
               <div class="adm-actions"><button type="submit" class="btn-primary" id="adFileSave">Vincular planilha</button></div>
             </form></div>
+          ${h.id === ((window.APP_CONFIG.CENTRAL_SEED || {}).hub || '') && window.APP_CONFIG.BASE_SHEET_URL ? `<div class="adm-files"><div class="adm-lbl">Migrar a planilha-base antiga</div>
+            <p class="muted small">Copia tudo o que está na planilha-base antiga (reports, Audit, Parcel, mapa de piso, erros de piso,
+              recebimento por hora e avarias) para a planilha de dados do hub de ${esc(CT().year())}. A planilha antiga é <b>só lida</b>,
+              nada é alterado nela. Pode repetir: linhas que já foram copiadas não entram de novo.
+              <a href="${esc(window.APP_CONFIG.BASE_SHEET_URL)}" target="_blank" rel="noopener">abrir a planilha antiga</a></p>
+            <div class="muted small" id="adMigMsg">${esc(st.migMsg || '')}</div>
+            <div class="adm-actions"><button type="button" class="btn-primary" data-ad="migrate" ${st.migrating ? 'disabled' : ''}>${st.migrating ? 'Migrando…' : 'Migrar para a planilha do hub'}</button></div>
+          </div>` : ''}
           <div class="adm-files"><div class="adm-lbl">Importar planilhas mensais</div>
             <p class="muted small">Copia os indicadores do dia (Recebimento, HC, Inventário, Reversa, Transporte, Gerencial) e o HSE de cada
               planilha mensal para a planilha de dados do hub. As planilhas mensais são <b>só lidas</b>, nada é alterado nelas. Pode repetir:
@@ -247,6 +255,46 @@ window.Admin = (() => {
     finally { st.importing = false; draw(); }
   }
 
+  // Copia as guias da planilha-base antiga (só leitura) para a planilha de dados do hub, sem repetir linhas já copiadas.
+  async function migrateLegacy() {
+    const h = st.hub, api = window.hubApi, C = window.APP_CONFIG;
+    if (!h || st.migrating) return;
+    const src = (String(C.BASE_SHEET_URL || '').match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1];
+    const file = CT().files().find(f => f.hub === h.id && f.ano === CT().year() && f.status !== 'inativo' && f.id);
+    if (!src) return ui.toast('Planilha-base antiga não configurada.', true);
+    if (!file) return ui.toast(`O hub ${h.id} não tem planilha de dados de ${CT().year()}: vincule uma antes.`, true);
+    if (file.id === src) return ui.toast('A planilha do hub não pode ser a planilha-base antiga.', true);
+    if (!(await window.uiConfirm(`Copiar os dados da planilha-base antiga para a planilha ${h.id} ${file.ano}? A planilha antiga só é lida.`, { ok: 'Migrar' }))) return;
+    const say = t => { st.migMsg = t; const el = $('adMigMsg'); if (el) el.textContent = t; };
+    const clean = e => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    // Linha comparável: tudo como texto, sem as células vazias do fim (a API do Google não devolve as do fim).
+    const key = r => { const c = (r || []).map(x => (x == null ? '' : String(x))); while (c.length && c[c.length - 1] === '') c.pop(); return JSON.stringify(c); };
+    st.migrating = true; draw();
+    try {
+      say('Lendo a planilha-base antiga (só leitura)…');
+      const old = await api.baseReadAll(src);
+      say('Lendo a planilha do hub…');
+      await api.baseEnsure(file.id);
+      const cur = await api.baseReadAll(file.id);
+      const done = [];
+      for (const [tab, rows] of Object.entries(old.tabs)) {
+        const have = new Set((cur.tabs[tab] || []).map(key));
+        const add = rows.filter(r => { const k = key(r); if (k === '[]' || have.has(k)) return false; have.add(k); return true; });
+        if (!add.length) { done.push(`${tab}: 0`); continue; }
+        // Envia em lotes de até ~1,5 MB (linhas do mapa e do Parcel podem ser grandes).
+        let batch = [], size = 0, sent = 0;
+        const send = async () => { if (!batch.length) return; await api.baseAppend(file.id, tab, batch); sent += batch.length; say(`${tab}: ${sent} de ${add.length} linha(s)…`); batch = []; size = 0; };
+        for (const r of add) { const n = JSON.stringify(r).length; if (size + n > 1.5e6) await send(); batch.push(r); size += n; }
+        await send();
+        done.push(`${tab}: ${add.length}`);
+      }
+      const msg = `Migração concluída para ${h.id} ${file.ano} · linhas novas — ${done.join(' · ')}`;
+      say(msg); ui.toast(msg);
+      if (CT().hub() && CT().hub().id === h.id && ui.refresh) ui.refresh();
+    } catch (e) { say('Parou com erro: ' + clean(e) + ' (pode clicar de novo: o que já foi copiado não repete)'); ui.toast(clean(e), true); }
+    finally { st.migrating = false; draw(); }
+  }
+
   function bind() {
     const main = ui.main;
     main.addEventListener('click', e => {
@@ -256,9 +304,10 @@ window.Admin = (() => {
       const d = t.dataset;
       if (d.adView) { st.view = d.adView; draw(); return; }
       if (d.adEdit) { const u = CT().users().find(x => x.email === d.adEdit); st.user = u ? { ...u, hubs: u.hubs.slice() } : null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
-      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.ad === 'newuser') { st.user = null; draw(); }
       else if (d.ad === 'newhub') { st.hub = null; draw(); }
+      else if (d.ad === 'migrate') migrateLegacy();
     });
     main.addEventListener('submit', e => {
       if (!ui.isActive()) return;

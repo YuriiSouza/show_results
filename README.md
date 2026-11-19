@@ -364,6 +364,9 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   indicador (`rec.total`, `hc.am.abs`, `inv.aging.2`…; ver `MODEL_SERIES` em `js/model.js`), vale a mais recente. O HSE do
   mês fica na guia `HSE`. O app **não lê mais as planilhas mensais**: em Administração → Hubs → **Importar planilhas
   mensais** os dados são copiados (as mensais só são lidas; repetir só grava o que mudou).
+- **Migrar a planilha-base antiga** (Administração → Hubs → LGO03): copia todas as guias da planilha-base antiga (reports,
+  Audit, Parcel, mapa de piso, erros de piso, recebimento por hora, avarias) para a planilha do hub do ano. A antiga só é
+  lida; linhas já copiadas não entram de novo (pode repetir).
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

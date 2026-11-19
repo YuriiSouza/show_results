@@ -271,6 +271,14 @@
     await sheetsSend('POST', `${baseUrl(id)}/values/${q(tab)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, token, { values: rows });
     return true;
   }
+  async function baseReadAll(id) {
+    const token = await getValidAccessToken();
+    const meta = await sheetsGet(`${baseUrl(id)}?fields=properties.title,sheets.properties.title`, token);
+    const tabs = (meta.sheets || []).map(x => x.properties.title).filter(t => BASE_TABS[t]);
+    if (!tabs.length) return { title: meta.properties.title, tabs: {} };
+    const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?${tabs.map(t => `ranges=${q(t)}!A2:ZZ`).join('&')}&valueRenderOption=UNFORMATTED_VALUE`, token);
+    return { title: meta.properties.title, tabs: Object.fromEntries(tabs.map((t, k) => [t, ((data.valueRanges || [])[k] || {}).values || []])) };
+  }
   async function baseRead(id) {
     const token = await getValidAccessToken();
     const data = await sheetsGet(`${baseUrl(id)}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&ranges=${q('Indicadores')}!A2:G&ranges=${q('HSE')}!A2:H&valueRenderOption=UNFORMATTED_VALUE`, token);
@@ -356,7 +364,7 @@
     },
     fetchSheets,
     auditList, auditSave, auditDelete,
-    baseEnsure, baseRead, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
+    baseEnsure, baseRead, baseReadAll, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
     os: Cap.getPlatform(), // 'android' | 'ios'
     openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),
