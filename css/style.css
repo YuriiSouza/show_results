@@ -1215,3 +1215,11 @@ body.tv #btnTour { display: none; }
 .hs-dds { grid-template-columns: 110px repeat(var(--n), minmax(0, 1fr)) 28px; gap: 2px; }
 .hs-dds > * { min-width: 0; }
 .hs-dds .hs-in { min-width: 0; }
+.ns-off td { opacity: .55; } .ns-val { white-space: nowrap; } .ns-val .tool { margin-left: 6px; }
+.lc-lbl { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lc-sug { font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-sug b { color: #1f6fd1; }
+.lc-sug button { border: 0; background: none; color: var(--shopee); font: inherit; font-weight: 800; cursor: pointer; padding: 0 2px; }
+.lc-sugbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, #1f6fd1 8%, var(--surface)); border: 1px solid color-mix(in srgb, #1f6fd1 25%, var(--border)); }
+.lc-sugbar button { margin-left: auto; }
+.lc-list { max-width: 760px; }

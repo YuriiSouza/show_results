@@ -121,6 +121,8 @@ const BASE_TABS = {
   // Recebimento por hora (painel de produtividade do SPX) e a meta do turno. Vale o salvamento mais recente do dia/turno.
   RecebimentoHora: ['Data', 'Turno', 'Status', 'Usuário', 'Gravado em', 'Aparelho', 'Início', 'A receber', 'Recebido', 'Ritmo (pac/h)', 'Previsão de término', 'Operadores', 'Resultado (JSON 1)', 'Resultado (JSON 2)'],
   // Avarias: cada ocorrência (BR, origem, tipo, setor, quem recebeu no hub) e a tratativa. Vale a linha mais recente de cada ID.
+  // Validação das rotas noshow do Audit de gestão: confirmado ou erro (não conta como noshow). Vale a mais recente de cada AT.
+  NoShow: ['Data', 'Turno', 'AT', 'Validação', 'Observação', 'Usuário', 'Gravado em'],
   // Indicadores do dia (o que antes vinha das planilhas mensais): uma linha por dia e indicador; vale a mais recente.
   Indicadores: ['Data', 'Indicador', 'Valor', 'Status', 'Usuário', 'Gravado em', 'Origem'],
   // HSE do mês (pessoas, checklists, ginástica, DDS e links), em JSON; vale o salvamento mais recente do mês.
@@ -191,11 +193,11 @@ ipcMain.handle('base:readAll', async (_e, id) => {
 ipcMain.handle('base:read', async (_e, id) => {
   const token = await baseToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${baseId(id)}`;
-  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&ranges=${q('Indicadores')}!A2:G&ranges=${q('HSE')}!A2:H&valueRenderOption=UNFORMATTED_VALUE`, token);
-  const [rep, aud, par, mapa, err, rh, av, ind, hse] = data.valueRanges || [];
+  const data = await sheetsGet(`${base}/values:batchGet?ranges=${q('Reports')}!A2:G&ranges=${q('Audit')}!A2:U&ranges=${q('Parcel')}!A2:P&ranges=${q('MapaPiso')}!A2:M&ranges=${q('ErrosPiso')}!A2:M&ranges=${q('RecebimentoHora')}!A2:N&ranges=${q('Avarias')}!A2:Q&ranges=${q('Indicadores')}!A2:G&ranges=${q('HSE')}!A2:H&ranges=${q('NoShow')}!A2:G&valueRenderOption=UNFORMATTED_VALUE`, token);
+  const [rep, aud, par, mapa, err, rh, av, ind, hse, ns] = data.valueRanges || [];
   return { reports: (rep && rep.values) || [], audit: (aud && aud.values) || [], parcel: (par && par.values) || [],
     mapa: (mapa && mapa.values) || [], erros: (err && err.values) || [], receb: (rh && rh.values) || [], avarias: (av && av.values) || [],
-    indicadores: (ind && ind.values) || [], hse: (hse && hse.values) || [] };
+    indicadores: (ind && ind.values) || [], hse: (hse && hse.values) || [], noshow: (ns && ns.values) || [] };
 });
 
 // Acrescenta linhas ao fim de uma guia.

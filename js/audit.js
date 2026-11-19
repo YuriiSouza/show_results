@@ -112,6 +112,8 @@ window.Audit = (() => {
   }
   const toD = x => (x ? new Date(x) : null);
 
+  // Validação de cada rota noshow (planilha do hub, guia NoShow): confirmado, erro ou '' (a validar, conta como noshow).
+  const nsStatus = (date, shift, at) => { const B = window.Base, x = B && B.noshowGet ? B.noshowGet(date, shift, at) : null; return x ? x.status : ''; };
   // Soma os resumos de vários relatórios (ex.: todos os turnos do dia).
   function agg(reps) {
     const T = TMAX();
@@ -123,8 +125,9 @@ window.Audit = (() => {
       ats: sum('ats'), initial: sum('initial'), scanned: sum('scanned'), missing: sum('missing'), missorted: sum('missorted'),
       atsMissing: sum('atsMissing'), atsDiv: sum('atsDiv'), revalidated: sum('revalidated'), notValidated: sum('notValidated'),
       // Relatórios importados antes da contagem de noshow não têm o número (null = reimportar).
-      noshow: reps.length && reps.every(r => r.s.noshow != null) ? sum('noshow') : null,
-      noshowList: reps.flatMap(r => (r.s.noshowList || []).map(x => ({ ...x, shift: r.shift }))),
+      // Rota marcada como "não é noshow" (erro) na validação não conta.
+      noshow: reps.length && reps.every(r => r.s.noshow != null) ? sum('noshow') - reps.reduce((n, r) => n + (r.s.noshowList || []).filter(x => nsStatus(r.date, r.shift, x.at) === 'erro').length, 0) : null,
+      noshowList: reps.flatMap(r => (r.s.noshowList || []).map(x => ({ ...x, shift: r.shift, date: r.date, val: nsStatus(r.date, r.shift, x.at) }))),
       avgMin: mins.length ? minSum / mins.length : null, maxMin: mins.length ? Math.max(...mins) : null, timed: mins.length,
       over: mins.filter(v => v > T).length, excess: mins.reduce((x, v) => x + Math.max(0, v - T), 0),
       secPerOrder: sum('pedidosTimed') ? minSum * 60 / sum('pedidosTimed') : null,
@@ -311,9 +314,12 @@ window.Audit = (() => {
         ${cmpTable}
         ${multi ? ui.card('auTrendPct', '% de não bipados por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}
         ${multi ? ui.card('auTrendOver', `% de ATs acima de ${fmtDur(TMAX())} por dia`, 'Por turno', { w: 6 }) : ''}
-        ${a.noshowList.length ? ui.card('', 'Rotas noshow', `${a.noshowList.length} rota(s) com AT e nenhum pacote escaneado (coluna E vazia ou 0)`, { w: 12, body: `
-          <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th><th>Pedidos (inicial)</th></tr></thead><tbody>
-          ${a.noshowList.map(r => `<tr><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}<td class="left">${esc(r.corridor)}</td><td>${r.initial}</td></tr>`).join('')}
+        ${a.noshowList.length ? ui.card('', 'Rotas noshow', `${a.noshowList.length} rota(s) com AT e nenhum pacote escaneado (coluna E vazia ou 0) · ${a.noshowList.filter(r => r.val === 'erro').length} marcada(s) como erro · ${a.noshowList.filter(r => !r.val).length} a validar`, { w: 12, body: `
+          <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th><th>Pedidos (inicial)</th><th class="left">Validação</th></tr></thead><tbody>
+          ${a.noshowList.map(r => `<tr class="${r.val === 'erro' ? 'ns-off' : ''}"><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}<td class="left">${esc(r.corridor)}</td><td>${r.initial}</td>
+            <td class="left ns-val">${r.val === 'confirmado' ? '<span class="pill bad">Noshow confirmado</span>' : r.val === 'erro' ? '<span class="pill neutral">Não é noshow</span>' : '<span class="pill warn">A validar</span>'}
+              ${window.Base && window.Base.enabled && window.Base.enabled() ? `<button class="tool" data-ns="${esc(`${r.date}|${r.shift}|${r.at}|confirmado`)}" ${r.val === 'confirmado' ? 'disabled' : ''}>Confirmar</button>
+              <button class="tool" data-ns="${esc(`${r.date}|${r.shift}|${r.at}|erro`)}" ${r.val === 'erro' ? 'disabled' : ''} title="Rota com erro no relatório: não conta como noshow">Não é noshow</button>` : ''}</td></tr>`).join('')}
           </tbody></table></div>` }) : ''}
         ${ui.card('auCorr', 'Não bipados e pacotes de outra rota por corredor', st.shift === 'ALL' ? 'Soma dos turnos do dia' : 'Cada barra = um corredor/gaiola', { w: 12 })}
         ${ui.card('auRua', 'Por rua', 'Letra do corredor', { w: 4 })}
@@ -531,6 +537,13 @@ window.Audit = (() => {
     bound = true;
     const main = ui.main;
     main.addEventListener('click', async e => {
+      const ns = e.target.closest('[data-ns]');
+      if (ns && ui.isActive()) {
+        const [date, shift, at, val] = ns.dataset.ns.split('|');
+        try { await window.Base.noshowSet(date, shift, at, val); ui.toast(val === 'erro' ? `${at}: não conta como noshow` : `${at}: noshow confirmado`); }
+        catch (err) { ui.toast(String(err.message || err), true); }
+        ui.rerender(); return;
+      }
       if (!ui.isActive()) return;
       const t = e.target.closest('[data-au],[data-au-shift],[data-au-open],[data-au-del]');
       if (!t) return;

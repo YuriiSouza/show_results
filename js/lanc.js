@@ -11,7 +11,7 @@ window.Lanc = (() => {
   const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
   const $ = id => document.getElementById(id);
   let ui = null, bound = false;
-  const st = { date: today(), draft: {}, saving: false, area: 'rec' };
+  const st = { date: today(), draft: {}, saving: false, area: 'rec', sug: {}, sugBusy: '' };
 
   // Seções: lista (rótulo | dia anterior | valor) ou tabela (linhas × colunas, ex.: HC por turno).
   // Campo: [caminho, rótulo, tipo] — tipo: int (padrão), pct (digitado em %, gravado em fração), dec. calc = calculado.
@@ -80,11 +80,70 @@ window.Lanc = (() => {
   const dirty = () => Object.keys(st.draft).filter(isDirty);
   const readOnly = () => !B().enabled() || !!(CT() && CT().readOnly());
 
+  // ---------- Sugestões (de outras telas do app) ----------
+  // Recebimento AM/PM: Recebimento por hora, separado pela janela do AM (ex.: das 22:00 da véspera até 05:30); o resto do dia
+  // (de 05:30 até o início do AM seguinte) é PM. A hora vale pelo horário de início (05:00–06:00 entra no AM se o fim é 05:30).
+  // Avaria HUB/SOC: tela Avarias do dia, pela origem. Transporte: Audit de gestão do dia (rotas, SPR e noshow validado).
+  const OFF_H = 3;   // fuso do hub (UTC−3)
+  const tsAt = (iso, hhmm, plusDays = 0) => { const [y, m, d] = iso.split('-').map(Number), [h, mi] = hhmm.split(':').map(Number); return Date.UTC(y, m - 1, d + plusDays, h + OFF_H, mi) / 1000; };
+  const hhmm = ts => new Date((ts - OFF_H * 3600) * 1000).toISOString().slice(11, 16);
+  function recebSug(iso) {
+    const J = ((window.APP_CONFIG || {}).RECEB_JANELAS || {}).AM;
+    if (!J || !J.inicio || !J.fim || !B().recebList) return {};
+    const buckets = new Map();   // hora -> { total, at } (vale o salvamento mais recente que tem a hora)
+    B().recebList().forEach(x => ((x.res && x.res.hours) || []).forEach(h => { const cur = buckets.get(h.ts); if (!cur || x.at > cur.at) buckets.set(h.ts, { total: Number(h.total) || 0, at: x.at }); }));
+    const amFrom = tsAt(iso, J.inicio, J.inicio > J.fim ? -1 : 0), amTo = tsAt(iso, J.fim);
+    const pmTo = J.inicio > J.fim ? tsAt(iso, J.inicio) : tsAt(iso, '00:00', 1);
+    const sum = (a, b) => { const hs = [...buckets.entries()].filter(([ts]) => ts >= a && ts < b); return hs.length ? { v: hs.reduce((n, [, h]) => n + h.total, 0), n: hs.length } : null; };
+    const am = sum(amFrom, amTo), pm = sum(amTo, pmTo), out = {};
+    const d0 = iso => brDate(iso).slice(0, 5);
+    if (am) out['rec.am'] = { v: am.v, how: `Recebimento por hora · ${am.n} h entre ${J.inicio} de ${d0(shift(iso, J.inicio > J.fim ? -1 : 0))} e ${J.fim}` };
+    if (pm) out['rec.pm'] = { v: pm.v, how: `Recebimento por hora · ${pm.n} h de ${J.fim} até ${hhmm(pmTo)}` };
+    return out;
+  }
+  function avariaSug(iso) {
+    if (!B().avariaList) return {};
+    const list = B().avariaList().filter(a => a.date === iso);
+    const n = o => list.filter(a => a.origem === o).length;
+    const how = o => (n(o) ? `Avarias do dia com origem ${o}` : 'Nenhuma avaria registrada no dia com essa origem');
+    return { 'rev.avariaHub': { v: n('Hub'), how: how('Hub') }, 'rev.avariaSoc': { v: n('SOC'), how: how('SOC') } };
+  }
+  async function auditSug(iso) {
+    const A = window.Audit;
+    if (!A || !A.daySummary) return {};
+    const all = await A.daySummary(iso, ['AM', 'PM1', 'PM2']);
+    if (!all || !all.ats) return {};
+    const per = [];
+    for (const sh of all.shifts) { const x = await A.daySummary(iso, [sh]); if (x) per.push([sh, x]); }
+    const by = f => per.map(([sh, x]) => `${sh} ${f(x)}`).join(' · ');
+    const out = {
+      'tr.rotas': { v: all.ats, how: `Audit de gestão · ATs do dia (${by(x => x.ats)})` },
+      'tr.spr': { v: Math.round(all.initial / all.ats * 100) / 100, how: `Audit de gestão · pedidos iniciais ÷ rotas (${by(x => (x.initial / x.ats).toFixed(1).replace('.', ','))})` },
+    };
+    if (all.noshow != null) out['tr.ats'] = { v: all.noshow, how: `Audit de gestão · rotas noshow, sem as marcadas como erro (${by(x => x.noshow == null ? '—' : x.noshow)})${all.noshowList.some(x => !x.val) ? ` · ${all.noshowList.filter(x => !x.val).length} ainda a validar` : ''}` };
+    return out;
+  }
+  // Calcula as sugestões do dia (o Audit é assíncrono) e redesenha quando chegam.
+  async function loadSug(iso) {
+    if (st.sugBusy === iso) return;
+    st.sugBusy = iso;
+    let out = {};
+    try { out = { ...recebSug(iso), ...avariaSug(iso), ...(await auditSug(iso)) }; } catch (e) { out = {}; }
+    st.sugBusy = '';
+    const changed = JSON.stringify(out) !== JSON.stringify(st.sug[iso] || null);
+    st.sug[iso] = out;
+    if (changed && ui.isActive() && st.date === iso && st.area !== 'hse') draw();
+  }
+  const sugOf = p => (st.sug[st.date] || {})[p] || null;
+  // Sugestão diferente do valor atual (as iguais não aparecem).
+  const sugDiff = p => { const x = sugOf(p); return x && x.v !== cur(p) ? x : null; };
+
   // ---------- Tela ----------
   function render(ctx) {
     ui = ctx;
     if (!bound) { bound = true; bind(); }
     HS().attach(ui, hseChanged);
+    st.sug = {};   // relê as sugestões (as outras telas podem ter mudado)
     draw();
   }
   const brDate = iso => iso.split('-').reverse().join('/');
@@ -129,7 +188,8 @@ window.Lanc = (() => {
         <div class="lc-list"><div class="lc-lh"><span></span><span>Dia anterior</span><span>${brDate(st.date).slice(0, 5)}</span></div>
         ${s.rows.map(([p, l, t, calc]) => {
           const type = t || 'int', pv = savedAt(prev, p);
-          return `<div class="lc-row ${calc ? 'calc' : ''} ${!calc && isDirty(p) ? 'ch' : ''}" data-lc-row="${p}"><span class="lc-lbl">${esc(l)}</span>
+          const sg = !calc && !ro && sugDiff(p);
+          return `<div class="lc-row ${calc ? 'calc' : ''} ${!calc && isDirty(p) ? 'ch' : ''}" data-lc-row="${p}"><span class="lc-lbl">${esc(l)}${sg ? `<span class="lc-sug" title="${esc(sg.how)}">Sugerido <b>${fmtv(sg.v, type)}</b> · ${esc(sg.how)} <button data-lc-use="${p}">usar</button></span>` : ''}</span>
             <span class="lc-prev">${fmtv(pv, type)}</span>
             <span class="lc-val">${calc ? `<output data-lc-c="${p}">${fmtv(c[p], type)}</output>` : inputHtml(p, type, ro)}</span></div>`;
         }).join('')}</div></div>`;
@@ -163,6 +223,7 @@ window.Lanc = (() => {
     if (dot) dot.className = `lc-dot ${HS().dirty() ? 'ch' : 'full'}`;
   }
   function draw() {
+    if (!(st.date in st.sug)) { st.sug[st.date] = {}; loadSug(st.date); }
     if (st.area === 'hse') return drawHse(readOnly());
     const ro = readOnly(), c = calcs(), d = dirty(), hub = CT() && CT().hub();
     const a = AREAS.find(x => x.id === st.area) || AREAS[0], last = lastOf(a.id), k = AREAS.indexOf(a);
@@ -173,6 +234,7 @@ window.Lanc = (() => {
         <section class="lc-main">
           <header class="lc-mh"><div><h2>${a.title}</h2><p>${esc(a.desc)}</p></div>
             <div class="lc-last">${last ? `Último lançamento<br><b>${esc(last.user)}</b> · ${esc(when(last.at))}` : 'Nada lançado neste dia'}</div></header>
+          ${(() => { const n = ro ? 0 : [...FIELDS.entries()].filter(([p, f]) => f.area === a.id && !f.calc && sugDiff(p)).length; return n ? `<div class="lc-sugbar">💡 ${n} valor(es) sugerido(s) a partir de outras telas do app <button class="btn-ghost" data-lc="useAll">Usar ${n === 1 ? 'a sugestão' : `as ${n} sugestões`}</button></div>` : ''; })()}
           ${a.sections.map(s => sectionHtml(s, ro, c)).join('')}
           <footer class="lc-foot">
             <div class="lc-foot-l">${k > 0 ? `<button class="btn-ghost" data-lc-area="${AREAS[k - 1].id}">‹ ${AREAS[k - 1].title}</button>` : ''}
@@ -244,12 +306,15 @@ window.Lanc = (() => {
     const main = ui.main;
     main.addEventListener('click', e => {
       if (!ui.isActive()) return;
+      const use = e.target.closest('[data-lc-use]');
+      if (use) { const x = sugOf(use.dataset.lcUse); if (x) { st.draft[use.dataset.lcUse] = x.v; draw(); } return; }
       const ar = e.target.closest('[data-lc-area]');
       if (ar) { goArea(ar.dataset.lcArea); return; }
       const t = e.target.closest('[data-lc]');
       if (!t) return;
       const a = t.dataset.lc;
       if (a === 'save') save();
+      else if (a === 'useAll') { FIELDS.forEach((f, p) => { const x = f.area === st.area && !f.calc && sugDiff(p); if (x) st.draft[p] = x.v; }); draw(); }
       else if (a === 'prev') goDate(shift(st.date, -1));
       else if (a === 'next') goDate(shift(st.date, 1));
       else if (a === 'today') goDate(today());

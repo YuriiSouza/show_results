@@ -371,6 +371,12 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   Inventário (aging e MA T1/T3), Reversa e Transporte; só o que mudou vai para a guia Indicadores. Calculados como na
   planilha mensal: total recebido = AM + PM; presentes = HC − DSR − ABS − Férias − Desligado − Afastamento; total do dia
   = AM + PM; total do inventário = soma do aging. Gerente não vê a tela. **HSE do mês** (no fim da lista de áreas): colaboradores, checklists, ginástica laboral, DDS e links, gravados por mês na guia HSE; "Copiar do mês anterior" traz a estrutura sem os status.
+- **Sugestões no lançamento** (com "usar" em cada campo e "Usar as sugestões" por área): Recebimento AM/PM pelo
+  Recebimento por hora, separado pela janela do AM (ex.: 22:00 da véspera até 05:30 = AM; de 05:30 até 22:00 = PM; cada
+  hora conta pelo horário de início); Avaria HUB/SOC pela tela Avarias do dia (origem); Rotas, SPR (pedidos iniciais ÷
+  rotas) e ATs no piso (rotas noshow) pelo Audit de gestão do dia, com o detalhe por turno.
+- **Validação de noshow** (Audit de gestão → Rotas noshow): Confirmar ou "Não é noshow" em cada rota (guia NoShow da
+  planilha do hub). "Não é noshow" deixa de contar no indicador, no report e na sugestão; "a validar" ainda conta.
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

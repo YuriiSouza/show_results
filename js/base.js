@@ -31,6 +31,7 @@ window.Base = (() => {
   let parcels = new Map(); // "iso" -> { date, status, user, at, items: [{ c, s, op, mt, at, cage, dn, di, dest, dmg }] }
   let indic = new Map();   // "iso|indicador" -> { v (null = apagado), user, at }
   let hses = new Map();    // "AAAA-MM" -> { month, user, at, hse }
+  let noshows = new Map(); // "iso|turno|AT" -> { status: confirmado | erro, obs, user, at }
   let avarias = new Map(); // id -> { id, date, br, origem, tipo, setor, obs, resp, recebidoEm, trat, acao, evid, status, user, at, detail }
   let loadedAt = 0;
   let loading = null;
@@ -186,7 +187,15 @@ window.Base = (() => {
     try { const js = c.slice(HSE_JSON_AT).join(''); hse = js ? JSON.parse(js) : null; } catch (e) { return; }
     hses.set(month, { month, user: who, at, hse: st === 'excluido' ? null : hse });
   }
-  const APPLY = { Indicadores: applyIndRow, HSE: applyHseRow, Avarias: applyAvariaRow, RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
+  // NoShow: Data, Turno, AT, Validação (confirmado | erro | '' = a validar), Observação, Usuário, Gravado em.
+  function applyNoShowRow(r) {
+    const [date, turno, at, val, obs, who, when] = r.map(x => (x == null ? '' : String(x)));
+    if (!date || !turno || !at) return;
+    const key = `${date}|${turno}|${at}`, cur = noshows.get(key);
+    if (cur && when < cur.at) return;
+    noshows.set(key, { status: val, obs, user: who, at: when });
+  }
+  const APPLY = { NoShow: applyNoShowRow, Indicadores: applyIndRow, HSE: applyHseRow, Avarias: applyAvariaRow, RecebimentoHora: applyRecebRow, Reports: applyReportRow, Audit: applyAuditRow, Parcel: applyParcelRow, MapaPiso: applyMapaRow, ErrosPiso: applyErroRow };
 
   // Ao entrar numa tela, só relê a planilha-base se a última leitura tiver mais de PASSIVE_TTL (o Atualizar do topo, a
   // atualização automática e o salvamento do mapa forçam a leitura). Cada leitura traz todas as abas da planilha-base.
@@ -204,7 +213,8 @@ window.Base = (() => {
         await flush();
         const data = await api.baseRead(ID);
         reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapaHist.clear(); mapas = new Map(); erros = new Map();
-        avarias = new Map(); indic = new Map(); hses = new Map();
+        avarias = new Map(); indic = new Map(); hses = new Map(); noshows = new Map();
+        (data.noshow || []).forEach(applyNoShowRow);
         (data.indicadores || []).forEach(applyIndRow);
         (data.hse || []).forEach(applyHseRow);
         data.reports.forEach(applyReportRow);
@@ -476,6 +486,13 @@ window.Base = (() => {
     if (chunks.length > HSE_CHUNKS) throw new Error('HSE grande demais para a planilha.');
     return [month, 'ativo', who, at, origem || device(), ...chunks];
   };
+  // Validação das rotas noshow (tela Audit de gestão).
+  const noshowGet = (date, turno, at) => noshows.get(`${date}|${turno}|${at}`) || null;
+  async function noshowSet(date, turno, at, status, obs = '') {
+    const row = [date, turno, at, status, obs, await ensureUser(), nowIso()];
+    applyNoShowRow(row);
+    queue('NoShow', [row]);
+  }
   // HSE do mês lançado no app (tela Lançar indicadores → HSE do mês).
   const hseByMonth = () => { const o = {}; hses.forEach(h => { if (h.hse) o[h.month] = h.hse; }); return o; };
   const hseGet = month => { const h = hses.get(month); return h && h.hse ? h.hse : null; };
@@ -528,7 +545,7 @@ window.Base = (() => {
     recebList, recebGet, recebSave,
     mapaList, mapaGet, mapaSave, mapaHistory, erroList, erroSave, erroDelete,
     avariaList, avariaSave, avariaDelete,
-    indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hseGet, hseMeta, hseSave, hseByMonth, hasIndicadores: () => indic.size > 0,
+    indicadoresModel, indicadoresSave, indDiff, hseRow, parseExisting, hseGet, hseMeta, hseSave, hseByMonth, noshowGet, noshowSet, hasIndicadores: () => indic.size > 0,
     indicadorGet: (iso, path) => indic.get(`${iso}|${path}`) || null,
     sheetUrl: () => (curId() ? `https://docs.google.com/spreadsheets/d/${curId()}/edit` : ''),
   };
