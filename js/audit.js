@@ -1,3 +1,4 @@
+    // Topo enxuto: só o turno (filtro da análise) e, discreto, o botão de importar. Quem importou fica em "Relatórios importados", no fim.
 // Aba "Audit": importa os relatórios LMHub Audit (.csv), um por dia e turno (AM, PM1, PM2),
 // e analisa o período escolhido no filtro (um dia = visão diária; vários dias = acumulado + tendência). As linhas do CSV NÃO são guardadas: de cada importação
 // fica só o resumo calculado (indicadores, totais por operador/corredor, tempos e ATs de atenção).
@@ -289,29 +290,21 @@ window.Audit = (() => {
       a.notValidated ? `⚠ <b>${a.notValidated}</b> AT(s) com status diferente de “Validated”.` : '',
     ].filter(Boolean);
 
-    m.innerHTML = ui.head('Audit de gestão', 'Relatórios LMHub Audit por dia e turno') + `
+    // Topo enxuto: só o turno (filtro da análise) e, discreto, o botão de importar. Quem importou fica em "Relatórios importados", no fim.
+    m.innerHTML = ui.head('Audit de gestão', `<div class="au-tools"><div class="chips au-seg">${shiftChips}</div>
+        <button class="btn-ghost au-imp" data-au="import" title="Importar o relatório LMHub Audit de um turno">＋ Importar</button></div>`) + `
       ${st.demo ? `<div class="au-demo">Exemplo com dados fictícios — nada foi salvo. <button class="link" data-au="exit-demo">Sair do exemplo</button></div>` : ''}
-      <div class="au-bar">
-        <span class="au-period">📅 ${esc(periodLabel(per))}<span class="muted"> · use o filtro de Período acima</span></span>
-        <div class="chips">${shiftChips}</div>
-        <div class="au-bar-right">
-          <button class="btn-primary solid" data-au="import"><span>＋</span> Importar relatório</button>
-        </div>
-      </div>
-      <div class="section-sub">Resumo · ${scope}${reps.length === 1 && reps[0].user ? ` · importado por ${esc(reps[0].user)}` : ''}</div>
       <div class="kpis au-kpis">${[
-        ui.kpi('ATs validadas', f.int(a.ats), [deltaTxt(a.ats, pa && pa.ats), `<span>${hhmm(a.t0)} → ${hhmm(a.t1)}</span>`]),
-        ui.kpi('Pedidos (inicial)', f.int(a.initial), [`<span>${f.int(a.scanned)} escaneados</span>`]),
+        ui.kpi('ATs validadas', f.int(a.ats), [deltaTxt(a.ats, pa && pa.ats), `<span>${f.int(a.initial)} pedidos · ${hhmm(a.t0)} → ${hhmm(a.t1)}</span>`]),
         ui.kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(a.missing), [statusPill(pctMiss, meta), deltaTxt(a.missing, pa && pa.missing)]),
         ui.kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
         ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com não bipados</span>`]),
         ui.kpi(`Rotas noshow ${HT('noshow')}`, a.noshow == null ? '—' : f.int(a.noshow), [a.noshow == null ? '<span>reimporte o relatório para calcular</span>'
           : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`,
           nsPend ? `<button class="ns-alert" data-ns-goto title="Rotas noshow ainda sem validação contam como noshow">🔔 ${nsPend} rota(s) a validar</button>` : '']),
-        ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), `<span>${a.ops} operadores</span>`]),
-        ui.kpi(`ATs acima de ${fmtDur(TMAX())}`, f.int(a.over), [a.timed ? `<span class="pill ${a.over ? 'bad' : 'good'}">${a.over ? '⚠' : '✓'} ${f.pct(ratio(a.over, a.timed), 0)} das ATs</span>` : '',
-          `<span>+${fmtDur(a.excess)} acima da meta</span>`]),
-      ].join('')}${insights.length ? `<div class="au-insights">${insights.map(t => `<div>${t}</div>`).join('')}</div>` : ''}</div>
+        ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), a.timed ? `<span>${f.int(a.over)} AT(s) acima de ${fmtDur(TMAX())} (${f.pct(ratio(a.over, a.timed), 0)}) · ${a.ops} operadores</span>` : `<span>${a.ops} operadores</span>`]),
+      ].join('')}</div>
+      ${insights.length ? `<div class="au-insights au-hl"><div class="au-hl-t">Destaques · ${esc(scope)}</div>${insights.map(t => `<div>${t}</div>`).join('')}</div>` : ''}
       <div class="grid">
         ${cmpTable}
         ${multi ? ui.card('auTrendPct', '% de não bipados por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}

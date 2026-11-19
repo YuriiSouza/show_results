@@ -78,6 +78,8 @@ window.Lanc = (() => {
   }
   const isDirty = p => st.draft[p] === undefined && p in st.draft || (p in st.draft && (st.draft[p] == null ? null : st.draft[p]) !== saved(p));
   const dirty = () => Object.keys(st.draft).filter(isDirty);
+  // Só o que a pessoa digitou (sugestões preenchidas pelo app não contam para "descartar alterações?").
+  const typed = () => dirty().filter(p => !st.fromSug.has(p));
   const readOnly = () => !B().enabled() || !!(CT() && CT().readOnly());
 
   // ---------- Sugestões (de outras telas do app) ----------
@@ -303,7 +305,7 @@ window.Lanc = (() => {
     if (!iso || iso === st.date) return;
     iso = iso > today() ? today() : iso;
     const hseLost = HS().dirty() && iso.slice(0, 7) !== st.date.slice(0, 7);
-    if ((dirty().length || hseLost) && !(await window.uiConfirm(`Há alterações não salvas${dirty().length ? ` em ${brDate(st.date)}` : ''}${hseLost ? ' no HSE do mês' : ''}. Descartar?`, { ok: 'Descartar' }))) { draw(); return; }
+    if ((typed().length || hseLost) && !(await window.uiConfirm(`Há alterações não salvas${typed().length ? ` em ${brDate(st.date)}` : ''}${hseLost ? ' no HSE do mês' : ''}. Descartar?`, { ok: 'Descartar' }))) { draw(); return; }
     if (hseLost) HS().reset();
     st.date = iso; st.draft = {}; st.fromSug.clear(); applySug(); draw();
   }
@@ -358,6 +360,6 @@ window.Lanc = (() => {
     });
   }
 
-  const hasDraft = () => dirty().length > 0 || HS().dirty();
+  const hasDraft = () => typed().length > 0 || HS().dirty();
   return { render, hasDraft, _: { AREAS, FIELDS } };
 })();

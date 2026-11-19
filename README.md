@@ -377,6 +377,11 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   rotas) e ATs no piso (rotas noshow) pelo Audit de gestão do dia, com o detalhe por turno.
 - **Validação de noshow** (Audit de gestão → Rotas noshow): Confirmar ou "Não é noshow" em cada rota (guia NoShow da
   planilha do hub). "Não é noshow" deixa de contar no indicador, no report e na sugestão; "a validar" ainda conta, e o card "Rotas noshow" mostra o lembrete 🔔 "N rota(s) a validar" (clique leva à lista).
+- **Recebimento por hora → Bancadas**: segue as mudanças do mapa de piso no turno (bancada aberta depois, troca de pessoa,
+  intervalo). Cada hora do SPX vale para a versão do mapa daquela hora; em destaque quem está na bancada agora ("desde
+  HH:MM"), abaixo quem esteve antes e o total da bancada no turno.
+- **Mapa de piso → Gaioleiros**: nova função (auxiliares que puxam as gaiolas), com quantidade no layout.
+- **Audit de gestão**: topo enxuto (turno e "＋ Importar" ao lado do título; 6 indicadores; destaques abaixo).
 - Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
   a hora de início da AT do Parcel.
 - **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que

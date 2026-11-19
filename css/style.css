@@ -1230,3 +1230,18 @@ body.tv #btnTour { display: none; }
 .ns-alert { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; border: 1px solid #e0a100; background: color-mix(in srgb, #e0a100 14%, var(--surface)); color: #8a6200; font: inherit; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 3px 10px; cursor: pointer; animation: nsPulse 2s ease-in-out infinite; }
 @keyframes nsPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #e0a100 45%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, #e0a100 0%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .ns-alert { animation: none; } }
+.rh-banc-hist { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--text-2); display: flex; flex-direction: column; gap: 2px; }
+.rh-banc-hist span { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.rh-banc-hist b { color: var(--text); }
+.rh-banc-tot { margin-top: 2px; color: var(--text); }
+/* Audit: topo enxuto */
+.section-title .au-tools { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.au-seg { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; }
+.au-seg .chip { border: 0; background: none; padding: 5px 12px; font-size: 13px; }
+.au-seg .chip.active { background: var(--surface); color: var(--shopee); box-shadow: var(--shadow); }
+.au-imp { font-size: 13px; padding: 6px 12px; }
+.au-hl { display: grid; gap: 4px; }
+.au-hl-t { font-size: 11px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); margin-bottom: 2px; }
+@media (max-width: 1280px) { .au-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .section-title .au-tools { flex-wrap: wrap; } .au-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ns-alert { white-space: nowrap; font-size: 11px; }
