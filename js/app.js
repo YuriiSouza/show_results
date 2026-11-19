@@ -428,6 +428,7 @@
   // Créditos no rodapé de cada tela.
   const CREDITS = {
     avarias: 'Desenvolvido por Flavio Costa e Yuri Peixoto',
+    audit: 'Desenvolvido por Raisa Almeida e Yuri Peixoto',
     parcel: 'Desenvolvido por Pablo Diego e Yuri Peixoto',
     mapa: 'Idealizado por Guilherme Nogueira e desenvolvido por Yuri Peixoto',
   };
