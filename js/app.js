@@ -40,8 +40,6 @@
     report: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
   };
   const TABS = [
-    // Multi-hub: os indicadores do dia são lançados no app (antes, nas planilhas mensais).
-    { id: 'lanc', group: 'Lançamentos', label: 'Lançamentos do dia', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.hub()), render: () => window.Lanc.render(lcCtx) },
     { id: 'overview', group: 'Operação', label: 'Visão geral', daily: true, render: renderOverview },
     { id: 'recebimento', group: 'Operação', label: 'Recebimento', daily: true, render: renderRecebimento },
     { id: 'pessoas', group: 'Operação', label: 'HC & PHD', daily: true, render: renderPessoas },
@@ -61,8 +59,10 @@
     { id: 'rpF3', group: 'Reports', label: 'Fechamento T3', daily: true, report: true, render: () => window.Reports.render('rpF3', rpCtx) },
     { id: 'rpAll', group: 'Reports', label: 'Report Geral', daily: true, report: true, render: () => window.Reports.render('rpAll', rpCtx) },
     // Multi-hub: números de todos os hubs da pessoa (Admin, Gerente e Qualidade) e cadastro de usuários e hubs (Admin).
-    { id: 'consol', group: 'Multi-hub', label: 'Consolidado dos hubs', daily: true, visible: () => !!(window.Central && window.Central.on() && window.Central.MULTI.includes(window.Central.role()) && window.Central.myHubs().length), render: () => window.Consol.render(csCtx) },
-    { id: 'admin', group: 'Multi-hub', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.isAdmin()), render: () => window.Admin.render(adCtx) },
+    { id: 'consol', group: 'Ferramentas', label: 'Consolidado dos hubs', daily: true, visible: () => !!(window.Central && window.Central.on() && window.Central.MULTI.includes(window.Central.role()) && window.Central.myHubs().length), render: () => window.Consol.render(csCtx) },
+    // Multi-hub: lançamento dos indicadores do dia (antes, nas planilhas mensais); só para quem pode gravar.
+    { id: 'lanc', group: 'Ferramentas', label: 'Lançar indicadores', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.hub() && !window.Central.readOnly()), render: () => window.Lanc.render(lcCtx) },
+    { id: 'admin', group: 'Ferramentas', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.isAdmin()), render: () => window.Admin.render(adCtx) },
   ];
 
 
