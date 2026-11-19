@@ -151,9 +151,16 @@
     return tokenCache.token;
   }
 
+  // Cota do Google excedida (429) ou instabilidade (500/502/503): tenta de novo até 3 vezes, esperando 1 s, 2 s e 4 s
+  // (mais um pouco de acaso, para os aparelhos não tentarem todos juntos).
   async function httpFetch(url, opts) {
-    try { return await fetch(url, opts); }
-    catch (e) { throw new Error('Sem conexão com o Google. Verifique a internet do aparelho.'); }
+    for (let k = 0; ; k++) {
+      let res;
+      try { res = await fetch(url, opts); }
+      catch (e) { throw new Error('Sem conexão com o Google. Verifique a internet do aparelho.'); }
+      if (![429, 500, 502, 503].includes(res.status) || k >= 3) return res;
+      await new Promise(r => setTimeout(r, 1000 * 2 ** k + Math.random() * 1000));
+    }
   }
 
   async function sheetsGet(url, token) {
@@ -166,7 +173,8 @@
       if (/has not been used|is disabled/i.test(msg)) throw new Error('A "Google Sheets API" não está ativada no projeto do Google Cloud do app.');
       throw new Error(`Sem permissão. Peça para compartilharem a planilha com a sua conta (${(await authState()).email || 'conta Google conectada'}).`);
     }
-    if (res.status === 404) throw new Error('Planilha não encontrada. Confira o link da planilha.');
+    if (res.status === 429) throw new Error('O Google limitou as consultas agora (muitos acessos ao mesmo tempo). Tente de novo em 1 minuto.');
+  if (res.status === 404) throw new Error('Planilha não encontrada. Confira o link da planilha.');
     throw new Error('Erro da API do Google: ' + (msg || res.status));
   }
 
@@ -234,6 +242,7 @@
     const out = await res.json().catch(() => ({}));
     if (res.ok) return out;
     if (res.status === 403) throw new Error(`Sem permissão para gravar. Peça para compartilharem a planilha-base como EDITOR com a sua conta (${(await authState()).email || 'conta Google conectada'}).`);
+    if (res.status === 429) throw new Error('O Google limitou as gravações agora (muitos acessos ao mesmo tempo). O app tenta de novo sozinho.');
     if (res.status === 404) throw new Error('Planilha-base não encontrada. Confira BASE_SHEET_URL em js/config.js.');
     throw new Error('Erro ao gravar na planilha-base: ' + ((out.error && out.error.message) || res.status));
   }
