@@ -210,7 +210,9 @@ window.Base = (() => {
         setStatus('sync', 'Sincronizando…');
         const endT = window.AppLog ? window.AppLog.timer('base', 'Ler a planilha de dados') : () => {};
         const ID = curId();
-        if (ensured !== ID) { await api.baseEnsure(ID); ensured = ID; }
+        // Conferir/criar as guias custa 2 leituras: no máximo 1 vez por dia por aparelho e planilha (ou ao mudar de versão).
+        const ek = `${ID}|${window.APP_VERSION || ''}|${new Date().toISOString().slice(0, 10)}`;
+        if (ensured !== ID) { if (ls.get('baseEnsured', '') !== ek) { await api.baseEnsure(ID); ls.set('baseEnsured', ek); } ensured = ID; }
         await flush();
         const data = await api.baseRead(ID);
         reports = new Map(); audits = new Map(); parcels = new Map(); recebs = new Map(); mapaHist.clear(); mapas = new Map(); erros = new Map();

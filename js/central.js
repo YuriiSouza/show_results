@@ -130,7 +130,9 @@ window.Central = (() => {
       if (!cfg.signedIn) { state = 'nologin'; emit(); return { reload: false }; }
       email = lower(cfg.email);
       if (!email) throw new Error('Não foi possível identificar o e-mail da conta Google. Saia e entre de novo.');
-      await api.centralEnsure(ID);
+      // Conferir/criar as guias da Central custa 2 leituras: faz no máximo 1 vez por dia por aparelho (ou ao mudar de versão).
+      const ek = `${ID}|${window.APP_VERSION || ''}|${new Date().toISOString().slice(0, 10)}`;
+      if (ls.get('centralEnsured', '') !== ek) { await api.centralEnsure(ID); ls.set('centralEnsured', ek); }
       const data = await api.centralRead(ID);
       parse(data);
       await bootstrap();

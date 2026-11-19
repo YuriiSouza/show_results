@@ -8,6 +8,7 @@
 //   k6 run -e USERS=100 loadtest/app-users.js
 //   k6 run -e USERS=1000 loadtest/app-users.js
 //   k6 run -e USERS=1000 -e RETRY=0 loadtest/app-users.js      (sem nova tentativa após 429, como era antes)
+//   k6 run -e USERS=1000 -e OTIM=1 loadtest/app-users.js       (abrir com 2 leituras: guias conferidas 1x por dia)
 // Variáveis: USERS (100), RAMP (2m: todo mundo abrindo o app), HOLD (8m), BASE (http://localhost:8787), RETRY (1).
 import http from 'k6/http';
 import { check, sleep } from 'k6';
@@ -16,6 +17,8 @@ import { Rate, Trend, Counter } from 'k6/metrics';
 const USERS = Number(__ENV.USERS || 100);
 const BASE = __ENV.BASE || 'http://localhost:8787';
 const RETRY = __ENV.RETRY !== '0';
+// OTIM=1: app novo, que confere as guias só 1 vez por dia por aparelho (abrir = 2 leituras em vez de 6).
+const OTIM = __ENV.OTIM === '1';
 
 export const options = {
   scenarios: {
@@ -52,11 +55,11 @@ export default function () {
   const token = `usuario-${__VU}`;
   if (__ITER === 0) {
     const t0 = Date.now();
-    call('GET', '/v4/spreadsheets/CENTRAL?fields=sheets', token);
-    call('GET', '/v4/spreadsheets/CENTRAL/values:batchGet?ranges=cabecalhos', token);
+    if (!OTIM) call('GET', '/v4/spreadsheets/CENTRAL?fields=sheets', token);
+    if (!OTIM) call('GET', '/v4/spreadsheets/CENTRAL/values:batchGet?ranges=cabecalhos', token);
     call('GET', '/v4/spreadsheets/CENTRAL/values:batchGet?ranges=Usuarios,Hubs,Arquivos', token);
-    call('GET', '/v4/spreadsheets/HUB/?fields=sheets', token);
-    call('GET', '/v4/spreadsheets/HUB/values:batchGet?ranges=cabecalhos', token);
+    if (!OTIM) call('GET', '/v4/spreadsheets/HUB/?fields=sheets', token);
+    if (!OTIM) call('GET', '/v4/spreadsheets/HUB/values:batchGet?ranges=cabecalhos', token);
     call('GET', '/v4/spreadsheets/HUB/values:batchGet?ranges=todas', token);
     openMs.add(Date.now() - t0);
   }
