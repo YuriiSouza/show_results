@@ -338,7 +338,14 @@ window.Base = (() => {
     const cat = e.tipo === 'sort' ? 'Sorting' : e.tipo === 'xpt' ? 'XPT' : d.classe === 'backlog' ? 'Backlog' : d.classe === 'naorec' ? 'Não recebido' : 'Etiquetagem';
     return [cat, e.tipo !== 'etiq' ? '' : d.recebeu || d.operadorSpx || '', e.tipo !== 'etiq' ? '' : (e.resp || []).join(' | '), d.obs || ''];
   }
+  // Conteúdo do registro sem quem/quando gravou (chaves do detalhe em ordem fixa), para saber se algo mudou.
+  const sortKeys = o => Object.keys(o || {}).sort().reduce((a, k) => { a[k] = o[k]; return a; }, {});
+  const erroSig = (e, st) => JSON.stringify([e.date, e.turno, e.tipo, e.code || '', e.rota || '', e.time || '', (e.resp || []).join(' | '), st, sortKeys(e.detail)]);
   async function erroSave(e) {
+    // Regravar um registro igual ao que já está na planilha (ex.: buscar de novo o responsável de um erro que continua
+    // pendente) só gastaria linha: não grava.
+    const cur = e.id && erros.get(e.id);
+    if (cur && erroSig(cur, cur.status) === erroSig(e, 'ativo')) return cur;
     const who = await ensureUser(), at = nowIso();
     const id = e.id || `${e.date}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const row = [id, e.date, e.turno, e.tipo, e.code || '', e.rota || '', e.time || '', (e.resp || []).join(' | '), 'ativo', who, at, device(), JSON.stringify(e.detail || {}), ...readable(e)];
