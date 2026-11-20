@@ -368,6 +368,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: true,
+      devTools: !app.isPackaged,
     },
   });
   win.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -403,7 +404,9 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
     { role: 'selectAll', label: 'Selecionar tudo' },
   ] },
   { label: 'Aplicativo', submenu: [{ role: 'reload', label: 'Recarregar' }, { role: 'togglefullscreen', label: 'Tela cheia' }, { type: 'separator' }, { role: 'quit', label: 'Sair' }] },
-  { label: 'Exibir', submenu: [{ role: 'zoomIn', label: 'Aumentar' }, { role: 'zoomOut', label: 'Diminuir' }, { role: 'resetZoom', label: 'Tamanho original' }, { role: 'toggleDevTools', label: 'Ferramentas de desenvolvedor' }] },
+  { label: 'Exibir', submenu: [{ role: 'zoomIn', label: 'Aumentar' }, { role: 'zoomOut', label: 'Diminuir' }, { role: 'resetZoom', label: 'Tamanho original' },
+    // Ferramentas de desenvolvedor só ao rodar pelo código (npm start): no instalador elas mostrariam os links das planilhas.
+    ...(app.isPackaged ? [] : [{ role: 'toggleDevTools', label: 'Ferramentas de desenvolvedor' }])] },
 ]));
 
 if (!app.requestSingleInstanceLock()) app.quit();

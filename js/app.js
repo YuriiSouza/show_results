@@ -1058,7 +1058,10 @@
     const baseInfo = () => {
       if (!window.Base) return;
       const st = window.Base.status;
-      $('baseOpen').href = window.Base.sheetUrl() || '#';
+      // Multi-hub: o link da planilha do hub só aparece para o administrador (os demais usam os dados pelo app).
+      const hideLink = !!(window.Central && window.Central.on() && !window.Central.isAdmin());
+      $('baseOpen').hidden = hideLink;
+      $('baseOpen').href = hideLink ? '#' : window.Base.sheetUrl() || '#';
       $('baseStatus').innerHTML = !window.Base.enabled() ? '<span class="muted">Disponível só no aplicativo (computador ou celular).</span>'
         : `<span class="${st.state === 'error' ? 'bad' : st.state === 'ok' ? 'good-txt' : 'muted'}">${esc({ ok: '✓ Conectada', sync: 'Sincronizando…', pending: 'Envio pendente', error: '⚠ ' + st.msg, off: 'Ainda não sincronizada' }[st.state] || '')}</span>`;
       $('cfgUser').value = window.Base.user();
