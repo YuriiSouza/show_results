@@ -192,6 +192,9 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
   (o rascunho de quem está editando continua por cima).
 - **"* N sem valor"** leva ao primeiro campo vazio; **Fontes** mostra de onde veio cada valor; **Limpar edições** volta
   tudo às guias (também só vale depois de Salvar).
+- **Parciais:** o **Total** e o **Recebido** da linha Recebimento vêm do **Recebimento por hora** salvo do turno
+  (T3 = AM, T1 = PM1): Total = *Pacotes a receber* e Recebido = *Recebido no turno* (o último salvamento). Sem Recebimento
+  por hora salvo, o Recebido vem da guia Recebimento (AM/PM) e o Total fica para digitar.
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos (atestado soma T1 + T3) e puxa do **Audit de gestão**
   do dia (AM = T3; PM = T1 = PM1 + PM2):
   - **Conferência**: Status AM (T3), Status PM (T1) e **Status geral** no formato `conferidas/total - %`
