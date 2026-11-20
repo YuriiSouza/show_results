@@ -195,9 +195,8 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
 - **Parciais:** o **Total** e o **Recebido** da linha Recebimento vêm do **Recebimento por hora** salvo do turno
   (T3 = AM, T1 = PM1): Total = *Pacotes a receber* e Recebido = *Recebido no turno* (o último salvamento). Sem Recebimento
   por hora salvo, o Recebido vem da guia Recebimento (AM/PM) e o Total fica para digitar.
-- **Reversa do turno (fechamentos):** Avaria HUB e Avaria SOC = avarias do dia na tela **Avarias**, separadas pelo horário
-  em que foram registradas (T3 = janela do AM, ex.: 22:00 às 05:30; T1 = o resto do dia). On hold e Retorno SOC vêm do
-  total do dia nos Lançamentos (edite se o turno for diferente). Sem avaria registrada no dia, usa o total dos Lançamentos.
+- **Reversa do turno (fechamentos):** On hold, Avaria HUB, Avaria SOC e Retorno SOC vêm do total do dia nos Lançamentos
+  (o mesmo número no T1 e no T3; edite se o turno for diferente).
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos (atestado soma T1 + T3) e puxa do **Audit de gestão**
   do dia (AM = T3; PM = T1 = PM1 + PM2):
   - **Conferência**: Status AM (T3), Status PM (T1) e **Status geral** no formato `conferidas/total - %`
@@ -362,7 +361,9 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
 - Vale a linha mais recente de cada chave (nada é apagado). Planilha Central vazia: quem abre primeiro vira Admin e o hub
   de `CENTRAL_SEED` é cadastrado com a sua planilha.
 - **Cadastro automático**: no primeiro login a pessoa entra na guia Usuarios como Analista, **sem hub** ("Sem hub
-  liberado"). Quem tem mais de um hub troca no topo; quem está inativo vê "Acesso desativado".
+  liberado"). Nessa tela a pessoa informa a **própria função** (qualquer papel menos Admin). A função escolhida não dá poder
+  nenhum até liberarem um hub, e só quem tem nível igual ou maior consegue aprovar. Quem tem mais de um hub troca no topo;
+  quem está inativo vê "Acesso desativado".
 - Tela **Ferramentas → Usuários e hubs**: Admin, Gerente, Site líder e Líder liberam acesso. Cada um só libera os hubs
   que ele mesmo tem e dá no máximo o próprio papel (Admin > Gerente > Site líder > Líder > Qualidade > Analista; só o
   Admin dá Admin); não altera o próprio acesso nem quem está acima dele. Quem aguarda hub aparece no topo da lista e

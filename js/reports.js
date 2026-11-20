@@ -87,25 +87,6 @@ window.Reports = (() => {
     return { ...x, saved };
   }
 
-  // Avarias do dia por turno (tela Avarias): o turno sai do horário em que a avaria foi registrada. T3 = janela do AM
-  // (RECEB_JANELAS.AM, ex.: 22:00 às 05:30); T1 = o resto do dia. Sem nenhuma avaria registrada no dia: null (usa os Lançamentos).
-  function avariaTurno(iso, turno, origem, label) {
-    const B = window.Base;
-    if (!B || !B.enabled || !B.enabled() || !B.avariaList) return null;
-    const day = B.avariaList().filter(a => a.date === iso);
-    if (!day.length) return null;
-    const J = (C.RECEB_JANELAS || {}).AM || { inicio: '22:00', fim: '05:30' };
-    const mins = hm => { const [h, mi] = String(hm).split(':').map(Number); return h * 60 + (mi || 0); };
-    const ini = mins(J.inicio), fim = mins(J.fim);
-    // Hora do registro: o id guarda o momento da criação (AV_<dia>_<ms em base 36>…); senão, a última gravação.
-    const created = a => { const p = String(a.id).split('_')[2] || '', ms = parseInt(p.slice(0, 8), 36); return ms > 1.5e12 && ms < 4e12 ? ms : Date.parse(a.at); };
-    const minOfDay = ms => { const t = new Date(ms).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }); return mins(t); };
-    const isAM = ms => { const x = minOfDay(ms); return ini > fim ? x >= ini || x < fim : x >= ini && x < fim; };
-    const n = day.filter(a => a.origem === origem && !isNaN(created(a)) && isAM(created(a)) === (turno === 'T3')).length;
-    const win = turno === 'T3' ? `das ${J.inicio} às ${J.fim}` : `fora da janela do AM (${J.inicio} às ${J.fim})`;
-    return src(n, 'auto', `Avarias do dia com origem ${origem}, registradas ${win}`);
-  }
-
   // ---------- Dia do report (setas + calendário) ----------
   // Qualquer dia pode ser aberto, mesmo sem dados nas guias: os campos ficam vazios para preencher à mão.
   const pad = n => String(n).padStart(2, '0');
@@ -240,12 +221,9 @@ window.Reports = (() => {
             F('carregamento', `Carregamento ${t}`, au && au.avgMin != null ? src(window.Audit.fmtDur(au.avgMin), 'auto', `${auHow}: tempo médio por AT`) : null, { hint: 'mm:ss' }),
           ]),
           sec('ma', '📦', `Macro Aging ${t}`, maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma[t][key], `${G(S.inventario)} · MA ${t} · ${l}`)))),
-          // Avaria HUB/SOC: avarias registradas no dia (tela Avarias), separadas pelo horário em que foram registradas.
-          // On hold e Retorno SOC: os Lançamentos têm só o total do dia (edite se o turno for diferente).
+          // Os Lançamentos têm só o total do dia: o fechamento já vem com ele; edite se o turno for diferente.
           sec('rev', '↩️', 'Reversa do turno', [['onHold', 'On hold'], ['avariaHub', 'Avaria HUB'], ['avariaSoc', 'Avaria SOC'], ['retornoSoc', 'Retorno SOC']]
-            .map(([key, l]) => F(`rev_${key}`, l, firstOf(
-              key === 'avariaHub' ? avariaTurno(iso, t, 'Hub', l) : key === 'avariaSoc' ? avariaTurno(iso, t, 'SOC', l) : null,
-              g(m.rev[key], `${G(S.reversa)} · ${l} (total do dia; edite se o turno for diferente)`))))),
+            .map(([key, l]) => F(`rev_${key}`, l, g(m.rev[key], `${G(S.reversa)} · ${l} (total do dia; edite se o turno for diferente)`)))),
         ],
         obs: F('obs', 'Observação', null, { area: true }),
       };

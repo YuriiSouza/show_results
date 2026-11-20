@@ -21,10 +21,26 @@ window.Admin = (() => {
     ['PM1', 'backlogAntes', 'PM1: backlog antes de'], ['PM2', 'inicio', 'PM2: início'], ['PM2', 'fim', 'PM2: fim']];
   const emptyHub = () => ({ id: '', nome: '', cidade: '', status: 'ativo', cfg: { PARCEL: {} }, isNew: true });
 
+  // Ao abrir a tela, relê a planilha Central (no máximo a cada 30 s) para aparecer quem entrou no app depois que este
+  // aparelho abriu. Mostra a lista que já tem e redesenha quando a leitura termina.
+  let reading = null;
+  function reread(force = false) {
+    if (reading || !CT() || (!force && Date.now() - CT().loadedAt() < 30000)) return reading;
+    const sig = () => JSON.stringify(CT().users().map(u => [u.email, u.papel, u.hubs, u.status, u.at]));
+    const before = sig();
+    st.reading = true;
+    reading = CT().init().catch(() => {}).finally(() => {
+      reading = null; st.reading = false;
+      // Só redesenha se a lista mudou (ou se foi pedido), para não apagar o que está sendo digitado no formulário.
+      if (ui && ui.isActive() && (force || sig() !== before)) draw();
+    });
+    return reading;
+  }
   function render(ctx) {
     ui = ctx;
     if (!bound) { bound = true; bind(); }
     draw();
+    reread();
   }
   const tabs = () => !CT().isAdmin() ? '' : `<div class="pc-tabs" role="tablist">${[['users', 'Usuários'], ['hubs', 'Hubs'], ['logs', 'Registros']].map(([k, l]) =>
     `<button role="tab" class="${st.view === k ? 'active' : ''}" aria-selected="${st.view === k}" data-ad-view="${k}">${l}</button>`).join('')}</div>`;
@@ -72,7 +88,7 @@ window.Admin = (() => {
             <div class="adm-actions"><button type="submit" class="btn-primary solid" id="adUserSave">Salvar usuário</button></div>
           </form></section>
         <section class="card w7"><div class="card-head"><div><div class="card-title">Usuários</div><div class="card-sub">${list.length} de ${all.length}</div></div>
-          <div class="card-tools"><input type="search" id="adQ" class="adm-search" placeholder="Buscar e-mail, nome, hub…" value="${esc(st.q)}"></div></div>
+          <div class="card-tools"><button class="tool" data-ad="reread" title="Buscar na planilha Central quem entrou no app agora">${st.reading ? 'Atualizando…' : '↻ Atualizar'}</button><input type="search" id="adQ" class="adm-search" placeholder="Buscar e-mail, nome, hub…" value="${esc(st.q)}"></div></div>
           <div class="table-wrap"><table class="pc-table adm-table"><thead><tr><th class="left">E-mail</th><th class="left">Nome</th><th class="left">Papel</th><th class="left">Hubs</th><th class="left">Status</th><th class="left">Atualizado</th><th></th></tr></thead><tbody>
           ${list.map(x => `<tr class="${x.status === 'inativo' ? 'adm-off' : ''}"><td class="left">${esc(x.email)}${x.email === CT().email() ? ' <span class="pill">você</span>' : ''}</td><td class="left">${esc(x.nome)}</td>
             <td class="left"><span class="pill ${x.papel === 'Admin' ? 'good' : CT().READONLY.includes(x.papel) ? 'warn' : ''}">${esc(x.papel)}</span></td>
@@ -379,6 +395,7 @@ window.Admin = (() => {
       if (d.adEdit) { const u = CT().users().find(x => x.email === d.adEdit); st.user = u ? { ...u, hubs: u.hubs.slice() } : null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.made = null; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.ad === 'newuser') { st.user = null; draw(); }
+      else if (d.ad === 'reread') { reread(true); t.textContent = 'Atualizando…'; }
       else if (d.ad === 'createfile' && st.hub) createFile(st.hub.id, ($('adCano').value || '').trim());
       else if (d.ad === 'newhub') { st.hub = null; draw(); }
       else if (d.ad === 'migrate') migrateLegacy();

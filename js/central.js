@@ -78,7 +78,9 @@ window.Central = (() => {
   const me = () => users.get(lower(email)) || null;
   const role = () => (me() || {}).papel || '';
   const isAdmin = () => role() === 'Admin';
-  const canManage = () => { const u = me(); return !!(u && u.status !== 'inativo' && MANAGERS.includes(u.papel)); };
+  // Só libera acesso quem já tem hub (o Admin tem "*"): o papel que a pessoa escolhe ao se cadastrar não dá poder nenhum
+  // até alguém de nível igual ou maior liberar o hub dela.
+  const canManage = () => { const u = me(); return !!(u && u.status !== 'inativo' && MANAGERS.includes(u.papel) && u.hubs.length > 0); };
   // Papéis que eu posso dar e hubs que eu posso liberar.
   const grantRoles = () => (isAdmin() ? ROLES.slice() : canManage() ? ROLES.filter(r => r !== 'Admin' && LEVEL[r] <= LEVEL[role()]) : []);
   const grantHubs = () => (isAdmin() ? activeHubs().map(h => h.id) : canManage() ? myHubs().map(h => h.id) : []);
@@ -210,6 +212,24 @@ window.Central = (() => {
     ls.set('central', cache);
     emit();
   }
+  // Quem ainda está sem hub informa a própria função (qualquer papel menos Admin). Quem liberar o hub confere e só pode
+  // manter o papel se for de nível igual ou maior.
+  const SELF_ROLES = ROLES.filter(r => r !== 'Admin');
+  async function setOwnRole(papel) {
+    const u = me();
+    if (!u) throw new Error('Cadastro não encontrado. Toque em “Tentar de novo”.');
+    if (u.hubs.length) throw new Error('Seu acesso já foi liberado. Para mudar a função, fale com quem libera os acessos.');
+    if (!SELF_ROLES.includes(papel)) throw new Error('Função inválida.');
+    if (papel === u.papel) return u;
+    const row = userRow({ ...u, papel }, email, nowIso());
+    await api.centralAppend(ID, 'Usuarios', [row]);
+    applyUser(row);
+    const cache = ls.get('central', { email, data: {} });
+    (cache.data.Usuarios = cache.data.Usuarios || []).push(row);
+    ls.set('central', cache);
+    emit();
+    return me();
+  }
   const okEmail = x => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x);
   async function saveUser(u) {
     const mail = lower(u.email);
@@ -272,7 +292,7 @@ window.Central = (() => {
     users: () => [...users.values()].sort((a, b) => a.email.localeCompare(b.email)),
     hubs: () => [...hubs.values()].sort((a, b) => a.id.localeCompare(b.id)),
     files: () => [...files.values()].sort((a, b) => (a.hub + a.ano).localeCompare(b.hub + b.ano)),
-    saveUser, saveHub, saveFile, createFile, fileTitle, onChange: fn => listeners.add(fn), loadedAt: () => loadedAt,
+    saveUser, saveHub, saveFile, createFile, setOwnRole, SELF_ROLES, fileTitle, onChange: fn => listeners.add(fn), loadedAt: () => loadedAt,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();
