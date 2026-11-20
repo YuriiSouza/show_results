@@ -10,6 +10,10 @@ window.Reports = (() => {
   const C = window.APP_CONFIG;
   const S = C.SHEETS;
   const api = window.hubApi || null;
+  // Origem dos valores: na 2.0 (multi-hub) tudo vem dos Lançamentos do app (guia Indicadores da planilha do hub);
+  // sem multi-hub, das guias da planilha mensal.
+  const multi = () => !!(window.Central && window.Central.on && window.Central.on());
+  const G = name => (multi() ? 'Lançamentos do dia' : `Guia ${name}`);
 
   let ui = null;
   let bound = false;
@@ -68,6 +72,21 @@ window.Reports = (() => {
     return null;
   }
 
+  // Recebimento por hora salvo do turno (guia RecebimentoHora). O turno fica no dia em que começou: se o líder pôs o
+  // início à noite (a partir das 18:00), o turno da madrugada do report está salvo no dia anterior.
+  function recebHora(iso, turno) {
+    const B = window.Base;
+    if (!B || !B.enabled || !B.enabled() || !B.recebGet) return null;
+    const [y, mo, dd] = iso.split('-').map(Number);
+    const prev = new Date(Date.UTC(y, mo - 1, dd - 1)).toISOString().slice(0, 10);
+    const night = x => !!x && +String(x.inicio || '').split(':')[0] >= 18;
+    const cur = B.recebGet(iso, turno), before = B.recebGet(prev, turno);
+    const x = cur && !night(cur) ? cur : night(before) ? before : null;
+    if (!x) return null;
+    const saved = x.at ? new Date(x.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    return { ...x, saved };
+  }
+
   // ---------- Dia do report (setas + calendário) ----------
   // Qualquer dia pode ser aberto, mesmo sem dados nas guias: os campos ficam vazios para preencher à mão.
   const pad = n => String(n).padStart(2, '0');
@@ -86,7 +105,7 @@ window.Reports = (() => {
     for (let dd = 1; dd <= days; dd++) {
       const key = `${pad(dd)}/${pad(mm + 1)}/${yy}`;
       const cls = ['cd', key === sel ? 'start end' : '', withData.has(key) ? 'data' : '', key === now ? 'today' : ''].join(' ');
-      cells.push(`<button class="${cls}" data-rp-pick="${key}" title="${key}${withData.has(key) ? '' : ' · sem volume nas guias'}">${dd}</button>`);
+      cells.push(`<button class="${cls}" data-rp-pick="${key}" title="${key}${withData.has(key) ? '' : (multi() ? ' · sem volume lançado' : ' · sem volume nas guias')}">${dd}</button>`);
     }
     const name = cal.view.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
     return `<div class="cal-month"><div class="cal-nav">
@@ -94,7 +113,7 @@ window.Reports = (() => {
         <div class="cal-title">${name}</div>
         <button class="cal-arrow" data-rp-cal="1" aria-label="Próximo mês">›</button>
       </div><div class="cal-grid">${['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(w => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div></div>
-      <div class="rp-cal-foot"><span class="range-hint"><span class="dot-data"></span> = dia com volume nas guias</span>
+      <div class="rp-cal-foot"><span class="range-hint"><span class="dot-data"></span> = dia com volume ${multi() ? 'lançado' : 'nas guias'}</span>
         <button class="tool" data-rp-pick="${now}">Hoje</button></div>`;
   }
   function openCal(on) {
@@ -119,12 +138,17 @@ window.Reports = (() => {
 
     if (k.type === 'parcial') {
       const t = k.turno, s = SHIFT[t], S2 = s.toUpperCase();
+      // Recebimento por hora do turno (T3 = AM, T1 = PM1): Total = pacotes a receber; Recebido = recebido no turno.
+      const rh = recebHora(toIso(d), C.REPORT.auditShift[t]);
+      const rhHow = rh && `Recebimento por hora · ${rh.turno} de ${dmyIso(rh.date)} (último salvamento ${rh.saved})`;
+      const rhTotal = rh && rh.meta != null && !isNaN(rh.meta) ? src(rh.meta, 'auto', `${rhHow}: pacotes a receber`) : null;
+      const rhRec = rh && rh.res && rh.res.recebido != null ? src(Number(rh.res.recebido), 'auto', `${rhHow}: recebido no turno`) : null;
       // Total só na linha Recebimento; o % de cada linha é o Recebido dela ÷ Total de Recebimento.
       const rows = ['Recebimento', 'LM', 'XPT', 'Backlog'].map(l => {
         const id = l.toLowerCase();
         return { label: l, fields: [
-          l === 'Recebimento' ? F(`${id}_total`, 'Total', null) : null,
-          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? g(m.rec[s], `Guia ${S.recebimento} · Recebimento ${S2} (turno ${t})`) : null),
+          l === 'Recebimento' ? F(`${id}_total`, 'Total', rhTotal) : null,
+          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? firstOf(rhRec, g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2} (turno ${t})`)) : null),
           F(`${id}_pct`, '% Recebido', null, { calc: vals => {
             const a = num(vals.recebimento_total), b = num(vals[`${id}_rec`]);
             return a && b != null ? src(f.pct(b / a, 1), 'calc', `${l} recebido ÷ Total de Recebimento`) : null;
@@ -143,7 +167,7 @@ window.Reports = (() => {
             F('h_sort2', 'Início 2º sorting', null, { hint: 'hh:mm' }),
           ]),
           sec('qtd', '👥', 'Quantidade', [
-            F('abs_hc', 'ABS HC', g(m.hc[s].abs, `Guia ${S.hc} · bloco HC ${S2} · ABS (turno ${t})`)),
+            F('abs_hc', 'ABS HC', g(m.hc[s].abs, `${G(S.hc)} · bloco HC ${S2} · ABS (turno ${t})`)),
             F('falta_inj', 'Falta injustificada', null),
             F('atestado', 'Atestado', null),
           ]),
@@ -163,29 +187,29 @@ window.Reports = (() => {
       const au = window.Audit && window.Audit.daySummary ? await window.Audit.daySummary(iso, [sh]) : null;
       const auHow = `Audit de gestão ${dmyIso(iso)} · ${sh}`;
       return {
-        title: `Fechamento de turno ${t}`, sub: `Turno ${t} · colunas ${S2} das guias`,
+        title: `Fechamento de turno ${t}`, sub: `Turno ${t} · ${multi() ? `valores ${S2} dos Lançamentos` : `colunas ${S2} das guias`}`,
         layout: 'cols',
         sections: [
           sec('vol', '📦', 'Volumetria', [
-            F('rec', `Recebimento ${S2}`, g(m.rec[s], `Guia ${S.recebimento} · Recebimento ${S2}`)),
+            F('rec', `Recebimento ${S2}`, g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2}`)),
             // Packed XPT D+1 só existe no T1; o T3 não tem.
-            ...(t === 'T1' ? [F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT`))] : []),
+            ...(t === 'T1' ? [F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `${G(S.recebimento)} · Packed XPT`))] : []),
             F('phd', 'PHD do turno', i >= 0 && m.phd.phd[i] != null ? src(m.phd.phd[i], 'calc', 'PHD do dia: pacotes recebidos ÷ (pessoas + diaristas). Edite se o turno for diferente') : null),
           ]),
           sec('xpt', '🚚', 'Carregamento XPT', [
             // Planejados: sempre 4 carregamentos de XPT por turno (dá para editar no dia que for diferente).
             F('xpt_plan', 'Planejados', src(4, 'calc', 'Valor padrão: 4 carregamentos XPT planejados. Edite se o turno for diferente')),
-            F('xpt_done', 'Carregados', g(m.rec.xptCarregado, `Guia ${S.recebimento} · Xpt carregado`)),
+            F('xpt_done', 'Carregados', g(m.rec.xptCarregado, `${G(S.recebimento)} · Xpt carregado`)),
           ], { summary: v => (v.xpt_done !== '' && v.xpt_plan !== '' ? `${v.xpt_done} / ${v.xpt_plan}` : '') }),
           sec('hc', '👥', 'HC', [
-            F('hc', `HC ${S2}`, g(hc.presente, `Guia ${S.hc} · HC ${S2} · TOTAL`)),
-            F('dw', `Diaristas ${S2}`, g(t === 'T1' ? m.hc.dwPM : m.hc.dwAM, `Guia ${S.hc} · Diaristas ${S2}`)),
-            F('abs', 'ABS', g(hc.abs, `Guia ${S.hc} · HC ${S2} · ABS`)),
+            F('hc', `HC ${S2}`, g(hc.presente, `${G(S.hc)} · HC ${S2} · TOTAL`)),
+            F('dw', `Diaristas ${S2}`, g(t === 'T1' ? m.hc.dwPM : m.hc.dwAM, `${G(S.hc)} · Diaristas ${S2}`)),
+            F('abs', 'ABS', g(hc.abs, `${G(S.hc)} · HC ${S2} · ABS`)),
           ]),
           sec('faltas', '🩺', 'Faltas', [
             F('atestado', 'Atestado', null),
-            F('ferias', 'Férias', g(hc.ferias, `Guia ${S.hc} · HC ${S2} · FERIAS`)),
-            F('dsr', 'DSR', g(hc.dsr, `Guia ${S.hc} · HC ${S2} · DSR`)),
+            F('ferias', 'Férias', g(hc.ferias, `${G(S.hc)} · HC ${S2} · FERIAS`)),
+            F('dsr', 'DSR', g(hc.dsr, `${G(S.hc)} · HC ${S2} · DSR`)),
           ]),
           sec('conf', '🔢', `Conferência ${S2}`, [
             F('conf_status', 'Status', confStatus(conf), { options: STATUS_OPTS }),
@@ -196,9 +220,9 @@ window.Reports = (() => {
             F('noshow', 'NoShow', au && au.noshow != null ? src(au.noshow, 'auto', `${auHow}: ATs sem pacote escaneado (coluna E vazia ou 0)`) : null),
             F('carregamento', `Carregamento ${t}`, au && au.avgMin != null ? src(window.Audit.fmtDur(au.avgMin), 'auto', `${auHow}: tempo médio por AT`) : null, { hint: 'mm:ss' }),
           ]),
-          sec('ma', '📦', `Macro Aging ${t}`, maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma[t][key], `Guia ${S.inventario} · MA ${t} · ${l}`)))),
+          sec('ma', '📦', `Macro Aging ${t}`, maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma[t][key], `${G(S.inventario)} · MA ${t} · ${l}`)))),
           sec('rev', '↩️', 'Reversa do turno', [['onHold', 'On hold'], ['avariaHub', 'Avaria HUB'], ['avariaSoc', 'Avaria SOC'], ['retornoSoc', 'Retorno SOC']]
-            .map(([key, l]) => F(`rev_${key}`, l, null, { hint: 'A guia Reversa tem só o total do dia' }))),
+            .map(([key, l]) => F(`rev_${key}`, l, null, { hint: multi() ? 'Os Lançamentos têm só o total do dia' : 'A guia Reversa tem só o total do dia' }))),
         ],
         obs: F('obs', 'Observação', null, { area: true }),
       };
@@ -232,22 +256,22 @@ window.Reports = (() => {
       layout: 'cols',
       sections: [
         sec('vol', '📦', 'Volumetria', [
-          F('rec_am', 'Recebimento AM', g(m.rec.am, `Guia ${S.recebimento} · Recebimento AM`)),
-          F('rec_pm', 'Recebimento PM', g(m.rec.pm, `Guia ${S.recebimento} · Recebimento PM`)),
-          F('rec_total', 'Total recebido', g(m.rec.total, `Guia ${S.recebimento} · Total`)),
+          F('rec_am', 'Recebimento AM', g(m.rec.am, `${G(S.recebimento)} · Recebimento AM`)),
+          F('rec_pm', 'Recebimento PM', g(m.rec.pm, `${G(S.recebimento)} · Recebimento PM`)),
+          F('rec_total', 'Total recebido', g(m.rec.total, `${G(S.recebimento)} · Total`)),
           F('phd', 'PHD', i >= 0 && m.phd.phd[i] != null ? src(m.phd.phd[i], 'calc', 'Pacotes recebidos ÷ (pessoas + diaristas)') : null),
         ]),
         sec('hc', '👥', 'HC', [
-          F('hc_am', 'HC AM', g(m.hc.am.presente, `Guia ${S.hc} · HC AM · TOTAL`)),
-          F('hc_pm', 'HC PM', g(m.hc.pm.presente, `Guia ${S.hc} · HC PM · TOTAL`)),
-          F('dw_am', 'Diaristas AM', g(m.hc.dwAM, `Guia ${S.hc} · Diaristas AM`)),
-          F('dw_pm', 'Diaristas PM', g(m.hc.dwPM, `Guia ${S.hc} · Diaristas PM`)),
-          F('abs', 'ABS', g(t.abs, `Guia ${S.hc} · HC TOTAL · ABS`)),
+          F('hc_am', 'HC AM', g(m.hc.am.presente, `${G(S.hc)} · HC AM · TOTAL`)),
+          F('hc_pm', 'HC PM', g(m.hc.pm.presente, `${G(S.hc)} · HC PM · TOTAL`)),
+          F('dw_am', 'Diaristas AM', g(m.hc.dwAM, `${G(S.hc)} · Diaristas AM`)),
+          F('dw_pm', 'Diaristas PM', g(m.hc.dwPM, `${G(S.hc)} · Diaristas PM`)),
+          F('abs', 'ABS', g(t.abs, `${G(S.hc)} · HC TOTAL · ABS`)),
         ]),
         sec('faltas', '🩺', 'Faltas', [
           F('atestado', 'Atestado', sumShifts('atestado', 'Atestado')),
-          F('ferias', 'Férias', g(t.ferias, `Guia ${S.hc} · HC TOTAL · FERIAS`)),
-          F('dsr', 'DSR', g(t.dsr, `Guia ${S.hc} · HC TOTAL · DSR`)),
+          F('ferias', 'Férias', g(t.ferias, `${G(S.hc)} · HC TOTAL · FERIAS`)),
+          F('dsr', 'DSR', g(t.dsr, `${G(S.hc)} · HC TOTAL · DSR`)),
         ]),
         sec('conf', '🔢', 'Conferência', [
           F('conf_am', 'Status AM (T3)', confTxt(auAM, 'AM'), { hint: 'conferidas/total - %' }),
@@ -260,7 +284,7 @@ window.Reports = (() => {
           F('missing_all', 'Missing total', null, { calc: v => { const a = num(v.missing_t1), b = num(v.missing_t3); return a != null && b != null ? src(a + b, 'calc', 'Missing T1 + Missing T3') : null; } }),
         ]),
         sec('exp', '🚗', 'Expedição', [
-          F('rotas', 'Rotas do dia', firstOf(auAll && src(auAll.ats, 'auto', `${auHow(auAll, 'dia')}: ATs validadas`), g(m.tr.rotas, `Guia ${S.transporte} · Rotas`))),
+          F('rotas', 'Rotas do dia', firstOf(auAll && src(auAll.ats, 'auto', `${auHow(auAll, 'dia')}: ATs validadas`), g(m.tr.rotas, `${G(S.transporte)} · Rotas`))),
           F('noshow', 'NoShow', auAll && auAll.noshow != null ? src(auAll.noshow, 'auto', `${auHow(auAll, 'dia')}: ATs sem pacote escaneado (coluna E vazia ou 0)`) : null),
           F('carr_t1', 'Carregamento T1', durTxt(auPM, 'PM'), { hint: 'mm:ss' }),
           F('carr_t3', 'Carregamento T3', durTxt(auAM, 'AM'), { hint: 'mm:ss' }),
@@ -268,13 +292,13 @@ window.Reports = (() => {
         ]),
         sec('xpt', '🚚', 'XPT', [
           F('xpt_plan', 'Carregamentos planejados', firstOf(fromShift('rpF3', 'xpt_plan', 'Fechamento T3'), fromShift('rpF1', 'xpt_plan', 'Fechamento T1'))),
-          F('xpt_done', 'Carregamentos realizados', g(m.rec.xptCarregado, `Guia ${S.recebimento} · Xpt carregado`)),
-          F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `Guia ${S.recebimento} · Packed XPT`)),
+          F('xpt_done', 'Carregamentos realizados', g(m.rec.xptCarregado, `${G(S.recebimento)} · Xpt carregado`)),
+          F('packed', 'Packed XPT D+1', g(m.rec.packedXpt, `${G(S.recebimento)} · Packed XPT`)),
         ], { summary: v => (v.xpt_done !== '' && v.xpt_plan !== '' ? `${v.xpt_done} / ${v.xpt_plan}` : '') }),
-        sec('ma', '📦', 'Macro Aging', maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma.T1[key], `Guia ${S.inventario} · MA T1 · ${l}`)))),
-        sec('stuck', '⏳', 'Stucks (inventário)', m.inv.aging.map(a => F(`st_${a.name}`, a.name === '15+ dias' ? 'Acima de 15 dias' : a.name, g(a.data, `Guia ${S.inventario} · ${a.name}`)))),
+        sec('ma', '📦', 'Macro Aging', maFields().map(([key, l]) => F(`ma_${key}`, l, g(m.inv.ma.T1[key], `${G(S.inventario)} · MA T1 · ${l}`)))),
+        sec('stuck', '⏳', 'Stucks (inventário)', m.inv.aging.map(a => F(`st_${a.name}`, a.name === '15+ dias' ? 'Acima de 15 dias' : a.name, g(a.data, `${G(S.inventario)} · ${a.name}`)))),
         sec('rev', '↩️', 'Reversa do dia', [['onHold', 'On hold'], ['avariaHub', 'Avaria HUB'], ['avariaSoc', 'Avaria SOC'], ['retornoSoc', 'Retorno SOC']]
-          .map(([key, l]) => F(`rev_${key}`, l, g(m.rev[key], `Guia ${S.reversa} · ${l}`)))),
+          .map(([key, l]) => F(`rev_${key}`, l, g(m.rev[key], `${G(S.reversa)} · ${l}`)))),
       ],
       obs: F('obs', 'Observação', null, { area: true }),
     };
