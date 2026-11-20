@@ -115,3 +115,23 @@ test('Admin cria a planilha do hub no ano com o nome padrão e já vincula', asy
   const g = await open('gerente@x.com');
   await assert.rejects(g.CT.createFile('LGO05', '2027'), /administrador/);
 });
+
+test('quem está sem hub escolhe a própria função; ela não dá poder até liberarem o hub', async () => {
+  const { CT, writes } = await open('maria@x.com');
+  assert.ok(!CT.SELF_ROLES.includes('Admin'));
+  await assert.rejects(CT.setOwnRole('Admin'), /inválida/);
+  await CT.setOwnRole('Gerente');
+  assert.deepEqual([...writes.at(-1)[1].slice(0, 5)], ['maria@x.com', 'Maria', 'Gerente', '', 'ativo']);
+  assert.equal(CT.role(), 'Gerente');
+  assert.equal(CT.canManage(), false);           // sem hub não libera ninguém
+  assert.equal(CT.state(), 'nohub');
+  // Líder não aprova quem disse ser Gerente; o Gerente do hub aprova.
+  const data = { ...BASE, Usuarios: [...BASE.Usuarios, row('maria@x.com', 'Gerente', '')] };
+  const l = await open('lider@x.com', data);
+  assert.equal(l.CT.canEdit(l.CT.users().find(u => u.email === 'maria@x.com')), false);
+  const g = await open('gerente@x.com', data);
+  assert.equal(g.CT.canEdit(g.CT.users().find(u => u.email === 'maria@x.com')), true);
+  // Com hub liberado, a pessoa não muda mais a própria função.
+  const a = await open('analista@x.com');
+  await assert.rejects(a.CT.setOwnRole('Líder'), /já foi liberado/);
+});

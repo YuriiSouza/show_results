@@ -167,7 +167,15 @@
     const box = (t, p) => `<div class="access-block card"><h2>${t}</h2><p>${p}</p><p><button class="btn-primary solid" data-access-retry>Tentar de novo</button></p></div>`;
     if (st === 'nouser') return box('Acesso não liberado', `A conta <b>${mail}</b> não está cadastrada no app. Toque em “Tentar de novo”: o app cadastra o seu e-mail sozinho. Se continuar aparecendo, confira se a planilha Central está compartilhada com a sua conta.`);
     if (st === 'inactive') return box('Acesso desativado', `O acesso da conta <b>${mail}</b> foi desativado. Fale com o administrador.`);
-    if (st === 'nohub') return box('Sem hub liberado', `A conta <b>${mail}</b> já está cadastrada. Agora peça ao seu líder, site líder, gerente ou ao administrador para liberar o seu hub em <b>Ferramentas → Usuários e hubs</b>. Depois toque em “Tentar de novo”.`);
+    if (st === 'nohub') {
+      const cur = (CT.me() || {}).papel || 'Analista';
+      return `<div class="access-block card"><h2>Sem hub liberado</h2>
+        <p>A conta <b>${mail}</b> já está cadastrada. Informe a sua função e peça ao seu líder, site líder, gerente ou ao
+        administrador para liberar o seu hub em <b>Ferramentas → Usuários e hubs</b>. Depois toque em “Tentar de novo”.</p>
+        <p class="access-role"><label>Qual é a sua função? <select id="accRole">${CT.SELF_ROLES.map(r => `<option ${r === cur ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
+        <button class="tool" data-access-role>Salvar função</button> <span class="muted small" id="accRoleMsg">Função atual no cadastro: <b>${esc(cur)}</b></span></p>
+        <p><button class="btn-primary solid" data-access-retry>Tentar de novo</button></p></div>`;
+    }
     if (st === 'error') return box('Não foi possível ler a planilha Central', `${esc(CT.error())}<br>Confira a internet e se a planilha Central está compartilhada com <b>${mail}</b>.`);
     return '';
   }
@@ -1109,7 +1117,16 @@
     });
     $('btnConn').addEventListener('click', () => { document.body.classList.remove('nav-open'); openSettings(); });
     main.addEventListener('click', e => { if (e.target.closest('[data-open-conn]')) openSettings(); });
-    main.addEventListener('click', e => { if (e.target.closest('[data-access-retry]')) location.reload(); });
+    main.addEventListener('click', async e => {
+      if (e.target.closest('[data-access-retry]')) return location.reload();
+      const b = e.target.closest('[data-access-role]');
+      if (!b) return;
+      const msg = $('accRoleMsg'), papel = $('accRole').value;
+      b.disabled = true;
+      try { await window.Central.setOwnRole(papel); msg.innerHTML = `✓ Função salva: <b>${esc(papel)}</b>. Quem liberar o seu hub vai ver.`; }
+      catch (err) { msg.textContent = String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+      finally { b.disabled = false; }
+    });
     main.addEventListener('click', e => {
       const b = e.target.closest('[data-goto-last]');
       if (!b) return;
