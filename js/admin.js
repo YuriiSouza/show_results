@@ -1,6 +1,8 @@
-// Administração (só Admin, modo multi-hub): usuários (e-mail Google, papel, hubs) e hubs (dados do hub e planilha de dados
-// de cada ano). Tudo fica na planilha Central (js/central.js). Lembrete: o acesso de verdade é o compartilhamento das
-// planilhas do hub no Google Drive; a tela mostra os links para compartilhar.
+// Administração (modo multi-hub): usuários (e-mail Google, papel, hubs) e hubs (dados do hub e planilha de dados de cada
+// ano). Tudo fica na planilha Central (js/central.js).
+// - Quem entra pela primeira vez já aparece aqui, sem hub ("aguardando hub").
+// - Admin, Gerente, Site líder e Líder liberam acesso: só os hubs que eles têm e no máximo o próprio papel. Hubs e
+//   Registros são só do Admin.
 window.Admin = (() => {
   const H = window.Charts;
   const esc = H.esc;
@@ -24,10 +26,11 @@ window.Admin = (() => {
     if (!bound) { bound = true; bind(); }
     draw();
   }
-  const tabs = () => `<div class="pc-tabs" role="tablist">${[['users', 'Usuários'], ['hubs', 'Hubs'], ['logs', 'Registros']].map(([k, l]) =>
+  const tabs = () => !CT().isAdmin() ? '' : `<div class="pc-tabs" role="tablist">${[['users', 'Usuários'], ['hubs', 'Hubs'], ['logs', 'Registros']].map(([k, l]) =>
     `<button role="tab" class="${st.view === k ? 'active' : ''}" aria-selected="${st.view === k}" data-ad-view="${k}">${l}</button>`).join('')}</div>`;
   function draw() {
-    if (!CT() || !CT().isAdmin()) { ui.main.innerHTML = ui.head('Administração') + ui.empty('Só o administrador acessa esta tela.'); return; }
+    if (!CT() || !CT().canManage()) { ui.main.innerHTML = ui.head('Administração') + ui.empty('Só administrador, gerente, site líder e líder acessam esta tela.'); return; }
+    if (!CT().isAdmin()) st.view = 'users';
     if (st.view === 'hubs') return drawHubs();
     if (st.view === 'logs') return drawLogs();
     return drawUsers();
@@ -38,11 +41,17 @@ window.Admin = (() => {
   // ---------- Usuários ----------
   function drawUsers() {
     const u = st.user || emptyUser();
-    const hubs = CT().hubs();
+    const admin = CT().isAdmin(), mine = CT().grantHubs();
+    const hubs = CT().hubs().filter(h => mine.includes(h.id));
+    const others = u.hubs.filter(h => h !== '*' && !mine.includes(h));
+    const roles = CT().grantRoles();
     const multi = CT().MULTI.includes(u.papel);
     const q = st.q.trim().toLowerCase();
-    const list = CT().users().filter(x => !q || `${x.email} ${x.nome} ${x.papel} ${x.hubs.join(' ')}`.toLowerCase().includes(q));
-    ui.main.innerHTML = ui.head('Administração', `Planilha Central · <a href="${esc(CT().sheetUrl())}" target="_blank" rel="noopener">abrir</a>`) + tabs() + `
+    const all = CT().visibleUsers(), waiting = CT().pending().length;
+    const list = all.filter(x => !q || `${x.email} ${x.nome} ${x.papel} ${x.hubs.join(' ')}`.toLowerCase().includes(q));
+    ui.main.innerHTML = ui.head(admin ? 'Administração' : 'Liberar acessos', admin ? `Planilha Central · <a href="${esc(CT().sheetUrl())}" target="_blank" rel="noopener">abrir</a>`
+      : `Você libera os hubs ${esc(mine.join(', ') || '—')} com papel até ${esc(CT().role())}`) + tabs() + (waiting ? `
+      <div class="ns-alert adm-wait">🔔 ${waiting} pessoa(s) entraram no app e aguardam a liberação de um hub. Clique em <b>Editar</b>, escolha o papel e o hub e salve.</div>` : '') + `
       <div class="grid">
         <section class="card w5 adm-card"><div class="card-head"><div><div class="card-title">${u.isNew ? 'Novo usuário' : 'Editar usuário'}</div>
           <div class="card-sub">O usuário entra com a conta Google do e-mail informado.</div></div>
@@ -51,24 +60,25 @@ window.Admin = (() => {
             <label>E-mail (conta Google)<input id="adEmail" type="email" value="${esc(u.email)}" ${u.isNew ? '' : 'readonly'} placeholder="nome@empresa.com" required></label>
             <label>Nome<input id="adNome" type="text" value="${esc(u.nome)}" placeholder="Como aparece nos registros"></label>
             <div class="adm-pair">
-              <label>Papel<select id="adPapel">${opts(CT().ROLES, u.papel)}</select></label>
+              <label>Papel<select id="adPapel">${opts(roles.includes(u.papel) ? roles : [u.papel, ...roles], u.papel)}</select></label>
               <label>Status<select id="adStatus">${opts(['ativo', 'inativo'], u.status)}</select></label>
             </div>
             <div class="adm-hubs"><div class="adm-lbl">Hubs ${u.papel === 'Admin' ? '<span class="muted small">(Admin vê todos)</span>' : multi ? '<span class="muted small">(pode ter vários)</span>' : '<span class="muted small">(um hub só)</span>'}</div>
               ${hubs.length ? hubs.map(h => `<label class="adm-chk"><input type="${multi ? 'checkbox' : 'radio'}" name="adHub" value="${esc(h.id)}" ${u.papel === 'Admin' ? 'disabled checked' : u.hubs.includes(h.id) ? 'checked' : ''}> ${esc(h.id)} <span class="muted small">${esc(h.nome)}</span></label>`).join('') : '<span class="muted small">Cadastre um hub primeiro.</span>'}
+              ${others.length ? `<div class="muted small">Também tem acesso a: ${esc(others.join(', '))} (você não altera estes)</div>` : ''}
             </div>
-            <div class="adm-note">${CT().READONLY.includes(u.papel) ? '🔒 Papel só de consulta: compartilhe as planilhas do hub como <b>Leitor</b>.' : 'Compartilhe as planilhas do hub com este e-mail como <b>Editor</b>.'}
-              ${fileLinks(u.papel === 'Admin' ? ['*'] : u.hubs) ? `<br>Planilhas: ${fileLinks(u.papel === 'Admin' ? ['*'] : u.hubs)}` : ''}</div>
+            <div class="adm-note">${CT().READONLY.includes(u.papel) ? '🔒 Papel só de consulta: o app não deixa esta pessoa gravar nada.' : 'A pessoa passa a ver o hub na próxima vez que abrir o app (ou em “Tentar de novo”).'}
+              ${admin && fileLinks(u.papel === 'Admin' ? ['*'] : u.hubs) ? `<br>Planilhas: ${fileLinks(u.papel === 'Admin' ? ['*'] : u.hubs)}` : ''}</div>
             <div class="adm-actions"><button type="submit" class="btn-primary solid" id="adUserSave">Salvar usuário</button></div>
           </form></section>
-        <section class="card w7"><div class="card-head"><div><div class="card-title">Usuários</div><div class="card-sub">${list.length} de ${CT().users().length}</div></div>
+        <section class="card w7"><div class="card-head"><div><div class="card-title">Usuários</div><div class="card-sub">${list.length} de ${all.length}</div></div>
           <div class="card-tools"><input type="search" id="adQ" class="adm-search" placeholder="Buscar e-mail, nome, hub…" value="${esc(st.q)}"></div></div>
           <div class="table-wrap"><table class="pc-table adm-table"><thead><tr><th class="left">E-mail</th><th class="left">Nome</th><th class="left">Papel</th><th class="left">Hubs</th><th class="left">Status</th><th class="left">Atualizado</th><th></th></tr></thead><tbody>
           ${list.map(x => `<tr class="${x.status === 'inativo' ? 'adm-off' : ''}"><td class="left">${esc(x.email)}${x.email === CT().email() ? ' <span class="pill">você</span>' : ''}</td><td class="left">${esc(x.nome)}</td>
             <td class="left"><span class="pill ${x.papel === 'Admin' ? 'good' : CT().READONLY.includes(x.papel) ? 'warn' : ''}">${esc(x.papel)}</span></td>
-            <td class="left">${esc(x.hubs.includes('*') ? 'Todos' : x.hubs.join(', '))}</td><td class="left">${esc(x.status)}</td>
+            <td class="left">${x.hubs.includes('*') ? 'Todos' : x.hubs.length ? esc(x.hubs.join(', ')) : '<span class="pill warn">aguardando hub</span>'}</td><td class="left">${esc(x.status)}</td>
             <td class="left muted small">${esc(when(x.at))}<br>${esc(x.by)}</td>
-            <td><button class="tool" data-ad-edit="${esc(x.email)}">Editar</button></td></tr>`).join('')}
+            <td>${CT().canEdit(x) ? `<button class="tool" data-ad-edit="${esc(x.email)}">Editar</button>` : ''}</td></tr>`).join('')}
           </tbody></table></div></section>
       </div>`;
   }
@@ -120,14 +130,23 @@ window.Admin = (() => {
                 <label>AT do Parcel a partir de (hora da véspera)<input id="adHat" type="number" min="0" max="23" value="${esc(P.atFromHour != null ? P.atFromHour : 21)}"></label></div>
               <p class="muted small">Turno sem início e fim fica sem janela (o erro de etiquetagem fica sem etiquetador).</p>
             </details>
+            ${h.isNew ? `<label class="adm-chk"><input type="checkbox" id="adHcreate" checked> Criar a planilha de dados de ${esc(CT().year())} (“${esc(CT().fileTitle('ID', CT().year()))}”)</label>` : ''}
             <div class="adm-actions"><button type="submit" class="btn-primary solid" id="adHubSave">Salvar hub</button></div>
           </form>
+          ${st.made && st.made.hub === h.id ? `<div class="adm-made"><b>✓ Planilha criada:</b> <a href="${esc(st.made.url)}" target="_blank" rel="noopener">${esc(st.made.title)}</a>
+            <p class="muted small">Ela está no seu Google Drive. Agora compartilhe: abra a planilha → <b>Compartilhar</b> → em <b>Acesso geral</b> escolha a
+              organização (qualquer pessoa da empresa com o link) e o papel <b>Editor</b>. Se quiser, mova para a pasta do hub no Drive.</p></div>` : ''}
           ${h.isNew ? '' : `<div class="adm-files"><div class="adm-lbl">Planilha de dados por ano</div>
             ${files.length ? `<ul>${files.map(f => `<li><b>${esc(f.ano)}</b> · <a href="${esc(f.url)}" target="_blank" rel="noopener">abrir</a> ${f.status === 'inativo' ? '<span class="pill warn">inativa</span>' : ''} <span class="muted small">${esc(when(f.at))}</span></li>`).join('')}</ul>` : '<p class="muted small">Nenhuma planilha vinculada: o hub não grava nada até ter uma.</p>'}
+            ${(() => { const has = y => files.some(f => f.ano === String(y) && f.status !== 'inativo'); const y = Number(CT().year()); const next = has(y) ? y + 1 : y;
+              return `<div class="adm-create"><div class="adm-pair adm-pair-f"><label>Criar planilha do ano<input id="adCano" type="text" inputmode="numeric" maxlength="4" value="${next}"></label>
+                <div class="adm-actions"><button type="button" class="btn-primary solid" data-ad="createfile" ${st.creating ? 'disabled' : ''}>${st.creating ? 'Criando…' : 'Criar planilha'}</button></div></div>
+                <p class="muted small">Cria “${esc(CT().fileTitle(h.id, next))}” no seu Drive, com todas as guias do app, e já vincula ao hub.</p></div>`; })()}
+            <div class="adm-lbl">Ou vincular uma planilha que já existe</div>
             <form class="adm-form adm-file" id="adFileForm">
               <div class="adm-pair adm-pair-f"><label>Ano<input id="adFano" type="text" inputmode="numeric" value="${esc(CT().year())}" maxlength="4"></label>
               <label>Link da planilha<input id="adFurl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label></div>
-              <p class="muted small">Crie a planilha no Drive do hub, compartilhe com você como Editor e cole o link: o app cria as guias.</p>
+              <p class="muted small">Cole o link de uma planilha em que você é Editor: o app cria as guias que faltarem.</p>
               <div class="adm-actions"><button type="submit" class="btn-primary" id="adFileSave">Vincular planilha</button></div>
             </form></div>
           ${h.id === ((window.APP_CONFIG.CENTRAL_SEED || {}).hub || '') && window.APP_CONFIG.BASE_SHEET_URL ? `<div class="adm-files"><div class="adm-lbl">Migrar a planilha-base antiga</div>
@@ -179,11 +198,25 @@ window.Admin = (() => {
       cfg: { ...(h.cfg || {}), PARCEL, METAS: METASv, RECEB_JANELAS: JANv } };
     const btn = $('adHubSave');
     btn.disabled = true; btn.textContent = 'Salvando…';
+    const create = h.isNew && $('adHcreate') && $('adHcreate').checked;
     try {
       await CT().saveHub(rec);
-      ui.toast(`Hub ${rec.id.toUpperCase()} salvo`);
-      st.hub = CT().hubs().find(x => x.id === rec.id.trim().toUpperCase()) || null; draw();
+      const id = rec.id.trim().toUpperCase();
+      ui.toast(`Hub ${id} salvo`);
+      st.hub = CT().hubs().find(x => x.id === id) || null; draw();
+      if (create) await createFile(id, CT().year());
     } catch (e) { ui.toast(String(e.message || e), true); btn.disabled = false; btn.textContent = 'Salvar hub'; }
+  }
+  // Cria a planilha de dados do hub no ano (Central.createFile) e mostra o lembrete de compartilhar.
+  async function createFile(hubId, ano) {
+    if (st.creating) return;
+    st.creating = true; draw();
+    try {
+      const made = await CT().createFile(hubId, ano);
+      st.made = { ...made, hub: hubId };
+      ui.toast(`Planilha “${made.title}” criada e vinculada`);
+    } catch (e) { ui.toast(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), true); }
+    st.creating = false; draw();
   }
   async function saveFile() {
     const h = st.hub;
@@ -344,8 +377,9 @@ window.Admin = (() => {
       const d = t.dataset;
       if (d.adView) { st.view = d.adView; draw(); return; }
       if (d.adEdit) { const u = CT().users().find(x => x.email === d.adEdit); st.user = u ? { ...u, hubs: u.hubs.slice() } : null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
-      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.made = null; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.ad === 'newuser') { st.user = null; draw(); }
+      else if (d.ad === 'createfile' && st.hub) createFile(st.hub.id, ($('adCano').value || '').trim());
       else if (d.ad === 'newhub') { st.hub = null; draw(); }
       else if (d.ad === 'migrate') migrateLegacy();
       else if (d.ad === 'logsReload') { lg.rows = null; draw(); }

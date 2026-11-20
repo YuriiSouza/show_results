@@ -230,6 +230,22 @@ async function ensureTabs(id, TABS) {
   return { title: meta.properties.title, created: missing };
 }
 ipcMain.handle('base:ensure', (_e, id) => ensureTabs(id, BASE_TABS));
+// Cria uma planilha de dados nova (no Drive de quem pediu), já com todas as guias do app e os cabeçalhos.
+async function createBase(title) {
+  const t = String(title || '').trim().slice(0, 200);
+  if (!t) throw new Error('Informe o nome da planilha.');
+  const token = await baseToken();
+  const tabs = Object.keys(BASE_TABS);
+  const out = await sheetsSend('POST', 'https://sheets.googleapis.com/v4/spreadsheets', token, {
+    properties: { title: t, locale: 'pt_BR', timeZone: 'America/Sao_Paulo' },
+    sheets: tabs.map(title => ({ properties: { title, gridProperties: { frozenRowCount: 1 } } })),
+  });
+  await sheetsSend('POST', `https://sheets.googleapis.com/v4/spreadsheets/${baseId(out.spreadsheetId)}/values:batchUpdate`, token, {
+    valueInputOption: 'RAW', data: tabs.map(tab => ({ range: `'${tab}'!A1`, values: [BASE_TABS[tab]] })),
+  });
+  return { id: out.spreadsheetId, url: out.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${out.spreadsheetId}/edit`, title: t };
+}
+ipcMain.handle('base:create', (_e, title) => createBase(title));
 
 // Lê o que o app precisa: Reports, o resumo de cada Audit importado e os resultados do Parcel.
 // Lê TODAS as colunas de todas as guias do app que existirem na planilha (só leitura). Usado na migração da planilha-base
@@ -368,6 +384,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: true,
+      devTools: !app.isPackaged,
     },
   });
   win.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -403,7 +420,9 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
     { role: 'selectAll', label: 'Selecionar tudo' },
   ] },
   { label: 'Aplicativo', submenu: [{ role: 'reload', label: 'Recarregar' }, { role: 'togglefullscreen', label: 'Tela cheia' }, { type: 'separator' }, { role: 'quit', label: 'Sair' }] },
-  { label: 'Exibir', submenu: [{ role: 'zoomIn', label: 'Aumentar' }, { role: 'zoomOut', label: 'Diminuir' }, { role: 'resetZoom', label: 'Tamanho original' }, { role: 'toggleDevTools', label: 'Ferramentas de desenvolvedor' }] },
+  { label: 'Exibir', submenu: [{ role: 'zoomIn', label: 'Aumentar' }, { role: 'zoomOut', label: 'Diminuir' }, { role: 'resetZoom', label: 'Tamanho original' },
+    // Ferramentas de desenvolvedor só ao rodar pelo código (npm start): no instalador elas mostrariam os links das planilhas.
+    ...(app.isPackaged ? [] : [{ role: 'toggleDevTools', label: 'Ferramentas de desenvolvedor' }])] },
 ]));
 
 if (!app.requestSingleInstanceLock()) app.quit();

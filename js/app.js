@@ -62,7 +62,7 @@
     { id: 'consol', group: 'Ferramentas', label: 'Consolidado dos hubs', daily: true, visible: () => !!(window.Central && window.Central.on() && window.Central.MULTI.includes(window.Central.role()) && window.Central.myHubs().length), render: () => window.Consol.render(csCtx) },
     // Multi-hub: lançamento dos indicadores do dia (antes, nas planilhas mensais); só para quem pode gravar.
     { id: 'lanc', group: 'Ferramentas', label: 'Lançar indicadores', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.hub() && !window.Central.readOnly()), render: () => window.Lanc.render(lcCtx) },
-    { id: 'admin', group: 'Ferramentas', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.isAdmin()), render: () => window.Admin.render(adCtx) },
+    { id: 'admin', group: 'Ferramentas', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.canManage()), render: () => window.Admin.render(adCtx) },
   ];
 
 
@@ -165,9 +165,9 @@
     if (!CT || !CT.on()) return '';
     const st = CT.state(), mail = esc(CT.email());
     const box = (t, p) => `<div class="access-block card"><h2>${t}</h2><p>${p}</p><p><button class="btn-primary solid" data-access-retry>Tentar de novo</button></p></div>`;
-    if (st === 'nouser') return box('Acesso não liberado', `A conta <b>${mail}</b> não está cadastrada no app. Peça ao administrador para cadastrar este e-mail e o seu hub.`);
+    if (st === 'nouser') return box('Acesso não liberado', `A conta <b>${mail}</b> não está cadastrada no app. Toque em “Tentar de novo”: o app cadastra o seu e-mail sozinho. Se continuar aparecendo, confira se a planilha Central está compartilhada com a sua conta.`);
     if (st === 'inactive') return box('Acesso desativado', `O acesso da conta <b>${mail}</b> foi desativado. Fale com o administrador.`);
-    if (st === 'nohub') return box('Sem hub liberado', `A conta <b>${mail}</b> está cadastrada, mas sem nenhum hub ativo. Peça ao administrador para liberar o seu hub.`);
+    if (st === 'nohub') return box('Sem hub liberado', `A conta <b>${mail}</b> já está cadastrada. Agora peça ao seu líder, site líder, gerente ou ao administrador para liberar o seu hub em <b>Ferramentas → Usuários e hubs</b>. Depois toque em “Tentar de novo”.`);
     if (st === 'error') return box('Não foi possível ler a planilha Central', `${esc(CT.error())}<br>Confira a internet e se a planilha Central está compartilhada com <b>${mail}</b>.`);
     return '';
   }
@@ -918,6 +918,9 @@
       }
       const me = CT.me();
       if (me) $('hubSub').textContent = `${C.HUB_CITY ? C.HUB_CITY + ' · ' : ''}${me.nome || me.email} · ${me.papel}${CT.readOnly() ? ' (só consulta)' : ''}`;
+      // Quem libera acesso fica sabendo de quem entrou e aguarda um hub.
+      const nWait = CT.canManage() ? CT.pending().length : 0;
+      if (nWait) toast(`${nWait} pessoa(s) aguardando liberação de hub em Ferramentas → Usuários e hubs.`);
       if (CT.state() === 'nofile') toast(`O hub ${cur ? cur.id : ''} ainda não tem planilha de dados de ${CT.year()}: nada será salvo até o administrador vincular uma.`, true);
     }
     document.title = `Dashboard ${C.HUB_NAME}`;
@@ -1055,7 +1058,10 @@
     const baseInfo = () => {
       if (!window.Base) return;
       const st = window.Base.status;
-      $('baseOpen').href = window.Base.sheetUrl() || '#';
+      // Multi-hub: o link da planilha do hub só aparece para o administrador (os demais usam os dados pelo app).
+      const hideLink = !!(window.Central && window.Central.on() && !window.Central.isAdmin());
+      $('baseOpen').hidden = hideLink;
+      $('baseOpen').href = hideLink ? '#' : window.Base.sheetUrl() || '#';
       $('baseStatus').innerHTML = !window.Base.enabled() ? '<span class="muted">Disponível só no aplicativo (computador ou celular).</span>'
         : `<span class="${st.state === 'error' ? 'bad' : st.state === 'ok' ? 'good-txt' : 'muted'}">${esc({ ok: '✓ Conectada', sync: 'Sincronizando…', pending: 'Envio pendente', error: '⚠ ' + st.msg, off: 'Ainda não sincronizada' }[st.state] || '')}</span>`;
       $('cfgUser').value = window.Base.user();

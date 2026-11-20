@@ -269,6 +269,21 @@
     return { title: meta.properties.title, created: missing };
   }
   const baseEnsure = id => ensureTabs(id, BASE_TABS);
+  // Cria uma planilha de dados nova (no Drive de quem pediu), já com todas as guias do app e os cabeçalhos.
+  async function baseCreate(title) {
+    const t = String(title || '').trim().slice(0, 200);
+    if (!t) throw new Error('Informe o nome da planilha.');
+    const token = await getValidAccessToken();
+    const tabs = Object.keys(BASE_TABS);
+    const out = await sheetsSend('POST', 'https://sheets.googleapis.com/v4/spreadsheets', token, {
+      properties: { title: t, locale: 'pt_BR', timeZone: 'America/Sao_Paulo' },
+      sheets: tabs.map(title => ({ properties: { title, gridProperties: { frozenRowCount: 1 } } })),
+    });
+    await sheetsSend('POST', `${baseUrl(out.spreadsheetId)}/values:batchUpdate`, token, {
+      valueInputOption: 'RAW', data: tabs.map(tab => ({ range: `'${tab}'!A1`, values: [BASE_TABS[tab]] })),
+    });
+    return { id: out.spreadsheetId, url: out.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${out.spreadsheetId}/edit`, title: t };
+  }
   const centralEnsure = id => ensureTabs(id, CENTRAL_TABS);
   async function centralRead(id) {
     const token = await getValidAccessToken();
@@ -383,7 +398,7 @@
     },
     fetchSheets,
     auditList, auditSave, auditDelete,
-    baseEnsure, baseRead, baseReadAll, baseReadTab, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
+    baseEnsure, baseCreate, baseRead, baseReadAll, baseReadTab, baseAppend, centralEnsure, centralRead, centralAppend, reportsListLocal,
     os: Cap.getPlatform(), // 'android' | 'ios'
     openExternal: url => { window.open(url, '_system'); },
     platform: Cap.getPlatform(),
