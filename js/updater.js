@@ -100,5 +100,22 @@ window.Updater = (() => {
     else if (api && api.os === 'android') setTimeout(checkAndroid, 4000);
   }
 
-  return { start, current: () => current, stop: () => unsubs.splice(0).forEach(fn => fn()) };
+  // Verificação manual (Configurações → "Procurar atualização"): 'available' | 'none' | 'dev' | 'error'.
+  async function checkNow() {
+    if (phase === 'downloading' || phase === 'downloaded') { render(); return 'available'; }
+    try {
+      if (upd) {
+        const r = await upd.check();
+        if (!r) return 'none';
+        if (r.dev) return 'dev';
+        info = { ...info, portable: !!r.portable, releasesUrl: r.releasesUrl, version: r.version || info.version };
+        if (info.version && newer(info.version, current)) { phase = 'available'; render(); return 'available'; }
+        return 'none';
+      }
+      if (api && api.os === 'android') { const before = phase; await checkAndroid(); return phase === 'available' || before === 'available' ? 'available' : 'none'; }
+      return 'none';
+    } catch (e) { return 'error'; }
+  }
+
+  return { start, checkNow, current: () => current, stop: () => unsubs.splice(0).forEach(fn => fn()) };
 })();

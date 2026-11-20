@@ -38,7 +38,7 @@
       <button class="icon-btn" id="btnTV" title="Modo TV (tela cheia, troca de abas automática)" aria-label="Modo TV">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       </button>
-      <button class="icon-btn" id="btnSettings" title="Conectar ou trocar as planilhas de cada mês" aria-label="Conectar planilha">
+      <button class="icon-btn" id="btnSettings" title="Configurações: conta Google, planilha e atualizações" aria-label="Configurações">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <button class="btn-primary" id="btnRefresh">
@@ -71,6 +71,7 @@
 
     <div class="content">
       <div class="filters" id="filters">
+        <button class="range-step" id="rangePrev" title="Período anterior (mesmo tamanho)" aria-label="Período anterior">‹</button>
         <div class="range">
           <button class="range-btn" id="rangeBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="rangePop">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
@@ -90,6 +91,7 @@
             <div class="range-hint" id="rangeHint">Clique no dia inicial e depois no dia final.</div>
           </div>
         </div>
+        <button class="range-step" id="rangeNext" title="Próximo período (mesmo tamanho)" aria-label="Próximo período">›</button>
         <span class="range-ref" id="refInfo"></span>
       </div>
 
@@ -97,6 +99,7 @@
 
       <footer class="foot">
         <span id="footInfo"></span>
+        <span id="footCredit" class="foot-credit"></span>
       </footer>
     </div>
   </div>
@@ -176,70 +179,60 @@
   </dialog>
 
   <dialog id="settings">
-    <form method="dialog" class="settings">
-      <div class="dlg-head"><h2>Conectar planilhas</h2><button type="submit" class="dlg-x" value="cancel" formnovalidate title="Fechar" aria-label="Fechar">×</button></div>
-      <p class="muted">Uma planilha por mês. Use sempre que precisar incluir ou <b>trocar a planilha de um mês</b>. O app só lê os dados — as planilhas continuam privadas e cada pessoa acessa só o que foi compartilhado com a própria conta Google.</p>
-      <div class="conn-current" id="cfgCurrent" hidden></div>
+    <form method="dialog" class="settings cfg2">
+      <div class="dlg-head"><h2>Configurações</h2><button type="submit" class="dlg-x" value="cancel" formnovalidate title="Fechar" aria-label="Fechar">×</button></div>
 
-      <div class="conn-step">
-        <span class="conn-num">1</span>
-        <div class="grow">
-          <div class="key-title">Entre com a sua conta Google</div>
-          <div class="email-row">
-            <span id="authInfo" class="muted">Não conectado</span>
-            <button type="button" class="btn-primary" id="authSignIn">Entrar com Google</button>
-            <button type="button" class="btn-ghost" id="authSignOut" hidden>Sair</button>
-          </div>
-          <div class="muted small">O login abre no navegador. As planilhas de cada mês e a planilha-base precisam estar compartilhadas com a sua conta.</div>
+      <!-- Conta Google -->
+      <section class="cfg-sec">
+        <div class="cfg-sec-h"><span class="cfg-ic">👤</span><div><div class="cfg-t">Conta Google</div><div class="muted small">Cada pessoa entra com a própria conta da empresa. O app só enxerga as planilhas compartilhadas com ela.</div></div></div>
+        <div class="email-row">
+          <span id="authInfo" class="muted">Não conectado</span>
+          <button type="button" class="btn-primary" id="authSignIn">Entrar com Google</button>
+          <button type="button" class="btn-ghost" id="authSignOut" hidden>Sair</button>
         </div>
-      </div>
+        <div class="cfg-me" id="cfgMe" hidden></div>
+      </section>
 
-      <div class="conn-step">
-        <span class="conn-num">2</span>
-        <div class="grow">
-          <div class="months-head">
-            <div class="key-title">Cole o link da planilha de cada mês</div>
-            <label class="year-pick">Ano <select id="cfgYear"></select></label>
-          </div>
-          <div class="months" id="cfgMonths"></div>
-          <div class="muted small">Deixe em branco os meses que ainda não têm planilha.</div>
-        </div>
-      </div>
-
-      <div class="conn-step">
-        <span class="conn-num">3</span>
-        <div class="key-title conn-last">Clique em <b>Testar</b> (confere todos os links do ano) e depois em <b>Salvar e atualizar</b>.</div>
-      </div>
-
-      <div class="settings-msg" id="cfgMsg" role="status"></div>
-      <div class="settings-actions">
-        <button type="button" class="btn-ghost" id="cfgDemo">Usar dados de exemplo</button>
-        <button type="button" class="btn-ghost" id="cfgReloadAll" title="Baixa de novo todos os meses, ignorando as cópias salvas">Recarregar todos os meses</button>
-        <button type="button" class="btn-ghost" id="cfgTest">Testar</button>
-        <button type="button" class="btn-primary" id="cfgSave">Salvar e atualizar</button>
-      </div>
-
-      <div class="base-box">
+      <!-- Hub e planilha de dados (multi-hub) / planilha-base (modo antigo) -->
+      <section class="cfg-sec base-box">
+        <div class="cfg-sec-h"><span class="cfg-ic">☁️</span><div><div class="cfg-t" id="baseTitle">Planilha-base compartilhada</div>
+          <div class="muted small" data-months>Reports preenchidos e Audits importados de todos os usuários. Precisa estar compartilhada com a sua conta como <b>Editor</b>.</div>
+          <div class="muted small" data-multi hidden>Tudo o que é lançado e salvo no app vai para esta planilha (uma por hub e por ano).</div></div></div>
         <div class="key-row">
-          <div>
-            <div class="key-title">☁️ Planilha-base compartilhada</div>
-            <div class="muted small">Reports preenchidos e Audits importados de todos os usuários. Precisa estar compartilhada com a sua conta como <b>Editor</b>.</div>
-            <div class="small" id="baseStatus"></div>
-          </div>
-          <a class="btn-ghost" id="baseOpen" href="#" target="_blank" rel="noopener">Abrir</a>
+          <div class="small" id="baseStatus"></div>
+          <a class="btn-ghost" id="baseOpen" href="#" target="_blank" rel="noopener">Abrir planilha</a>
         </div>
-        <label class="user-row">Seu nome (aparece em cada gravação)
+        <label class="user-row" data-months>Seu nome (aparece em cada gravação)
           <input id="cfgUser" type="text" maxlength="60" placeholder="Ex.: Yuri Souza" autocomplete="name">
         </label>
-      </div>
+      </section>
+
+      <!-- Planilhas mensais: só no modo antigo (sem a planilha Central) -->
+      <section class="cfg-sec" data-months>
+        <div class="cfg-sec-h"><span class="cfg-ic">🗓️</span><div><div class="cfg-t">Planilhas mensais</div><div class="muted small">Uma planilha por mês. O app só lê os dados.</div></div></div>
+        <div class="conn-current" id="cfgCurrent" hidden></div>
+        <div class="months-head"><span class="muted small">Cole o link da planilha de cada mês</span><label class="year-pick">Ano <select id="cfgYear"></select></label></div>
+        <div class="months" id="cfgMonths"></div>
+        <div class="settings-msg" id="cfgMsg" role="status"></div>
+        <div class="settings-actions">
+          <button type="button" class="btn-ghost" id="cfgDemo">Usar dados de exemplo</button>
+          <button type="button" class="btn-ghost" id="cfgReloadAll" title="Baixa de novo todos os meses, ignorando as cópias salvas">Recarregar todos os meses</button>
+          <button type="button" class="btn-ghost" id="cfgTest">Testar</button>
+          <button type="button" class="btn-primary" id="cfgSave">Salvar e atualizar</button>
+        </div>
+      </section>
+
+      <!-- Aplicativo -->
+      <section class="cfg-sec">
+        <div class="cfg-sec-h"><span class="cfg-ic">⚙️</span><div><div class="cfg-t">Aplicativo</div><div class="muted small">Versão <b id="appVersion"></b>. As atualizações chegam sozinhas: quando houver uma nova, o app avisa e instala ao reiniciar.</div></div></div>
+        <div class="cfg-row">
+          <button type="button" class="btn-ghost" id="cfgUpd">Procurar atualização</button>
+          <span class="muted small" id="cfgUpdMsg"></span>
+        </div>
+        <p class="muted small" id="cfgWhere"></p>
+      </section>
 
       <button type="button" class="help-link" id="cfgHelp">📘 Passo a passo detalhado e problemas comuns</button>
-
-      <div class="version-row">
-        <span class="muted small">Versão do app: <b id="appVersion"></b></span>
-      </div>
-
-      <p class="muted small" id="cfgWhere"></p>
     </form>
   </dialog>
 
@@ -268,38 +261,56 @@
     <div class="tut">
       <div class="tut-head">
         <div>
-          <h2>Como conectar ou trocar a planilha</h2>
-          <p class="muted">Cada pessoa entra com a própria conta Google. O app enxerga só as planilhas compartilhadas com essa conta. Se a planilha mudar, repita os passos com a nova.</p>
+          <h2>Passo a passo e problemas comuns</h2>
+          <p class="muted">Como o app se conecta, de onde vêm os dados e o que fazer quando algo dá errado.</p>
         </div>
         <button type="button" class="icon-close" id="tutClose" aria-label="Fechar">✕</button>
       </div>
 
       <ol class="steps">
         <li>
-          <b>Entre com a sua conta Google.</b> Em <b>Conectar planilhas</b>, clique em <b>Entrar com Google</b>, escolha a conta da empresa
-          no navegador e autorize. Depois volte ao aplicativo.
+          <b>Entre com a sua conta Google da empresa.</b> Em ⚙ <b>Configurações</b>, clique em <b>Entrar com Google</b>, escolha a conta no
+          navegador e autorize. Depois volte ao aplicativo.
           <span class="tip">O login fica salvo neste aparelho. Use <b>Sair</b> para trocar de conta.</span>
         </li>
         <li>
-          <b>Confira se a planilha está compartilhada com você.</b> Quem é dono da planilha precisa compartilhá-la com a sua conta
-          (<b>Leitor</b> já basta para as planilhas mensais).
-          <span class="tip">A exceção é a <b>planilha-base</b> do app (reports e Audit), que precisa estar compartilhada com você como <b>Editor</b>.</span>
+          <b>Peça para o administrador liberar o seu acesso.</b> O administrador cadastra o seu e-mail, o seu papel (Analista, Líder,
+          Site líder, Qualidade, Gerente ou Admin) e o(s) hub(s) em <b>Ferramentas → Usuários e hubs</b>.
+          <span class="tip">Sem cadastro, o app mostra “Acesso não liberado” com o seu e-mail.</span>
         </li>
         <li>
-          <b>Cole o link no mês certo.</b> Copie o endereço da planilha no navegador (<b>Ctrl+C</b>) e cole (<b>Ctrl+V</b> ou botão direito → Colar)
-          no campo do mês correspondente, escolhendo o ano no topo da lista. Clique em <b>Testar</b> e depois em <b>Salvar e atualizar</b>. Pronto! ✅
-          <span class="tip">Repita os passos 2 e 3 quando começar a planilha de um mês novo.</span>
+          <b>Confirme que a planilha do seu hub foi compartilhada com você.</b> Cada hub tem uma planilha de dados por ano
+          (ex.: “LGO 03 2026”). A equipe do hub precisa dela como <b>Editor</b>; gerentes, como <b>Leitor</b>.
+          <span class="tip">Tudo o que é lançado no app (indicadores do dia, HSE, mapa de piso, avarias, Parcel, erros de piso…) fica nessa planilha.</span>
+        </li>
+        <li>
+          <b>Escolha o hub</b> (para quem acompanha mais de um): clique no nome do hub no topo. A opção <b>Todos os hubs</b> abre o
+          <b>Consolidado dos hubs</b>.
+        </li>
+        <li>
+          <b>Lance os indicadores do dia</b> em <b>Ferramentas → Lançar indicadores</b>. Campos com <b>borda verde</b> foram preenchidos pelo
+          app a partir de outras telas (Recebimento por hora, Avarias, Audit de gestão): confira e clique em <b>Salvar</b>.
         </li>
       </ol>
+
+      <div class="callout">
+        <b>🔄 Atualizações</b>
+        <p class="muted small">O app procura uma versão nova ao abrir. Quando houver, aparece um aviso: no computador ela é baixada e instalada ao
+          reiniciar; no celular o aviso leva ao arquivo da nova versão. Também dá para procurar na hora em ⚙ Configurações → <b>Procurar atualização</b>.</p>
+      </div>
 
       <div class="callout warn">
         <b>⚠ Problemas comuns</b>
         <ul>
-          <li><b>“Sem permissão”</b> → a planilha não foi compartilhada com a sua conta Google (passo 2).</li>
-          <li><b>“Entre com sua conta Google”</b> ou <b>“login expirou”</b> → clique em <b>Entrar com Google</b> de novo (passo 1).</li>
-          <li><b>“Planilha não encontrada”</b> → confira o link colado no app.</li>
-          <li><b>“Google Sheets API não está ativada”</b> → ative a Google Sheets API no projeto do Google Cloud do app, em
-            <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">console.cloud.google.com</a>.</li>
+          <li><b>“Acesso não liberado”</b> → o seu e-mail não está cadastrado (ou está inativo). Fale com o administrador (passo 2).</li>
+          <li><b>“Sem hub liberado”</b> → o cadastro existe, mas sem nenhum hub ativo. O administrador precisa marcar o seu hub.</li>
+          <li><b>“Sem permissão”</b> → a planilha do hub (ou a planilha Central) não foi compartilhada com a sua conta (passo 3).</li>
+          <li><b>“Seu acesso é só de consulta”</b> → papel Gerente: vê tudo, mas não grava. Se precisar lançar, peça outro papel.</li>
+          <li><b>“Este hub ainda não tem planilha de dados para o ano”</b> → o administrador precisa vincular a planilha do ano em
+            <b>Usuários e hubs → Hubs</b>.</li>
+          <li><b>“Login expirou”</b> → clique em <b>Entrar com Google</b> de novo.</li>
+          <li><b>Telas vazias depois de trocar de hub</b> → o hub ainda não tem lançamentos; confira o período no topo (use as setas ‹ › para andar dia a dia).</li>
+          <li><b>“Envio pendente”</b> → sem internet: o que foi salvo fica guardado no aparelho e é enviado sozinho quando a conexão voltar.</li>
           <li><b>Não consigo compartilhar com o e-mail</b> → a planilha pode estar restrita ao domínio da empresa; fale com o TI.</li>
         </ul>
       </div>
@@ -315,10 +326,12 @@
   <script src="node_modules/chart.js/dist/chart.umd.js"></script>
   <script src="js/version.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/applog.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/sample-data.js"></script>
   <script src="js/model.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/central.js"></script>
   <script src="js/base.js"></script>
   <script src="js/audit.js"></script>
   <script src="js/ui-confirm.js"></script>
@@ -331,6 +344,10 @@
   <script src="js/piso.js"></script>
   <script src="js/receb.js"></script>
   <script src="js/updater.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/consol.js"></script>
+  <script src="js/hselanc.js"></script>
+  <script src="js/lanc.js"></script>
   <script src="js/tour.js"></script>
   <script src="js/app.js"></script>
 </body>

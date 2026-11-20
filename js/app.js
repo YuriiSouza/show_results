@@ -34,6 +34,9 @@
     rpP1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="12" cy="15" r="3"/><path d="M12 13.5V15l1 .8"/>',
     rpF1: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 15l2 2 4-4"/>',
     rpAll: '<path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10M15 10v10"/>',
+    lanc: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M14 20h6"/>',
+    consol: '<rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>',
+    admin: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="18" cy="16" r="2.5"/><path d="M18 11.5v2M18 18.5v2M13.5 16h2M20.5 16h2"/>',
     report: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
   };
   const TABS = [
@@ -55,6 +58,11 @@
     { id: 'rpP3', group: 'Reports', label: 'Parcial T3', daily: true, report: true, render: () => window.Reports.render('rpP3', rpCtx) },
     { id: 'rpF3', group: 'Reports', label: 'Fechamento T3', daily: true, report: true, render: () => window.Reports.render('rpF3', rpCtx) },
     { id: 'rpAll', group: 'Reports', label: 'Report Geral', daily: true, report: true, render: () => window.Reports.render('rpAll', rpCtx) },
+    // Multi-hub: números de todos os hubs da pessoa (Admin, Gerente e Qualidade) e cadastro de usuários e hubs (Admin).
+    { id: 'consol', group: 'Ferramentas', label: 'Consolidado dos hubs', daily: true, visible: () => !!(window.Central && window.Central.on() && window.Central.MULTI.includes(window.Central.role()) && window.Central.myHubs().length), render: () => window.Consol.render(csCtx) },
+    // Multi-hub: lançamento dos indicadores do dia (antes, nas planilhas mensais); só para quem pode gravar.
+    { id: 'lanc', group: 'Ferramentas', label: 'Lançar indicadores', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.hub() && !window.Central.readOnly()), render: () => window.Lanc.render(lcCtx) },
+    { id: 'admin', group: 'Ferramentas', label: 'Usuários e hubs', daily: false, visible: () => !!(window.Central && window.Central.on() && window.Central.isAdmin()), render: () => window.Admin.render(adCtx) },
   ];
 
 
@@ -74,11 +82,21 @@
 
   // Links configurados ({ 'AAAA-MM': link }). Um link antigo (antes da lista de meses) vale para o mês atual.
   // Os links padrão do app (config.js) valem para todos; o que o usuário salvar para um mês tem prioridade.
+  const visTabs = () => TABS.filter(t => !t.visible || t.visible());
   const configuredMonths = cfg => {
-    const months = { ...(C.DEFAULT_MONTHS || {}), ...(cfg.months || {}) };
+    const months = { ...(C.MONTHLY_SHEETS_IMPORT || {}), ...(cfg.months || {}) };
     if (!Object.keys(cfg.months || {}).length && cfg.spreadsheetUrl) months[ym(new Date())] = cfg.spreadsheetUrl;
     return months;
   };
+
+  // Hub sem planilhas mensais: modelo vazio com os dias do ano até hoje (as telas da planilha-base funcionam normalmente).
+  function emptyModel() {
+    const m = window.buildModel({ sheets: {} });
+    const p = n => String(n).padStart(2, '0'), today = new Date(), dates = [];
+    for (let d = new Date(today.getFullYear(), 0, 1); d <= today; d.setDate(d.getDate() + 1)) dates.push(`${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`);
+    m.dates = dates;
+    return m;
+  }
 
   // Lê uma planilha (um mês).
   async function fetchOne(url) {
@@ -91,6 +109,18 @@
   async function fetchData({ full = false } = {}) {
     if (!api || LS.get('demo', '') === '1') return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
     const cfg = await api.getConfig();
+    const CT = window.Central;
+    // Multi-hub: os indicadores vêm da guia Indicadores da planilha do hub (as planilhas mensais não são mais lidas).
+    if (CT && CT.on() && cfg.signedIn && CT.hub()) {
+      const B = window.Base;
+      await B.ready; await B.recheck(); B.setActive(true);
+      const ok = await B.load(true);
+      const model = B.indicadoresModel() || emptyModel();
+      // HSE do mês vem da guia HSE mesmo sem indicadores lançados.
+      if (!model.hseByMonth || !Object.keys(model.hseByMonth).length) { model.hseByMonth = B.hseByMonth(); const ks = Object.keys(model.hseByMonth).sort(); model.hse = ks.length ? model.hseByMonth[ks[ks.length - 1]] : null; }
+      const f = CT.dataFile();
+      return { model, demo: false, fromBase: true, sources: [{ month: '', ok: !!ok, name: f ? `${CT.hub().nome || CT.hub().id} ${f.ano}` : '', error: ok ? '' : (B.status.msg || 'Falha ao ler a planilha do hub') }] };
+    }
     const months = configuredMonths(cfg);
     const keys = Object.keys(months).sort();
     if (!cfg.signedIn || !keys.length) return { model: window.buildModel(window.SAMPLE_DATA), demo: true, sources: [] };
@@ -129,14 +159,30 @@
     return { model: window.mergeModels(models), demo: false, sources };
   }
 
+  // Multi-hub: sem cadastro (ou sem hub) o app não carrega nada e explica o que fazer.
+  function accessBlock() {
+    const CT = window.Central;
+    if (!CT || !CT.on()) return '';
+    const st = CT.state(), mail = esc(CT.email());
+    const box = (t, p) => `<div class="access-block card"><h2>${t}</h2><p>${p}</p><p><button class="btn-primary solid" data-access-retry>Tentar de novo</button></p></div>`;
+    if (st === 'nouser') return box('Acesso não liberado', `A conta <b>${mail}</b> não está cadastrada no app. Peça ao administrador para cadastrar este e-mail e o seu hub.`);
+    if (st === 'inactive') return box('Acesso desativado', `O acesso da conta <b>${mail}</b> foi desativado. Fale com o administrador.`);
+    if (st === 'nohub') return box('Sem hub liberado', `A conta <b>${mail}</b> está cadastrada, mas sem nenhum hub ativo. Peça ao administrador para liberar o seu hub.`);
+    if (st === 'error') return box('Não foi possível ler a planilha Central', `${esc(CT.error())}<br>Confira a internet e se a planilha Central está compartilhada com <b>${mail}</b>.`);
+    return '';
+  }
+
   async function refresh({ silent = false, full = false } = {}) {
     if (state.loading) return;
+    const endTimer = window.AppLog ? window.AppLog.timer('refresh', full ? 'Recarregar todos os dados' : 'Atualizar os dados') : () => {};
+    const blocked = accessBlock();
+    if (blocked) { main.innerHTML = blocked; $('tabs').innerHTML = ''; $('filters').classList.add('hidden'); setStatus('err', 'Sem acesso'); return; }
     state.loading = true;
     setStatus('loading', full ? 'Recarregando todos os meses…' : 'Atualizando…');
     $('btnRefresh').classList.add('loading');
     try {
-      const { model, demo, sources } = await fetchData({ full });
-      if (window.Base) { await window.Base.ready; await window.Base.recheck(); window.Base.setActive(!demo); await window.Base.load(true); }
+      const { model, demo, sources, fromBase } = await fetchData({ full });
+      if (window.Base && !fromBase) { await window.Base.ready; await window.Base.recheck(); window.Base.setActive(!demo); await window.Base.load(true); }
       state.model = model;
       state.demo = demo;
       state.sources = sources;
@@ -145,17 +191,20 @@
       $('demoBanner').hidden = !demo;
       const okMonths = sources.filter(x => x.ok);
       const bad = sources.filter(x => x.error);
-      state.sheetName = demo ? '' : okMonths.length === 1 ? okMonths[0].name : `${okMonths.length} meses conectados`;
+      state.sheetName = demo ? '' : fromBase ? (okMonths[0] || {}).name || '' : okMonths.length === 1 ? okMonths[0].name : `${okMonths.length} meses conectados`;
       setConn(demo ? 'demo' : bad.length ? 'err' : 'ok', demo ? 'Usando dados de exemplo'
         : bad.length ? `${okMonths.length} ok · ${bad.length} com erro` : state.sheetName);
       setStatus(bad.length ? 'err' : 'ok', (bad.length ? 'Atualizado com avisos às ' : 'Atualizado às ') + state.updatedAt.toLocaleTimeString('pt-BR'));
-      const span = okMonths.length ? `${shortMonth(okMonths[0].month)} a ${shortMonth(okMonths[okMonths.length - 1].month)}` : '';
+      const span = okMonths.length && !fromBase ? `${shortMonth(okMonths[0].month)} a ${shortMonth(okMonths[okMonths.length - 1].month)}` : '';
       $('footInfo').textContent = demo
         ? `Fonte: dados de exemplo · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`
+        : fromBase ? `Fonte: planilha ${state.sheetName || 'do hub'} · ${state.model.dates.length} dias · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`
         : `Fonte: ${okMonths.length} planilha(s) (${span}) · ${state.model.dates.length} dias · leitura em ${state.updatedAt.toLocaleString('pt-BR')}`;
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#rpStage');
       if (!typing) renderAll();
-      if (bad.length) toast(`${bad.length} mês(es) com erro: ${bad.map(x => `${monthName(x.month)} — ${x.error}`).join(' · ')}`, true);
+      endTimer();
+      if (bad.length && window.AppLog) window.AppLog.warn('falha', `Atualizar: ${bad.map(x => x.error).join(' · ')}`.slice(0, 400));
+      if (bad.length) toast(fromBase ? bad[0].error : `${bad.length} mês(es) com erro: ${bad.map(x => `${monthName(x.month)} — ${x.error}`).join(' · ')}`, true);
       else if (!silent) toast(demo ? 'Dados de exemplo carregados' : full ? 'Todos os meses recarregados' : 'Dados atualizados da planilha');
     } catch (err) {
       console.error(err);
@@ -205,6 +254,14 @@
     applyRef();
     fillFilters();
   }
+  // Setas do filtro: anda o período para trás/para frente pelo próprio tamanho (1 dia → dia a dia; 7 dias → semana a semana).
+  function stepRange(dir) {
+    const last = state.model.dates.length - 1, n = state.to - state.from + 1;
+    let from = state.from + dir * n, to = state.to + dir * n;
+    if (from < 0) { from = 0; to = Math.min(last, n - 1); }
+    if (to > last) { to = last; from = Math.max(0, last - n + 1); }
+    if (from !== state.from || to !== state.to) setRange(from, to);
+  }
   function setRange(from, to) {
     state.from = Math.min(from, to); state.to = Math.max(from, to);
     applyRef(); saveRange(); fillFilters(); renderAll();
@@ -218,6 +275,7 @@
     const n = state.to - state.from + 1;
     $('rangeLabel').textContent = `${d[state.from]} – ${d[state.to]}`;
     $('rangeDays').textContent = `${n} ${n === 1 ? 'dia' : 'dias'}`;
+    $('rangePrev').disabled = state.from === 0; $('rangeNext').disabled = state.to === d.length - 1;
     $('refInfo').innerHTML = dataIdx(state.model, state.from, state.to) < 0
       ? '<span class="bad">Sem dados lançados no período</span>'
       : `Indicadores do dia <b>${d[state.ref]}</b> <span class="muted">· último dia com dados no período</span>`;
@@ -317,7 +375,7 @@
   // ================= Render =================
   function renderTabs() {
     let group = '';
-    $('tabs').innerHTML = TABS.map(t => {
+    $('tabs').innerHTML = visTabs().map(t => {
       const g = t.group !== group ? `<div class="nav-group">${t.group}</div>` : '';
       group = t.group;
       return `${g}<button class="nav-item" data-tab="${t.id}" aria-current="${t.id === state.tab ? 'page' : 'false'}" title="${t.label}">
@@ -362,20 +420,35 @@
   // Contexto da tela Avarias (js/avarias.js).
   const avCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'avarias', range: () => uiCtx.range() };
 
+  // Contexto da Administração (js/admin.js).
+  const lcCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'lanc', rebuild: () => refresh({ silent: true }) };
+  const csCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'consol', range: () => uiCtx.range() };
+  const adCtx = { main, card, head, empty, kpi, toast: (...a) => toast(...a), isActive: () => state.tab === 'admin', refresh: () => refresh() };
+
+  // Créditos no rodapé de cada tela.
+  const CREDITS = {
+    avarias: 'Desenvolvido por Flavio Costa e Yuri Peixoto',
+    audit: 'Desenvolvido por Raisa Almeida e Yuri Peixoto',
+    parcel: 'Desenvolvido por Pablo Diego e Yuri Peixoto',
+    mapa: 'Idealizado por Guilherme Nogueira e desenvolvido por Yuri Peixoto',
+  };
   function renderAll() {
     if (!state.model) return;
-    if (!TABS.some(t => t.id === state.tab)) state.tab = 'overview';
+    if (!visTabs().some(t => t.id === state.tab)) state.tab = 'overview';
     renderTabs();
-    const tab = TABS.find(t => t.id === state.tab);
+    const tab = visTabs().find(t => t.id === state.tab);
     $('filters').classList.toggle('hidden', !tab.daily || !!tab.report);
     document.body.classList.toggle('report-mode', !!tab.report);
     document.body.classList.toggle('audit-mode', tab.id === 'audit');
     H.destroyAll();
     H.applyDefaults();
-    tab.render();
+    const endRender = window.AppLog ? window.AppLog.timer('render', `Abrir a tela ${tab.label}`) : () => {};
+    try { tab.render(); } catch (err) { if (window.AppLog) window.AppLog.error('erro', `Tela ${tab.label}: ${err.message}`, err.stack); throw err; }
+    endRender();
+    $('footCredit').textContent = CREDITS[tab.id] || 'Desenvolvido por Yuri Peixoto';
     balanceKpis();
     // Período sem nenhum lançamento: avisa e oferece ir para o último dia com dados.
-    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
+    if (tab.daily && !tab.report && tab.id !== 'audit' && tab.id !== 'consol' && tab.id !== 'parcel' && tab.id !== 'avarias' && tab.id !== 'erros' && tab.id !== 'rechora' && tab.id !== 'mapa' && dataIdx(state.model, state.from, state.to) < 0) {
       const last = dataIdx(state.model);
       main.insertAdjacentHTML('afterbegin', `<div class="no-data"><span>📭 Não há dados lançados nas guias entre <b>${state.model.dates[state.from]}</b> e <b>${state.model.dates[state.to]}</b>.</span>
         ${last >= 0 ? `<button class="btn-primary solid" data-goto-last="${last}">Ver o último dia com dados (${state.model.dates[last]})</button>` : ''}</div>`);
@@ -455,6 +528,7 @@
       ['ON Hold', f.int(sum(m.rev.onHold)), f.int(m.rev.onHold[i])],
       ['Avaria HUB', f.int(sum(m.rev.avariaHub)), f.int(m.rev.avariaHub[i])],
       ['Avaria SOC', f.int(sum(m.rev.avariaSoc)), f.int(m.rev.avariaSoc[i])],
+      ['Avaria XPT', f.int(sum(m.rev.avariaXpt)), f.int(m.rev.avariaXpt[i])],
       ['Retorno SOC', f.int(sum(m.rev.retornoSoc)), f.int(m.rev.retornoSoc[i])],
       ['Rotas', f.int(sum(m.tr.rotas)), f.int(m.tr.rotas[i])],
       ['ATs no piso', f.int(sum(m.tr.ats)), f.int(m.tr.ats[i])],
@@ -655,18 +729,19 @@
         kpi('Retorno SOC (período)', f.int(sum(rv.retornoSoc)), [sub(`${vals(rv.retornoSoc).filter(v => v > 0).length} envios`)]),
         kpi('Avaria HUB (período)', f.int(sum(rv.avariaHub)), [sub(`${f.int(rv.avariaHub[i])} em ${refLabel().slice(0, 5)}`)]),
         kpi('Avaria SOC (período)', f.int(sum(rv.avariaSoc)), [sub(`${f.int(rv.avariaSoc[i])} em ${refLabel().slice(0, 5)}`)]),
-        kpi('Avarias por 10 mil recebidos', f.dec(ratio(sum(rv.avariaHub) + sum(rv.avariaSoc), sum(m.rec.total)) * 10000, 1), [sub('HUB + SOC ÷ volume')]),
+        kpi('Avaria XPT (período)', f.int(sum(rv.avariaXpt)), [sub(`${f.int(rv.avariaXpt[i])} em ${refLabel().slice(0, 5)} · categoria à parte`)]),
+        kpi('Avarias por 10 mil recebidos', f.dec(ratio(sum(rv.avariaHub) + sum(rv.avariaSoc), sum(m.rec.total)) * 10000, 1), [sub('HUB + SOC ÷ volume (sem XPT)')]),
       ].join('')}</div>
       <div class="grid">
         ${card('rvHold', 'On Hold', 'Pacotes em On Hold por dia · tracejado = média')}
         ${card('rvRet', 'Retorno SOC', 'Pacotes devolvidos ao SOC')}
-        ${card('rvAv', 'Avarias: HUB × SOC', 'Quantidade por dia', { w: 12 })}
+        ${card('rvAv', 'Avarias: HUB × SOC × XPT', 'Quantidade por dia', { w: 12 })}
       </div>`;
     const mh = avgPos(rv.onHold);
     H.render('rvHold', { labels: labels(), datasets: [H.bar('ON Hold', sl(rv.onHold), H.color(2)), H.ref(`Média ${f.int(mh)}`, mh, n)] });
     H.render('rvRet', { labels: labels(), datasets: [H.bar('Retorno SOC', sl(rv.retornoSoc), H.color(1))] });
     H.render('rvAv', { labels: labels(), datasets: [
-      H.bar('Avaria HUB', sl(rv.avariaHub), H.color(2)), H.bar('Avaria SOC', sl(rv.avariaSoc), H.color(1)),
+      H.bar('Avaria HUB', sl(rv.avariaHub), H.color(2)), H.bar('Avaria SOC', sl(rv.avariaSoc), H.color(1)), H.bar('Avaria XPT', sl(rv.avariaXpt), H.color(4)),
     ] });
   }
 
@@ -709,7 +784,7 @@
     const mk = hseKeys.includes(state.hseMonth) ? state.hseMonth : hseKeys.includes(nowKey) ? nowKey : hseKeys[hseKeys.length - 1];
     const hse = (mk && byMonth[mk]) || state.model.hse;
     const monthSel = hseKeys.length ? `<label class="hse-month">Mês <select id="hseMonth" aria-label="Mês do HSE">${hseKeys.map(k => `<option value="${k}" ${k === mk ? 'selected' : ''}>${monthName(k)}</option>`).join('')}</select></label>` : '';
-    if (!hse) { main.innerHTML = head('HSE') + empty(`Guia ${C.SHEETS.hse} não encontrada.`); return; }
+    if (!hse) { main.innerHTML = head('HSE') + empty(window.Central && window.Central.on() ? 'Nenhum HSE lançado. Lance em Ferramentas → Lançar indicadores → HSE.' : `Guia ${C.SHEETS.hse} não encontrada.`); return; }
     const ppl = hse.people;
     const count = (arr, fn) => arr.reduce((m, x) => { const k = fn(x) || '—'; m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
     const byLider = count(ppl, p => p.lider);
@@ -796,6 +871,7 @@
   }
 
   function selectTab(id) {
+    if (state.tab === 'lanc' && id !== 'lanc' && window.Lanc && window.Lanc.hasDraft() && !window.confirm('Há lançamentos não salvos. Sair mesmo assim?')) return;
     if (state.tab === 'mapa' && id !== 'mapa' && window.Piso && window.Piso.leave) window.Piso.leave();
     if (window.Tour) window.Tour.stop(true);
     state.tab = id; LS.set('tab', id);
@@ -811,8 +887,8 @@
     if (on) {
       if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
       state.tvTimer = setInterval(() => {
-        const k = TABS.findIndex(t => t.id === state.tab);
-        selectTab(TABS[(k + 1) % TABS.length].id);
+        const tv = visTabs().filter(t => t.id !== 'admin'), k = tv.findIndex(t => t.id === state.tab);
+        selectTab(tv[(k + 1) % tv.length].id);
       }, (C.TV_ROTATE_SEC || 30) * 1000);
       toast('Modo TV ligado — Esc para sair');
     } else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -827,6 +903,23 @@
   function bind() {
     $('hubTitle').textContent = C.HUB_NAME;
     $('hubSub').textContent = `${C.HUB_CITY} · Painel operacional`;
+    // Multi-hub: quem tem mais de um hub troca por aqui (recarrega o app com os dados do hub escolhido).
+    const CT = window.Central;
+    if (CT && CT.on() && CT.state() !== 'off') {
+      // Quem acompanha vários hubs (Admin, Gerente, Qualidade) sempre vê o seletor, com a opção do consolidado.
+      const list = CT.myHubs(), cur = CT.hub(), multiRole = CT.MULTI.includes(CT.role());
+      if (cur && (list.length > 1 || multiRole)) {
+        $('hubTitle').innerHTML = `<select class="hub-sel" id="hubSel" aria-label="Hub">${list.map(h => `<option value="${esc(h.id)}" ${h.id === cur.id ? 'selected' : ''}>${esc(h.nome || h.id)}</option>`).join('')}
+          ${multiRole ? '<option value="__all">Todos os hubs (consolidado)</option>' : ''}</select>`;
+        $('hubSel').addEventListener('change', e => {
+          if (e.target.value === '__all') { e.target.value = cur.id; selectTab('consol'); return; }
+          CT.setHub(e.target.value); location.reload();
+        });
+      }
+      const me = CT.me();
+      if (me) $('hubSub').textContent = `${C.HUB_CITY ? C.HUB_CITY + ' · ' : ''}${me.nome || me.email} · ${me.papel}${CT.readOnly() ? ' (só consulta)' : ''}`;
+      if (CT.state() === 'nofile') toast(`O hub ${cur ? cur.id : ''} ainda não tem planilha de dados de ${CT.year()}: nada será salvo até o administrador vincular uma.`, true);
+    }
     document.title = `Dashboard ${C.HUB_NAME}`;
 
     $('btnRefresh').addEventListener('click', () => refresh());
@@ -868,6 +961,8 @@
 
     // Seletor de intervalo: um clique no início, outro no fim.
     $('rangeBtn').addEventListener('click', e => { e.stopPropagation(); openRange(!range.open); });
+    $('rangePrev').addEventListener('click', () => stepRange(-1));
+    $('rangeNext').addEventListener('click', () => stepRange(1));
     $('rangePop').addEventListener('click', e => {
       e.stopPropagation();
       const day = e.target.closest('[data-day]');
@@ -970,6 +1065,19 @@
     const openSettings = async () => {
       msg('');
       baseInfo();
+      // Multi-hub: sem links de planilhas mensais; os dados vêm da planilha do hub (Administração → Hubs).
+      const multi = !!(window.Central && window.Central.on() && window.Central.state() !== 'off');
+      document.querySelectorAll('#settings [data-months]').forEach(el => { el.hidden = multi; });
+      document.querySelectorAll('#settings [data-multi]').forEach(el => { el.hidden = !multi; });
+      $('cfgMe').hidden = !multi;
+      if (multi) {
+        const CT = window.Central, h = CT.hub(), f = CT.dataFile(), me = CT.me();
+        $('baseTitle').textContent = `Planilha de dados${h ? ` · ${h.nome || h.id}` : ''}${f ? ` ${f.ano}` : ''}`;
+        $('cfgMe').innerHTML = me ? `<span><b>${esc(me.nome || me.email)}</b></span><span class="pill">${esc(me.papel)}${CT.readOnly() ? ' · só consulta' : ''}</span>
+          <span class="muted small">Hubs: ${esc(CT.myHubs().map(x => x.id).join(', ') || '—')}</span>${CT.isAdmin() ? ` <a class="link" href="${esc(CT.sheetUrl())}" target="_blank" rel="noopener">abrir planilha Central</a>` : ''}`
+          : `<span class="muted small">${esc(CT.email())} · ${CT.state() === 'nouser' ? 'não cadastrado: peça ao administrador' : esc(CT.state())}</span>`;
+      }
+      $('cfgUpdMsg').textContent = '';
       $('cfgCurrent').hidden = !state.sheetName;
       $('cfgCurrent').innerHTML = state.sheetName ? `Conectado agora: <b>${esc(state.sheetName)}</b>.` : '';
       if (!api) {
@@ -987,8 +1095,15 @@
       dlg.showModal();
     };
     $('btnSettings').addEventListener('click', openSettings);
+    $('cfgUpd').addEventListener('click', async () => {
+      $('cfgUpd').disabled = true; $('cfgUpdMsg').textContent = 'Procurando…';
+      const r = window.Updater && window.Updater.checkNow ? await window.Updater.checkNow() : 'error';
+      $('cfgUpd').disabled = false;
+      $('cfgUpdMsg').textContent = { available: 'Nova versão encontrada: veja o aviso.', none: `Você já está na versão mais recente (${window.APP_VERSION}).`, dev: 'Versão de desenvolvimento: sem atualização automática.', error: 'Não foi possível verificar agora (internet?).' }[r] || '';
+    });
     $('btnConn').addEventListener('click', () => { document.body.classList.remove('nav-open'); openSettings(); });
     main.addEventListener('click', e => { if (e.target.closest('[data-open-conn]')) openSettings(); });
+    main.addEventListener('click', e => { if (e.target.closest('[data-access-retry]')) location.reload(); });
     main.addEventListener('click', e => {
       const b = e.target.closest('[data-goto-last]');
       if (!b) return;
@@ -1083,6 +1198,32 @@
   let balQueued = false;
   const queueBalance = () => { if (balQueued) return; balQueued = true; requestAnimationFrame(() => { balQueued = false; balanceKpis(); }); };
   new MutationObserver(queueBalance).observe(main, { childList: true, subtree: true });
+
+  // Setas ‹ › ao lado de todo campo de data das telas: muda um dia sem abrir o calendário (dispara "change", como se
+  // a pessoa tivesse escolhido no calendário). Respeita o mínimo e o máximo do campo.
+  const dayShift = (iso, d) => { const x = new Date(iso + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + d); return x.toISOString().slice(0, 10); };
+  function decorateDates() {
+    main.querySelectorAll('input[type="date"]:not([data-step]):not(#lcDate)').forEach(inp => {
+      inp.dataset.step = '1';
+      const mk = (dir, txt) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'date-step'; b.textContent = txt; b.dataset.dir = dir;
+        b.title = dir < 0 ? 'Dia anterior' : 'Próximo dia'; b.setAttribute('aria-label', b.title); return b; };
+      inp.before(mk(-1, '‹')); inp.after(mk(1, '›'));
+    });
+  }
+  new MutationObserver(decorateDates).observe(main, { childList: true, subtree: true });
+  main.addEventListener('click', e => {
+    const b = e.target.closest('.date-step');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const inp = +b.dataset.dir < 0 ? b.nextElementSibling : b.previousElementSibling;
+    if (!inp || !inp.value) return;
+    let v = dayShift(inp.value, +b.dataset.dir);
+    if (inp.max && v > inp.max) return;
+    if (inp.min && v < inp.min) return;
+    inp.value = v;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+  }, true);
   window.addEventListener('resize', queueBalance);
   if (window.ResizeObserver) new ResizeObserver(queueBalance).observe(main);
 
@@ -1105,10 +1246,20 @@
     gate.showModal();
   }
 
-  bind();
-  $('appVersion').textContent = window.APP_VERSION || '—';
-  window.Updater.start();
-  setAuto();
-  refresh({ silent: true }).then(() => window.Tour.autoStart());
-  loginGate();
+  (async () => {
+    // Multi-hub: lê a planilha Central antes de montar a tela (usuário, hub e configuração do hub).
+    if (window.Central && window.Central.on()) {
+      const endC = window.AppLog ? window.AppLog.timer('central', 'Ler a planilha Central') : () => {};
+      const r = await window.Central.init();
+      endC();
+      if (window.Central.state() === 'error' && window.AppLog) window.AppLog.error('falha', `Planilha Central: ${window.Central.error()}`);
+      if (r.reload) { location.reload(); return; }
+    }
+    bind();
+    $('appVersion').textContent = window.APP_VERSION || '—';
+    window.Updater.start();
+    setAuto();
+    refresh({ silent: true }).then(() => { if (!accessBlock()) window.Tour.autoStart(); });
+    loginGate();
+  })();
 })();

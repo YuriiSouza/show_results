@@ -3,7 +3,7 @@
 // - Na primeira vez que o app abre (por aparelho), mostra o passo a passo geral (menu, período, atualizar…).
 // Os textos de cada tela ficam em STEPS, abaixo. Passo cujo elemento não está na tela é pulado sozinho.
 window.Tour = (() => {
-  const LS_SEEN = 'hub.tour.geral';
+  const LS_SEEN = 'hub.tour.geral2';   // novo tour geral (multi-hub e atualizações): aparece de novo uma vez para todos
   const C = window.APP_CONFIG || {};
   const AUTO = Number(C.AUTO_REFRESH_MIN) || 30;
   const TV = Number(C.TV_ROTATE_SEC) || 30;
@@ -63,14 +63,18 @@ window.Tour = (() => {
   const STEPS = {
     geral: [
       { title: 'Bem-vindo ao Dashboard', text: `Em menos de um minuto mostro onde fica cada coisa. Use <b>Próximo</b> ou as setas do teclado; <b>Pular</b> fecha a qualquer momento.` },
-      { el: '#tabs|#btnMenu', title: 'Menu das telas', text: 'As telas ficam em grupos: <b>Operação</b>, <b>Qualidade</b>, <b>Piso</b>, <b>Segurança</b> e <b>Reports</b>.' },
+      { el: '#hubTitle', title: 'Seu hub', text: 'O app atende vários hubs. Você entra com a conta Google da empresa e vê os hubs liberados para você. Quem acompanha mais de um hub (Admin, Gerente, Qualidade) troca clicando no nome; <b>Todos os hubs</b> abre o consolidado.' },
+      { el: '#hubSub', title: 'Quem está usando', text: 'Seu nome e o seu papel. <b>Gerente</b> é só consulta: vê tudo, mas não grava.' },
+      { el: '#tabs|#btnMenu', title: 'Menu das telas', text: 'As telas ficam em grupos: <b>Operação</b>, <b>Qualidade</b>, <b>Piso</b>, <b>Segurança</b>, <b>Reports</b> e, no fim, <b>Ferramentas</b> (lançar indicadores, consolidado dos hubs e, para o admin, usuários e hubs).' },
+      { el: () => { const g = [...document.querySelectorAll('#tabs .nav-group')].find(x => /ferramentas/i.test(x.textContent)); return g && visible(g) ? g : null; }, title: 'Ferramentas', text: '<b>Lançar indicadores</b> substitui as planilhas mensais: os números do dia e o HSE do mês são lançados aqui e gravados na planilha do hub.' },
       { el: '#rangeBtn', title: 'Período', text: 'Escolha os dias analisados: atalhos (últimos 7 ou 30 dias, mês atual…) ou um intervalo no calendário, mesmo cruzando meses.' },
+      { el: '#rangePrev', title: 'Andar no período', text: 'As setas ‹ › movem o período sem abrir o calendário: com 1 dia selecionado, andam dia a dia. Os campos de data das telas também têm as setas.' },
       { el: '#status', title: 'Última atualização', text: `Os dados são relidos sozinhos a cada ${AUTO} minutos. Aqui aparece o horário da última leitura.` },
       { el: '#btnRefresh', title: 'Atualizar', text: 'Busca agora o que foi lançado nas planilhas e o que os outros usuários salvaram.' },
       { el: '#btnSpx', title: 'Sessão do SPX', text: 'Liga a consulta ao SPX (rastreio do Parcel, recebimento por hora, responsável da etiquetagem). Só no computador.' },
       { el: '#btnTV', title: 'Modo TV', text: `Tela cheia que troca de tela sozinha a cada ${TV} segundos, para deixar na TV do hub. <b>Esc</b> sai.` },
       { el: '#btnTheme', title: 'Tema claro ou escuro', text: 'Alterna as cores da tela. A escolha fica salva no aparelho.' },
-      { el: '#btnConn|#btnSettings', title: 'Conectar planilhas', text: 'Login Google e planilha de cada mês. A bolinha fica verde quando está tudo certo.' },
+      { el: '#btnSettings|#btnConn', title: 'Configurações e atualizações', text: 'Conta Google, a planilha do seu hub e a versão do app. As <b>atualizações chegam sozinhas</b>: ao abrir, o app procura uma versão nova e avisa; no computador ela é instalada ao reiniciar. Também dá para clicar em <b>Procurar atualização</b>.' },
       { el: '#btnTour', title: 'Passo a passo de cada tela', text: 'Em qualquer tela, clique aqui para ver o que cada parte faz.', end: true },
     ],
     overview: [
@@ -134,23 +138,20 @@ window.Tour = (() => {
     ],
     audit: [
       { el: '#main .section-title', title: 'Audit de gestão', text: 'A conferência das rotas de cada turno, a partir dos relatórios Audit do LMHub (um por turno: AM, PM1 e PM2).' },
+      { el: '#main .au-seg', title: 'Turnos', text: '<b>Todos</b> soma os turnos; AM, PM1 e PM2 mostram só aquele turno. A bolinha indica que o turno tem relatório. Os dias seguem o filtro de <b>Período</b> do topo.' },
       { el: '#main [data-au="import"]', title: 'Importar relatório', text: 'Escolha (ou arraste) o <b>.csv</b> do LMHub, confirme o dia e o turno. Fica salvo só o resumo calculado, para todos verem. Importar de novo o mesmo dia e turno substitui.' },
       { el: '#main [data-au="demo"]', title: 'Ver um exemplo', text: 'Mostra a tela com dados fictícios, sem gravar nada.' },
-      { el: '#main .au-period', title: 'Dias analisados', text: 'A tela segue o filtro de <b>Período</b> do topo. Um dia = visão do dia; vários dias = soma dos relatórios do período.' },
-      { el: '#main .au-bar .chips', title: 'Turnos', text: '<b>Todos</b> soma os turnos; AM, PM1 e PM2 mostram só aquele turno. A bolinha indica que o turno tem relatório.' },
-      k('ATs validadas', 'Quantas ATs (rotas) foram conferidas e a janela da primeira à última validação. A seta compara com o relatório anterior do mesmo turno.'),
-      k('Pedidos', 'Total de pedidos das rotas no início da conferência e quantos foram escaneados.', 'Pedidos (inicial)'),
+      k('ATs validadas', 'Quantas ATs (rotas) foram conferidas, os pedidos e a janela da primeira à última validação. A seta compara com o relatório anterior do mesmo turno.'),
       k('Não bipados', 'Pacotes da rota que não foram bipados na conferência (<i>Missing Orders</i>). A etiqueta compara com a meta de % de não bipados.', 'Não bipados na conferência'),
       k('Pacotes de outra rota', 'Pacotes bipados na conferência de uma rota, mas que são de outra (<i>Missorted Orders</i>). É o número usado como Missing nos reports.'),
       k('ATs com divergência', 'Quantas ATs tiveram algum não bipado ou pacote de outra rota.'),
-      k('Rotas noshow', 'Rotas com AT mas nenhum pacote escaneado: não foram conferidas. Entram no NoShow do Report Geral.'),
-      k('Tempo médio', 'Tempo médio de conferência por AT, frente à meta, e quantos operadores conferiram.', 'Tempo médio por AT'),
-      k('ATs acima', 'ATs que passaram da meta de tempo de conferência e o tempo excedente somado.', 'ATs acima da meta de tempo'),
+      k('Rotas noshow', 'Rotas com AT mas nenhum pacote escaneado: não foram conferidas. O aviso 🔔 lembra das rotas que ainda precisam ser validadas (elas contam como noshow até alguém marcar).'),
+      k('Tempo médio', 'Tempo médio de conferência por AT, frente à meta, quantas ATs passaram da meta e quantos operadores conferiram.', 'Tempo médio por AT'),
       { el: '#main .au-insights', title: 'Destaques automáticos', text: 'Frases prontas com o que mais pesou: % de não bipados frente à meta, corredor e operador com mais não bipados, AT mais lenta e maior ofensor de tempo.' },
       c('Comparativo dos turnos', 'AM, PM1 e PM2 lado a lado: ATs, pedidos, não bipados, de outra rota, tempo médio e janela de cada turno.'),
       c('% de não bipados por dia', 'Com vários dias no período: a evolução do % de não bipados de cada turno; o tracejado é a meta.'),
       c('% de ATs acima', 'Com vários dias no período: quanto das ATs de cada turno passou da meta de tempo, dia a dia.', '% de ATs acima da meta por dia'),
-      c('Rotas noshow', 'Lista das rotas sem nenhum pacote escaneado, com corredor e pedidos.'),
+      c('Rotas noshow', 'Lista das rotas sem nenhum pacote escaneado. <b>Confirmar</b> mantém como noshow; <b>Não é noshow</b> (erro do relatório) tira da contagem do Audit, do report e da sugestão de ATs no piso.'),
       c('Não bipados e pacotes de outra rota', 'Cada barra é um corredor (gaiola): mostra onde se concentram os não bipados e os pacotes de outra rota.', 'Por corredor'),
       c('Por rua', 'O mesmo agrupado pela letra do corredor (rua A, B, C…).'),
       c('ATs validadas por hora', 'Quantas conferências começaram em cada hora: mostra os picos e os buracos do turno.'),
@@ -316,7 +317,7 @@ window.Tour = (() => {
     ],
     hse: [
       { el: '#main .section-title', title: 'HSE', text: 'Saúde, segurança e meio ambiente do mês, da guia HSE da planilha.' },
-      { el: '#hseMonth', title: 'Mês', text: 'Cada planilha mensal tem a sua guia HSE. Abre no mês atual; esta tela não segue o filtro de período.' },
+      { el: '#hseMonth', title: 'Mês', text: 'O HSE é do mês (lançado em Ferramentas → Lançar indicadores → HSE). Abre no mês atual; esta tela não segue o filtro de período.' },
       k('Colaboradores', 'Total de pessoas na guia HSE, por empresa (BPO).'),
       { el: () => [...document.querySelectorAll('#main .kpis .kpi')].filter(x => visible(x) && /do quadro/.test(x.textContent)), title: 'Contratos', text: 'Quantas pessoas há em cada tipo de contrato e o % do quadro.' },
       k('Líderes', 'Quantos líderes têm equipe na lista.'),
@@ -333,6 +334,33 @@ window.Tour = (() => {
       c('Links importantes HSE', 'Atalhos para os formulários e documentos de HSE.'),
       c('Colaboradores', 'Lista completa com código, empresa, contrato, líder e status.'),
       { el: '#hseSearch', title: 'Buscar colaborador', text: 'Procure por nome, código ou líder.' },
+    ],
+    lanc: [
+      { el: '#main .section-title', title: 'Lançar indicadores', text: 'Aqui entram os números do dia que antes eram digitados nas planilhas mensais. Tudo vai para a planilha do hub e aparece no dashboard na hora.' },
+      { el: '#main .lc-day', title: 'Dia', text: 'O dia do lançamento. As setas andam dia a dia; clique na data para abrir o calendário. Dá para corrigir dias anteriores.' },
+      { el: '#main .lc-areas', title: 'Áreas', text: 'Recebimento, HC, Inventário, Reversa e Transporte, uma de cada vez. O número mostra quantos campos já têm valor e a bolinha a situação: vazio, parcial, completo ou com alteração não salva. No fim, o <b>HSE do mês</b>.' },
+      { el: '#main .lc-sugbar|#main .lc-row.sug', title: 'Sugestões do app', text: 'Campos com <b>borda verde</b> já vêm preenchidos a partir de outras telas: Recebimento AM/PM pelo Recebimento por hora (janela do AM), avarias pela tela Avarias, rotas, SPR e noshow pelo Audit de gestão. Confira; digitar no campo substitui.' },
+      { el: '#main .lc-list|#main .lc-mx', title: 'Campos', text: 'Ao lado de cada campo aparece o valor do dia anterior para comparar. Os campos em cinza são calculados (totais e presentes). <b>Enter</b> vai para o próximo campo.' },
+      { el: '#main .lc-foot', title: 'Salvar', text: 'Mostra quantas alterações faltam salvar. <b>Salvar</b> grava todas as áreas de uma vez; só o que mudou vai para a planilha.' },
+    ],
+    consol: [
+      { el: '#main .section-title', title: 'Consolidado dos hubs', text: 'Os principais números de todos os hubs que você acompanha, no período do filtro do topo, lidos da planilha de cada hub.' },
+      { el: '#main .kpis', title: 'Totais', text: 'Volume, avarias (e quantas em aberto), erros de piso e Parcel sem AT somados de todos os hubs.' },
+      c('Por hub', 'Uma linha por hub: volume, média por dia, PHD, DS, % ABS, avarias, erros de piso e Parcel sem AT. Em vermelho o que está fora da meta.'),
+      c('Volume recebido por hub', 'Comparação do volume entre os hubs.'),
+      { el: '#main [data-cs="reload"]', title: 'Ler de novo', text: 'As planilhas são lidas no máximo a cada 3 minutos; aqui força uma nova leitura.' },
+    ],
+    admin: [
+      { el: '#main .section-title', title: 'Usuários e hubs', text: 'Cadastro de quem usa o app (pelo e-mail da conta Google), com papel e hubs. Fica na planilha Central.' },
+      { el: '#adUserForm', title: 'Novo usuário', text: 'E-mail, nome, papel e hub(s). Admin vê todos; Gerente e Qualidade podem ter vários; os demais ficam num hub só. <b>Gerente</b> é só consulta.' },
+      { el: '#main .adm-note', title: 'Compartilhar a planilha', text: 'Lembrete: o acesso de verdade é o compartilhamento da planilha do hub no Google Drive (Editor para a equipe, Leitor para gerentes).' },
+      c('Usuários', 'Todos os cadastrados. <b>Editar</b> muda papel, hubs ou desativa o acesso.'),
+    ],
+    'admin:hubs': [
+      { el: '#adHubForm', title: 'Hub', text: 'Nome, cidade, estação do SPX, código no Sort Code, metas e janelas de recebimento do hub.' },
+      { el: '#adFileForm', title: 'Planilha de dados por ano', text: 'Vincule a planilha do hub de cada ano (ex.: LGO 03 2026). O app confere o acesso e cria as guias.' },
+      { el: '#adImpForm', title: 'Importar planilhas mensais', text: 'Copia os indicadores e o HSE das planilhas mensais antigas (só leitura). Pode repetir: só entra o que mudou.' },
+      c('Hubs', 'Todos os hubs, com a planilha do ano e quantos usuários têm acesso.'),
     ],
     report: [
       { el: '#main .rp-day', title: 'Dia do report', text: 'Começa em hoje. As setas trocam o dia e o calendário vai direto a qualquer data.' },
@@ -386,7 +414,7 @@ window.Tour = (() => {
     const b = document.querySelector('#main .pc-tabs button.active');
     if (!b) return '';
     const d = b.dataset;
-    return d.pzView || d.rhView || d.peView || d.pcTab || d.avView || '';
+    return d.pzView || d.rhView || d.peView || d.pcTab || d.avView || d.adView || '';
   };
   function start(id = currentTab()) {
     const sub = subView();

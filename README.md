@@ -345,6 +345,54 @@ Meta **457** (`METAS.phd` em `js/config.js`):
 - A sub-aba **Histórico (operadores)** mostra, para o período do filtro do app, os pacotes por **operador do missing**
   (quantidade, dias, situação), para o líder dar o feedback, e a lista de pacotes com filtros. Funciona também no mobile.
 
+## Multi-hub (em teste local)
+
+Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **planilha Central** (`js/central.js`):
+- **Usuarios**: e-mail da conta Google, nome, papel (Admin, Gerente, Qualidade, Site líder, Líder, Analista), hubs e status.
+  Admin vê todos os hubs; Gerente e Qualidade podem ter vários; os demais ficam num hub só. Gerente é **só consulta**.
+- **Hubs**: ID, nome, cidade e configuração (estação do SPX, código no Sort Code, janelas e metas).
+- **Arquivos**: a planilha de dados de cada hub por ano. Ela substitui a planilha-base: mapa de piso, erros, avarias,
+  Parcel, recebimento por hora, reports e Audit são lidos e gravados na planilha do hub escolhido.
+- Vale a linha mais recente de cada chave (nada é apagado). Planilha Central vazia: quem abre primeiro vira Admin e o hub
+  de `CENTRAL_SEED` é cadastrado com a sua planilha.
+- Quem não está cadastrado (ou está inativo) vê "Acesso não liberado". Quem tem mais de um hub troca no topo.
+- Tela **Administração → Usuários e hubs** (só Admin): cadastra usuários, hubs e vincula a planilha de dados do ano
+  (o app confere o acesso e cria as guias).
+- Segurança: compartilhe a Central como **Leitor** com todos e **Editor** só com os admins; cada planilha de hub só com
+  a equipe do hub (Editor) e gerentes (Leitor).
+- **Indicadores** (o que vinha das planilhas mensais) ficam na guia `Indicadores` da planilha do hub: uma linha por dia e
+  indicador (`rec.total`, `hc.am.abs`, `inv.aging.2`…; ver `MODEL_SERIES` em `js/model.js`), vale a mais recente. O HSE do
+  mês fica na guia `HSE`. O app **não lê mais as planilhas mensais**: em Administração → Hubs → **Importar planilhas
+  mensais** os dados são copiados (as mensais só são lidas; repetir só grava o que mudou).
+- **Migrar a planilha-base antiga** (Administração → Hubs → LGO03): copia todas as guias da planilha-base antiga (reports,
+  Audit, Parcel, mapa de piso, erros de piso, recebimento por hora, avarias) para a planilha do hub do ano. A antiga só é
+  lida; linhas já copiadas não entram de novo (pode repetir).
+- **Lançar indicadores** (menu Ferramentas, no fim; não aparece para Gerente): substitui o preenchimento das planilhas mensais. Recebimento, HC (AM, PM),
+  Inventário (aging e MA T1/T3), Reversa e Transporte; só o que mudou vai para a guia Indicadores. Calculados como na
+  planilha mensal: total recebido = AM + PM; presentes = HC − DSR − ABS − Férias − Desligado − Afastamento; total do dia
+  = AM + PM; total do inventário = soma do aging. Gerente não vê a tela. **HSE do mês** (no fim da lista de áreas): colaboradores, checklists, ginástica laboral, DDS e links, gravados por mês na guia HSE; "Copiar do mês anterior" traz a estrutura sem os status.
+- **Sugestões no lançamento** (como no report: o campo ainda sem valor já vem preenchido, com borda verde e a origem; digitar substitui; salvar grava): Recebimento AM/PM pelo
+  Recebimento por hora, separado pela janela do AM (ex.: 22:00 da véspera até 05:30 = AM; de 05:30 até 22:00 = PM; cada
+  hora conta pelo horário de início); Avaria HUB/SOC/XPT pela tela Avarias do dia (origem; XPT é categoria à parte, fora do "por 10 mil recebidos"); Rotas, SPR (pedidos iniciais ÷
+  rotas) e ATs no piso (rotas noshow) pelo Audit de gestão do dia, com o detalhe por turno.
+- **Validação de noshow** (Audit de gestão → Rotas noshow): Confirmar ou "Não é noshow" em cada rota (guia NoShow da
+  planilha do hub). "Não é noshow" deixa de contar no indicador, no report e na sugestão; "a validar" ainda conta, e o card "Rotas noshow" mostra o lembrete 🔔 "N rota(s) a validar" (clique leva à lista).
+- **Recebimento por hora → Bancadas**: segue as mudanças do mapa de piso no turno (bancada aberta depois, troca de pessoa,
+  intervalo). Cada hora do SPX vale para a versão do mapa daquela hora; em destaque quem está na bancada agora ("desde
+  HH:MM"), abaixo quem esteve antes e o total da bancada no turno.
+- **Mapa de piso → Gaioleiros**: nova função (auxiliares que puxam as gaiolas), com quantidade no layout.
+- **Audit de gestão**: topo enxuto (turno e "＋ Importar" ao lado do título; 6 indicadores; destaques abaixo).
+- **Registro de erros e alertas** (`js/applog.js` + `electron/main.js`): toda chamada ao Google Sheets/SPX é cronometrada
+  (falha = erro; acima do limite = alerta "lento"), assim como atualizar os dados, abrir uma tela e ler a Central. No
+  computador vai para `<pasta do app>/logs/AAAA-MM-DD.jsonl` (30 dias); a cada 5 min os erros e alertas vão para a guia
+  `Logs` da planilha do hub. O admin vê em Ferramentas → Usuários e hubs → **Registros**.
+- Configuração do hub (Administração → Hubs): estação do SPX, código no Sort Code, **metas**, **janelas de recebimento** e
+  a hora de início da AT do Parcel.
+- **Seletor de hub** no topo para Admin, Gerente e Qualidade (e quem tem mais de um hub), com a opção **Todos os hubs** que
+  abre o **Consolidado dos hubs**: volume, PHD, DS, % ABS, avarias, erros de piso e Parcel sem AT de cada hub no período.
+- Proteção: a planilha-base antiga e as planilhas mensais estão em `READ_ONLY_SHEETS` (`electron/main.js` e
+  `js/mobile-api.js`): qualquer gravação nelas é recusada.
+
 ## Parcel: AT do dia e report diário
 
 - A **AT** de um pacote é a mais próxima antes do missing e só vale se for **a partir das 21:00 do dia anterior ao relatório** (horário de Brasília) e antes do missing

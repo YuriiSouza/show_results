@@ -8,7 +8,7 @@ window.Piso = (() => {
   const PC = window.ParcelCore;
   const TZ = 'America/Sao_Paulo';
   const TURNOS = ['AM', 'PM1', 'PM2'];
-  const FUNCS = { ind: 'Indução', rec: 'Recebimento/Etiquetagem', sort: 'Sorting', s2: '2º Sorting', aud: 'Auditoria', desc: 'Descarga', xpt: 'XPT', s5: '5S', int: 'Intervalo' };
+  const FUNCS = { ind: 'Indução', rec: 'Recebimento/Etiquetagem', sort: 'Sorting', s2: '2º Sorting', aud: 'Auditoria', desc: 'Descarga', xpt: 'XPT', s5: '5S', gaio: 'Gaioleiros', int: 'Intervalo' };
   const HIST_DAYS = 10; // o rodízio olha os últimos 10 dias
   const REC_SIZE = 2; // pessoas por posto de recebimento/etiquetagem: quem recebe (bipa) e quem etiqueta
   const DEFAULT_LAYOUT = {
@@ -18,7 +18,7 @@ window.Piso = (() => {
       { id: 'm3', nome: 'Mesa 3', ind: 2, rec: 2, sort: 2 },
       { id: 'm4', nome: 'Mesa 4 (Volumoso)', ind: 2, rec: 2, sort: 2 },
     ],
-    letras: 'ABCDEFGHIJKL'.split(''), s2: 2, aud: 2, desc: 4, xpt: 2, s5: 2, rotas: 20, rotasLetra: {},
+    letras: 'ABCDEFGHIJKL'.split(''), s2: 2, aud: 2, desc: 4, xpt: 2, s5: 2, gaio: 2, rotas: 20, rotasLetra: {},
   };
   const $ = id => document.getElementById(id);
   const api = () => window.hubApi || null;
@@ -88,6 +88,8 @@ window.Piso = (() => {
     for (let k = 0; k < L.desc; k++) out.push({ key: `desc.${k}`, func: 'desc' });
     for (let k = 0; k < (L.xpt || 0); k++) out.push({ key: `xpt.${k}`, func: 'xpt' });
     for (let k = 0; k < L.s5; k++) out.push({ key: `s5.${k}`, func: 's5' });
+    // Gaioleiros: auxiliares que puxam as gaiolas até o local certo (layouts antigos não têm: 0 vagas).
+    for (let k = 0; k < (L.gaio || 0); k++) out.push({ key: `gaio.${k}`, func: 'gaio' });
     return out;
   }
   const funcOf = key => { const p = key.split('.'); return FUNCS[p[0]] ? p[0] : p[1]; };
@@ -324,7 +326,7 @@ window.Piso = (() => {
           <div class="pz-mesas">${L.mesas.map(mesaCard).join('')}</div>
           ${boardCard()}
           ${legacyLetters() ? lettersCard() : ''}
-          <div class="pz-mesas">${simpleCard('desc', 'Descarga', L.desc)}${xptCard(L.xpt || 0)}${simpleCard('s5', '5S', L.s5)}${intCard()}</div>
+          <div class="pz-mesas">${simpleCard('desc', 'Descarga', L.desc)}${xptCard(L.xpt || 0)}${simpleCard('s5', '5S', L.s5)}${simpleCard('gaio', 'Gaioleiros', L.gaio || 0)}${intCard()}</div>
         </div>
         <aside class="pz-side" id="pzSide"></aside>
       </div>`;
@@ -782,6 +784,7 @@ window.Piso = (() => {
         <label>Descarga ${num('desc', L.desc)}</label>
         <label>XPT ${num('xpt', L.xpt || 0)}</label>
         <label>5S ${num('s5', L.s5)}</label>
+        <label title="Auxiliares que puxam as gaiolas até o local certo">Gaioleiros ${num('gaio', L.gaio || 0)}</label>
       </div>`;
   }
   // Layout num modal: fechar (×) e "Layout padrão" no canto superior direito. Cada alteração já vale no mapa.
@@ -1160,6 +1163,7 @@ window.Piso = (() => {
     if (L.desc) lines.push(`Descarga: ${list(range(L.desc).map(k => `desc.${k}`))}`);
     if (L.xpt) range(L.xpt).forEach(k => { const ds = destsOf(st.map, `xpt.${k}`); if (ds.length || v.slots[`xpt.${k}`]) lines.push(`XPT ${get(`xpt.${k}`)}: ${ds.join(', ') || '—'}`); });
     if (L.s5) lines.push(`5S: ${list(range(L.s5).map(k => `s5.${k}`))}`);
+    if (L.gaio) lines.push(`Gaioleiros: ${list(range(L.gaio).map(k => `gaio.${k}`))}`);
     const disp = ['s2', 'aud'].flatMap(f => bPeople(f).filter(x => x.to === 'pool').map(x => x.n));
     if (disp.length) lines.push(`Disponíveis (2º Sorting/Auditoria): ${disp.join(', ')}`);
     if (intKeys(v).length) lines.push(`Intervalo: ${list(intKeys(v))}`);
@@ -1630,7 +1634,7 @@ window.Piso = (() => {
     if (!el) return;
     if (!baseOn()) { el.innerHTML = ui.empty('O dashboard usa os mapas salvos na planilha-base: entre com a conta Google.'); return; }
     const rg = ui.range();
-    const FL = ['ind', 'rec', 'sort', 's2', 'aud', 'desc', 'xpt', 's5'];
+    const FL = ['ind', 'rec', 'sort', 's2', 'aud', 'desc', 'xpt', 's5', 'gaio'];
     // Filtros do dashboard (vários ao mesmo tempo; nenhum = todos), salvos no aparelho.
     const fT = new Set(Array.isArray(ls.dTurnos) ? ls.dTurnos : []), fF = new Set(Array.isArray(ls.dFuncs) ? ls.dFuncs : []);
     const inPer = B().mapaList().filter(r => r.date >= rg.from && r.date <= rg.to && r.map);

@@ -1,3 +1,4 @@
+    // Topo enxuto: só o turno (filtro da análise) e, discreto, o botão de importar. Quem importou fica em "Relatórios importados", no fim.
 // Aba "Audit": importa os relatórios LMHub Audit (.csv), um por dia e turno (AM, PM1, PM2),
 // e analisa o período escolhido no filtro (um dia = visão diária; vários dias = acumulado + tendência). As linhas do CSV NÃO são guardadas: de cada importação
 // fica só o resumo calculado (indicadores, totais por operador/corredor, tempos e ATs de atenção).
@@ -112,6 +113,8 @@ window.Audit = (() => {
   }
   const toD = x => (x ? new Date(x) : null);
 
+  // Validação de cada rota noshow (planilha do hub, guia NoShow): confirmado, erro ou '' (a validar, conta como noshow).
+  const nsStatus = (date, shift, at) => { const B = window.Base, x = B && B.noshowGet ? B.noshowGet(date, shift, at) : null; return x ? x.status : ''; };
   // Soma os resumos de vários relatórios (ex.: todos os turnos do dia).
   function agg(reps) {
     const T = TMAX();
@@ -123,8 +126,9 @@ window.Audit = (() => {
       ats: sum('ats'), initial: sum('initial'), scanned: sum('scanned'), missing: sum('missing'), missorted: sum('missorted'),
       atsMissing: sum('atsMissing'), atsDiv: sum('atsDiv'), revalidated: sum('revalidated'), notValidated: sum('notValidated'),
       // Relatórios importados antes da contagem de noshow não têm o número (null = reimportar).
-      noshow: reps.length && reps.every(r => r.s.noshow != null) ? sum('noshow') : null,
-      noshowList: reps.flatMap(r => (r.s.noshowList || []).map(x => ({ ...x, shift: r.shift }))),
+      // Rota marcada como "não é noshow" (erro) na validação não conta.
+      noshow: reps.length && reps.every(r => r.s.noshow != null) ? sum('noshow') - reps.reduce((n, r) => n + (r.s.noshowList || []).filter(x => nsStatus(r.date, r.shift, x.at) === 'erro').length, 0) : null,
+      noshowList: reps.flatMap(r => (r.s.noshowList || []).map(x => ({ ...x, shift: r.shift, date: r.date, val: nsStatus(r.date, r.shift, x.at) }))),
       avgMin: mins.length ? minSum / mins.length : null, maxMin: mins.length ? Math.max(...mins) : null, timed: mins.length,
       over: mins.filter(v => v > T).length, excess: mins.reduce((x, v) => x + Math.max(0, v - T), 0),
       secPerOrder: sum('pedidosTimed') ? minSum * 60 / sum('pedidosTimed') : null,
@@ -214,6 +218,7 @@ window.Audit = (() => {
     const reps = st.shift === 'ALL' ? inPeriod : inPeriod.filter(r => r.shift === st.shift);
     const days = [...new Set(inPeriod.map(r => r.date))].sort();
     const a = agg(reps);
+    const nsPend = a.noshowList.filter(x => !x.val).length;   // rotas noshow ainda sem validação (contam como noshow)
     const prev = previous();
     const pa = prev ? agg(prev.reps) : null;
     const meta = ui.meta.missingMax;
@@ -285,35 +290,31 @@ window.Audit = (() => {
       a.notValidated ? `⚠ <b>${a.notValidated}</b> AT(s) com status diferente de “Validated”.` : '',
     ].filter(Boolean);
 
-    m.innerHTML = ui.head('Audit de gestão', 'Relatórios LMHub Audit por dia e turno') + `
+    // Topo enxuto: só o turno (filtro da análise) e, discreto, o botão de importar. Quem importou fica em "Relatórios importados", no fim.
+    m.innerHTML = ui.head('Audit de gestão', `<div class="au-tools"><div class="chips au-seg">${shiftChips}</div>
+        <button class="btn-ghost au-imp" data-au="import" title="Importar o relatório LMHub Audit de um turno">＋ Importar</button></div>`) + `
       ${st.demo ? `<div class="au-demo">Exemplo com dados fictícios — nada foi salvo. <button class="link" data-au="exit-demo">Sair do exemplo</button></div>` : ''}
-      <div class="au-bar">
-        <span class="au-period">📅 ${esc(periodLabel(per))}<span class="muted"> · use o filtro de Período acima</span></span>
-        <div class="chips">${shiftChips}</div>
-        <div class="au-bar-right">
-          <button class="btn-primary solid" data-au="import"><span>＋</span> Importar relatório</button>
-        </div>
-      </div>
-      <div class="section-sub">Resumo · ${scope}${reps.length === 1 && reps[0].user ? ` · importado por ${esc(reps[0].user)}` : ''}</div>
       <div class="kpis au-kpis">${[
-        ui.kpi('ATs validadas', f.int(a.ats), [deltaTxt(a.ats, pa && pa.ats), `<span>${hhmm(a.t0)} → ${hhmm(a.t1)}</span>`]),
-        ui.kpi('Pedidos (inicial)', f.int(a.initial), [`<span>${f.int(a.scanned)} escaneados</span>`]),
+        ui.kpi('ATs validadas', f.int(a.ats), [deltaTxt(a.ats, pa && pa.ats), `<span>${f.int(a.initial)} pedidos · ${hhmm(a.t0)} → ${hhmm(a.t1)}</span>`]),
         ui.kpi(`Não bipados na conferência ${HT('naoBipados')}`, f.int(a.missing), [statusPill(pctMiss, meta), deltaTxt(a.missing, pa && pa.missing)]),
         ui.kpi(`Pacotes de outra rota ${HT('outraRota')}`, f.int(a.missorted), [`<span>${f.pct(ratio(a.missorted, a.initial), 2)} dos pedidos</span>`, deltaTxt(a.missorted, pa && pa.missorted)]),
         ui.kpi('ATs com divergência', f.int(a.atsDiv), [`<span>${f.pct(ratio(a.atsDiv, a.ats), 0)} das ATs · ${a.atsMissing} com não bipados</span>`]),
         ui.kpi(`Rotas noshow ${HT('noshow')}`, a.noshow == null ? '—' : f.int(a.noshow), [a.noshow == null ? '<span>reimporte o relatório para calcular</span>'
-          : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`]),
-        ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), `<span>${a.ops} operadores</span>`]),
-        ui.kpi(`ATs acima de ${fmtDur(TMAX())}`, f.int(a.over), [a.timed ? `<span class="pill ${a.over ? 'bad' : 'good'}">${a.over ? '⚠' : '✓'} ${f.pct(ratio(a.over, a.timed), 0)} das ATs</span>` : '',
-          `<span>+${fmtDur(a.excess)} acima da meta</span>`]),
-      ].join('')}${insights.length ? `<div class="au-insights">${insights.map(t => `<div>${t}</div>`).join('')}</div>` : ''}</div>
+          : `<span class="pill ${a.noshow ? 'bad' : 'good'}">${a.noshow ? '⚠' : '✓'} ${f.pct(ratio(a.noshow, a.ats), 1)} das rotas</span>`, `<span>${f.int(a.ats - (a.noshow || 0))} de ${f.int(a.ats)} conferidas</span>`,
+          nsPend ? `<button class="ns-alert" data-ns-goto title="Rotas noshow ainda sem validação contam como noshow">🔔 ${nsPend} rota(s) a validar</button>` : '']),
+        ui.kpi('Tempo médio / AT', fmtDur(a.avgMin), [timePill(a.avgMin, true), a.timed ? `<span>${f.int(a.over)} AT(s) acima de ${fmtDur(TMAX())} (${f.pct(ratio(a.over, a.timed), 0)}) · ${a.ops} operadores</span>` : `<span>${a.ops} operadores</span>`]),
+      ].join('')}</div>
+      ${insights.length ? `<div class="au-insights au-hl"><div class="au-hl-t">Destaques · ${esc(scope)}</div>${insights.map(t => `<div>${t}</div>`).join('')}</div>` : ''}
       <div class="grid">
         ${cmpTable}
         ${multi ? ui.card('auTrendPct', '% de não bipados por dia', `Por turno · tracejado = meta ${f.pct(meta, 1)}`, { w: 6 }) : ''}
         ${multi ? ui.card('auTrendOver', `% de ATs acima de ${fmtDur(TMAX())} por dia`, 'Por turno', { w: 6 }) : ''}
-        ${a.noshowList.length ? ui.card('', 'Rotas noshow', `${a.noshowList.length} rota(s) com AT e nenhum pacote escaneado (coluna E vazia ou 0)`, { w: 12, body: `
-          <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th><th>Pedidos (inicial)</th></tr></thead><tbody>
-          ${a.noshowList.map(r => `<tr><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}<td class="left">${esc(r.corridor)}</td><td>${r.initial}</td></tr>`).join('')}
+        ${a.noshowList.length ? ui.card('', 'Rotas noshow', `${a.noshowList.length} rota(s) com AT e nenhum pacote escaneado (coluna E vazia ou 0) · ${a.noshowList.filter(r => r.val === 'erro').length} marcada(s) como erro · ${a.noshowList.filter(r => !r.val).length} a validar`, { w: 12, body: `
+          <div class="table-wrap"><table><thead><tr><th>AT/TO</th>${st.shift === 'ALL' ? '<th class="left">Turno</th>' : ''}<th class="left">Corredor</th><th>Pedidos (inicial)</th><th class="left">Validação</th></tr></thead><tbody>
+          ${a.noshowList.map(r => `<tr class="${r.val === 'erro' ? 'ns-off' : ''}"><td>${esc(r.at)}</td>${st.shift === 'ALL' ? `<td class="left"><span class="shift-tag s-${r.shift}">${r.shift}</span></td>` : ''}<td class="left">${esc(r.corridor)}</td><td>${r.initial}</td>
+            <td class="left ns-val">${r.val === 'confirmado' ? '<span class="pill bad">Noshow confirmado</span>' : r.val === 'erro' ? '<span class="pill neutral">Não é noshow</span>' : '<span class="pill warn">A validar</span>'}
+              ${window.Base && window.Base.enabled && window.Base.enabled() ? `<button class="tool" data-ns="${esc(`${r.date}|${r.shift}|${r.at}|confirmado`)}" ${r.val === 'confirmado' ? 'disabled' : ''}>Confirmar</button>
+              <button class="tool" data-ns="${esc(`${r.date}|${r.shift}|${r.at}|erro`)}" ${r.val === 'erro' ? 'disabled' : ''} title="Rota com erro no relatório: não conta como noshow">Não é noshow</button>` : ''}</td></tr>`).join('')}
           </tbody></table></div>` }) : ''}
         ${ui.card('auCorr', 'Não bipados e pacotes de outra rota por corredor', st.shift === 'ALL' ? 'Soma dos turnos do dia' : 'Cada barra = um corredor/gaiola', { w: 12 })}
         ${ui.card('auRua', 'Por rua', 'Letra do corredor', { w: 4 })}
@@ -531,6 +532,15 @@ window.Audit = (() => {
     bound = true;
     const main = ui.main;
     main.addEventListener('click', async e => {
+      const go = e.target.closest('[data-ns-goto]');
+      if (go && ui.isActive()) { const c = main.querySelector('[data-ns]'); if (c) c.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+      const ns = e.target.closest('[data-ns]');
+      if (ns && ui.isActive()) {
+        const [date, shift, at, val] = ns.dataset.ns.split('|');
+        try { await window.Base.noshowSet(date, shift, at, val); ui.toast(val === 'erro' ? `${at}: não conta como noshow` : `${at}: noshow confirmado`); }
+        catch (err) { ui.toast(String(err.message || err), true); }
+        ui.rerender(); return;
+      }
       if (!ui.isActive()) return;
       const t = e.target.closest('[data-au],[data-au-shift],[data-au-open],[data-au-del]');
       if (!t) return;
