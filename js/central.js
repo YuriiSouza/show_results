@@ -15,6 +15,10 @@ window.Central = (() => {
   // Papéis que acompanham vários hubs (os demais ficam num hub só) e papéis que só consultam.
   const MULTI = ['Admin', 'Gerente', 'Qualidade'];
   const READONLY = ['Gerente'];
+  // Quem libera acesso: Admin, Gerente, Site líder e Líder. Cada um só mexe nos hubs que ele mesmo tem e dá no máximo o
+  // próprio papel (só o Admin dá Admin). Nível: Admin > Gerente > Site líder > Líder > Qualidade > Analista.
+  const MANAGERS = ['Admin', 'Gerente', 'Site líder', 'Líder'];
+  const LEVEL = { Admin: 6, Gerente: 5, 'Site líder': 4, 'Líder': 3, Qualidade: 2, Analista: 1 };
 
   const ls = {
     get(k, d) { try { const v = localStorage.getItem('hub.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -74,6 +78,26 @@ window.Central = (() => {
   const me = () => users.get(lower(email)) || null;
   const role = () => (me() || {}).papel || '';
   const isAdmin = () => role() === 'Admin';
+  const canManage = () => { const u = me(); return !!(u && u.status !== 'inativo' && MANAGERS.includes(u.papel)); };
+  // Papéis que eu posso dar e hubs que eu posso liberar.
+  const grantRoles = () => (isAdmin() ? ROLES.slice() : canManage() ? ROLES.filter(r => r !== 'Admin' && LEVEL[r] <= LEVEL[role()]) : []);
+  const grantHubs = () => (isAdmin() ? activeHubs().map(h => h.id) : canManage() ? myHubs().map(h => h.id) : []);
+  // Usuários que eu posso editar: Admin edita todos; os demais, quem não está acima do seu nível e não tem hub ou tem
+  // algum hub em comum (nunca a si mesmo).
+  function canEdit(u) {
+    if (!u || !canManage()) return false;
+    if (isAdmin()) return true;
+    if (lower(u.email) === lower(email) || LEVEL[u.papel] > LEVEL[role()] || u.hubs.includes('*')) return false;
+    const mine = grantHubs();
+    return !u.hubs.length || u.hubs.some(h => mine.includes(h));
+  }
+  // Lista que aparece na tela: Admin vê todos; os demais, quem não tem hub (aguardando) e quem tem hub em comum.
+  function visibleUsers() {
+    const mine = grantHubs();
+    return [...users.values()].filter(u => isAdmin() || !u.hubs.length || (!u.hubs.includes('*') && u.hubs.some(h => mine.includes(h))))
+    .sort((a, b) => (a.hubs.length ? 1 : 0) - (b.hubs.length ? 1 : 0) || a.email.localeCompare(b.email));
+  }
+  const pending = () => visibleUsers().filter(u => u.status !== 'inativo' && !u.hubs.length);
   const readOnly = () => on() && READONLY.includes(role());
   const activeHubs = () => [...hubs.values()].filter(h => h.status !== 'inativo').sort((a, b) => a.id.localeCompare(b.id));
   function myHubs() {
@@ -136,6 +160,7 @@ window.Central = (() => {
       const data = await api.centralRead(ID);
       parse(data);
       await bootstrap();
+      await selfRegister();
       ls.set('central', { email, data: { Usuarios: [...users.values()].map(u => userRow(u, u.by, u.at)), Hubs: [...hubs.values()].map(h => hubRow(h, h.by, h.at)), Arquivos: [...files.values()].map(f => fileRow(f, f.by, f.at)) } });
       loadedAt = Date.now(); error = '';
     } catch (err) {
@@ -165,9 +190,19 @@ window.Central = (() => {
     }
   }
 
-  // ---------- Escrita (só Admin; a planilha Central é compartilhada como editor apenas com os admins) ----------
+  // Primeiro login: a pessoa entra na lista sozinha, como Analista e sem hub, e espera alguém liberar o hub.
+  async function selfRegister() {
+    if (!email || users.has(lower(email))) return;
+    // Nome provisório a partir do e-mail (joao.silva@… → Joao Silva); quem liberar o hub pode corrigir.
+    const nome = email.split('@')[0].split(/[._-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    const row = userRow({ email, nome, papel: 'Analista', hubs: [], status: 'ativo' }, email, nowIso());
+    await api.centralAppend(ID, 'Usuarios', [row]);
+    applyUser(row);
+  }
+
+  // ---------- Escrita (a planilha Central fica como editor para a organização; quem pode o quê é conferido aqui) ----------
   async function write(tab, row, apply) {
-    if (!isAdmin()) throw new Error('Só o administrador pode alterar usuários e hubs.');
+    if (tab === 'Usuarios' ? !canManage() : !isAdmin()) throw new Error(tab === 'Usuarios' ? 'Você não pode liberar acessos.' : 'Só o administrador pode alterar hubs.');
     await api.centralAppend(ID, tab, [row]);
     apply(row);
     const cache = ls.get('central', { email, data: {} });
@@ -180,9 +215,20 @@ window.Central = (() => {
     const mail = lower(u.email);
     if (!okEmail(mail)) throw new Error('E-mail inválido.');
     if (!ROLES.includes(u.papel)) throw new Error('Papel inválido.');
-    if (mail === lower(email) && (u.papel !== 'Admin' || u.status === 'inativo')) throw new Error('Você não pode tirar o seu próprio acesso de administrador.');
-    const hs = u.papel === 'Admin' ? ['*'] : (u.hubs || []).map(x => s(x).toUpperCase()).filter(Boolean);
-    if (!hs.length) throw new Error('Escolha pelo menos um hub.');
+    if (isAdmin() && mail === lower(email) && (u.papel !== 'Admin' || u.status === 'inativo')) throw new Error('Você não pode tirar o seu próprio acesso de administrador.');
+    const cur = users.get(mail) || null;
+    let hs = u.papel === 'Admin' ? ['*'] : (u.hubs || []).map(x => s(x).toUpperCase()).filter(Boolean);
+    if (!isAdmin()) {
+      if (!canManage()) throw new Error('Você não pode liberar acessos.');
+      if (mail === lower(email)) throw new Error('Peça a outra pessoa para alterar o seu próprio acesso.');
+      if (cur && !canEdit(cur)) throw new Error('Este usuário está em hubs ou num papel acima do seu: só o administrador pode alterá-lo.');
+      if (!grantRoles().includes(u.papel)) throw new Error(`Você pode dar no máximo o papel ${role()}.`);
+      // Só mexe nos hubs que eu tenho; os outros hubs da pessoa ficam como estavam.
+      const mine = grantHubs();
+      if (hs.some(h => !mine.includes(h))) throw new Error('Você só pode liberar os hubs que você tem.');
+      hs = [...new Set([...(cur ? cur.hubs.filter(h => !mine.includes(h)) : []), ...hs])];
+    }
+    if (!hs.length && !(cur && !cur.hubs.length)) throw new Error('Escolha pelo menos um hub.');
     if (!MULTI.includes(u.papel) && hs.length > 1) throw new Error(`O papel ${u.papel} fica em um hub só.`);
     await write('Usuarios', userRow({ ...u, email: mail, hubs: hs }, email, nowIso()), applyUser);
   }
@@ -204,6 +250,7 @@ window.Central = (() => {
 
   return {
     on, init, state: () => state, error: () => error, email: () => email, me, role, isAdmin, readOnly, ROLES, MULTI, READONLY,
+    canManage, canEdit, grantRoles, grantHubs, visibleUsers, pending,
     hub, myHubs, setHub, dataFile, dataId, year,
     users: () => [...users.values()].sort((a, b) => a.email.localeCompare(b.email)),
     hubs: () => [...hubs.values()].sort((a, b) => a.id.localeCompare(b.id)),

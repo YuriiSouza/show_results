@@ -30,7 +30,9 @@ window.APP_CONFIG = {
 
   // Multi-hub: planilha Central com os usuários (e-mail Google), papéis, hubs e a planilha de dados de cada hub por ano.
   // Com ela, a planilha-base passa a ser a do hub escolhido. Vazio = modo antigo (um hub só, BASE_SHEET_URL acima).
-  // Compartilhe como LEITOR com todos os usuários e como EDITOR só com os administradores.
+  // Compartilhe como EDITOR com a organização (Workspace): no primeiro login cada pessoa se cadastra sozinha, sem hub, e
+  // Admin/Gerente/Site líder/Líder liberam os hubs pelo app. As planilhas de dados dos hubs também ficam como EDITOR para a
+  // organização; o app controla o que cada papel vê e grava.
   CENTRAL_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1pf_sIDFg4RlPCaF47rWAC7Qr_QT8O1_yIw8-rycKOOI/edit',
   // Primeiro uso (planilha Central vazia): quem abrir vira Admin e este hub é cadastrado com a sua planilha de dados.
   CENTRAL_SEED: { hub: 'LGO03', ano: '2026', file: 'https://docs.google.com/spreadsheets/d/1WREWw-KjOREFAR495ZDEHpr6EdXXSCooBkZoitlCMRg/edit' },

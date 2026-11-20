@@ -355,11 +355,14 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   Parcel, recebimento por hora, reports e Audit são lidos e gravados na planilha do hub escolhido.
 - Vale a linha mais recente de cada chave (nada é apagado). Planilha Central vazia: quem abre primeiro vira Admin e o hub
   de `CENTRAL_SEED` é cadastrado com a sua planilha.
-- Quem não está cadastrado (ou está inativo) vê "Acesso não liberado". Quem tem mais de um hub troca no topo.
-- Tela **Administração → Usuários e hubs** (só Admin): cadastra usuários, hubs e vincula a planilha de dados do ano
-  (o app confere o acesso e cria as guias).
-- Segurança: compartilhe a Central como **Leitor** com todos e **Editor** só com os admins; cada planilha de hub só com
-  a equipe do hub (Editor) e gerentes (Leitor).
+- **Cadastro automático**: no primeiro login a pessoa entra na guia Usuarios como Analista, **sem hub** ("Sem hub
+  liberado"). Quem tem mais de um hub troca no topo; quem está inativo vê "Acesso desativado".
+- Tela **Ferramentas → Usuários e hubs**: Admin, Gerente, Site líder e Líder liberam acesso. Cada um só libera os hubs
+  que ele mesmo tem e dá no máximo o próprio papel (Admin > Gerente > Site líder > Líder > Qualidade > Analista; só o
+  Admin dá Admin); não altera o próprio acesso nem quem está acima dele. Quem aguarda hub aparece no topo da lista e
+  num aviso ao abrir o app. Hubs, planilhas do ano e Registros são só do Admin.
+- Compartilhamento: a Central e as planilhas de dados dos hubs ficam como **Editor para a organização** (Workspace);
+  o app controla o que cada papel vê e grava (Gerente é só consulta).
 - **Indicadores** (o que vinha das planilhas mensais) ficam na guia `Indicadores` da planilha do hub: uma linha por dia e
   indicador (`rec.total`, `hc.am.abs`, `inv.aging.2`…; ver `MODEL_SERIES` em `js/model.js`), vale a mais recente. O HSE do
   mês fica na guia `HSE`. O app **não lê mais as planilhas mensais**: em Administração → Hubs → **Importar planilhas

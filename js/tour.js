@@ -351,10 +351,10 @@ window.Tour = (() => {
       { el: '#main [data-cs="reload"]', title: 'Ler de novo', text: 'As planilhas são lidas no máximo a cada 3 minutos; aqui força uma nova leitura.' },
     ],
     admin: [
-      { el: '#main .section-title', title: 'Usuários e hubs', text: 'Cadastro de quem usa o app (pelo e-mail da conta Google), com papel e hubs. Fica na planilha Central.' },
-      { el: '#adUserForm', title: 'Novo usuário', text: 'E-mail, nome, papel e hub(s). Admin vê todos; Gerente e Qualidade podem ter vários; os demais ficam num hub só. <b>Gerente</b> é só consulta.' },
-      { el: '#main .adm-note', title: 'Compartilhar a planilha', text: 'Lembrete: o acesso de verdade é o compartilhamento da planilha do hub no Google Drive (Editor para a equipe, Leitor para gerentes).' },
-      c('Usuários', 'Todos os cadastrados. <b>Editar</b> muda papel, hubs ou desativa o acesso.'),
+      { el: '#main .section-title', title: 'Usuários e hubs', text: 'Quem usa o app (pelo e-mail da conta Google), com papel e hubs. Quem entra pela primeira vez já aparece aqui, <b>aguardando hub</b>.' },
+      { el: '#main .adm-wait', title: 'Aguardando hub', text: 'Pessoas que entraram no app e ainda não têm hub. Clique em <b>Editar</b>, escolha o papel e o hub e salve.' },
+      { el: '#adUserForm', title: 'Liberar acesso', text: 'Papel e hub(s). Você só libera os hubs que você tem e dá no máximo o seu papel (só o Admin dá Admin). Gerente e Qualidade podem ter vários hubs; os demais, um só. <b>Gerente</b> é só consulta.' },
+      c('Usuários', 'Quem aguarda hub e quem está nos seus hubs. <b>Editar</b> muda papel, hubs ou desativa o acesso.'),
     ],
     'admin:hubs': [
       { el: '#adHubForm', title: 'Hub', text: 'Nome, cidade, estação do SPX, código no Sort Code, metas e janelas de recebimento do hub.' },
