@@ -195,6 +195,9 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
 - **Parciais:** o **Total** e o **Recebido** da linha Recebimento vêm do **Recebimento por hora** salvo do turno
   (T3 = AM, T1 = PM1): Total = *Pacotes a receber* e Recebido = *Recebido no turno* (o último salvamento). Sem Recebimento
   por hora salvo, o Recebido vem da guia Recebimento (AM/PM) e o Total fica para digitar.
+- **Reversa do turno (fechamentos):** Avaria HUB e Avaria SOC = avarias do dia na tela **Avarias**, separadas pelo horário
+  em que foram registradas (T3 = janela do AM, ex.: 22:00 às 05:30; T1 = o resto do dia). On hold e Retorno SOC vêm do
+  total do dia nos Lançamentos (edite se o turno for diferente). Sem avaria registrada no dia, usa o total dos Lançamentos.
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos (atestado soma T1 + T3) e puxa do **Audit de gestão**
   do dia (AM = T3; PM = T1 = PM1 + PM2):
   - **Conferência**: Status AM (T3), Status PM (T1) e **Status geral** no formato `conferidas/total - %`
