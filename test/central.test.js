@@ -28,6 +28,7 @@ async function open(email, data = BASE) {
     centralEnsure: async () => {},
     centralRead: async () => JSON.parse(JSON.stringify(data)),
     centralAppend: async (_id, tab, rows) => { writes.push(...rows.map(r => [tab, r])); },
+    baseCreate: async title => { writes.push(['create', [title]]); return { id: 'bbbbbbbbbbbbbbbbbbbbbbbb', url: 'https://docs.google.com/spreadsheets/d/bbbbbbbbbbbbbbbbbbbbbbbb/edit', title }; },
   };
   const ctx = { console, Date, JSON, localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } } };
   ctx.window = ctx; ctx.window.hubApi = api;
@@ -101,4 +102,16 @@ test('Admin continua podendo tudo', async () => {
   assert.deepEqual([...CT.grantRoles()], [...CT.ROLES]);
   assert.equal(CT.visibleUsers().length, BASE.Usuarios.length);
   await CT.saveUser({ email: 'outro@x.com', nome: 'O', papel: 'Gerente', hubs: ['LGO05', 'LGO07'] });
+});
+
+test('Admin cria a planilha do hub no ano com o nome padrão e já vincula', async () => {
+  const { CT, writes } = await open('admin@x.com');
+  await assert.rejects(CT.createFile('LGO03', '2026'), /já tem planilha de 2026/);
+  const made = await CT.createFile('lgo05', '2026');
+  assert.equal(made.title, 'Dashboard · LGO05 · 2026');
+  assert.deepEqual([...writes.at(-2)[1]], ['Dashboard · LGO05 · 2026']);
+  assert.deepEqual([...writes.at(-1)[1].slice(0, 4)], ['LGO05', '2026', made.url, 'ativo']);
+  assert.equal(CT.files().find(f => f.hub === 'LGO05').id, 'bbbbbbbbbbbbbbbbbbbbbbbb');
+  const g = await open('gerente@x.com');
+  await assert.rejects(g.CT.createFile('LGO05', '2027'), /administrador/);
 });

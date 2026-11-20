@@ -246,6 +246,23 @@ window.Central = (() => {
     await write('Arquivos', fileRow(f, email, nowIso()), applyFile);
   }
 
+  // Nome padrão da planilha de dados do hub no ano.
+  const fileTitle = (hubId, ano) => `Dashboard · ${s(hubId).toUpperCase()} · ${s(ano)}`;
+  // Cria a planilha de dados do hub no ano (com as guias do app) e já vincula na Central. Fica no Drive de quem criou;
+  // o compartilhamento com a organização é feito à mão.
+  async function createFile(hubId, ano = year()) {
+    if (!isAdmin()) throw new Error('Só o administrador cria planilhas de hub.');
+    const id = s(hubId).toUpperCase();
+    if (!hubs.has(id)) throw new Error('Hub não encontrado.');
+    if (!/^\d{4}$/.test(s(ano))) throw new Error('Ano inválido.');
+    const cur = files.get(`${id}|${s(ano)}`);
+    if (cur && cur.status !== 'inativo' && cur.id) throw new Error(`O hub ${id} já tem planilha de ${ano}.`);
+    if (!api || !api.baseCreate) throw new Error('Disponível só no aplicativo.');
+    const made = await api.baseCreate(fileTitle(id, ano));
+    await write('Arquivos', fileRow({ hub: id, ano: s(ano), url: made.url }, email, nowIso()), applyFile);
+    return made;
+  }
+
   function setHub(id) { ls.set('hub', id); }
 
   return {
@@ -255,7 +272,7 @@ window.Central = (() => {
     users: () => [...users.values()].sort((a, b) => a.email.localeCompare(b.email)),
     hubs: () => [...hubs.values()].sort((a, b) => a.id.localeCompare(b.id)),
     files: () => [...files.values()].sort((a, b) => (a.hub + a.ano).localeCompare(b.hub + b.ano)),
-    saveUser, saveHub, saveFile, onChange: fn => listeners.add(fn), loadedAt: () => loadedAt,
+    saveUser, saveHub, saveFile, createFile, fileTitle, onChange: fn => listeners.add(fn), loadedAt: () => loadedAt,
     sheetUrl: () => (ID ? `https://docs.google.com/spreadsheets/d/${ID}/edit` : ''),
   };
 })();

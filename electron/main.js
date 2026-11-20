@@ -230,6 +230,22 @@ async function ensureTabs(id, TABS) {
   return { title: meta.properties.title, created: missing };
 }
 ipcMain.handle('base:ensure', (_e, id) => ensureTabs(id, BASE_TABS));
+// Cria uma planilha de dados nova (no Drive de quem pediu), já com todas as guias do app e os cabeçalhos.
+async function createBase(title) {
+  const t = String(title || '').trim().slice(0, 200);
+  if (!t) throw new Error('Informe o nome da planilha.');
+  const token = await baseToken();
+  const tabs = Object.keys(BASE_TABS);
+  const out = await sheetsSend('POST', 'https://sheets.googleapis.com/v4/spreadsheets', token, {
+    properties: { title: t, locale: 'pt_BR', timeZone: 'America/Sao_Paulo' },
+    sheets: tabs.map(title => ({ properties: { title, gridProperties: { frozenRowCount: 1 } } })),
+  });
+  await sheetsSend('POST', `https://sheets.googleapis.com/v4/spreadsheets/${baseId(out.spreadsheetId)}/values:batchUpdate`, token, {
+    valueInputOption: 'RAW', data: tabs.map(tab => ({ range: `'${tab}'!A1`, values: [BASE_TABS[tab]] })),
+  });
+  return { id: out.spreadsheetId, url: out.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${out.spreadsheetId}/edit`, title: t };
+}
+ipcMain.handle('base:create', (_e, title) => createBase(title));
 
 // Lê o que o app precisa: Reports, o resumo de cada Audit importado e os resultados do Parcel.
 // Lê TODAS as colunas de todas as guias do app que existirem na planilha (só leitura). Usado na migração da planilha-base

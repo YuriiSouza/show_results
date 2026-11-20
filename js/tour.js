@@ -358,7 +358,8 @@ window.Tour = (() => {
     ],
     'admin:hubs': [
       { el: '#adHubForm', title: 'Hub', text: 'Nome, cidade, estação do SPX, código no Sort Code, metas e janelas de recebimento do hub.' },
-      { el: '#adFileForm', title: 'Planilha de dados por ano', text: 'Vincule a planilha do hub de cada ano (ex.: LGO 03 2026). O app confere o acesso e cria as guias.' },
+      { el: '#main .adm-create', title: 'Criar planilha do ano', text: 'Cria “Dashboard · HUB · ANO” no seu Drive, com todas as guias do app, e já vincula ao hub. Depois compartilhe com a organização como <b>Editor</b>.' },
+      { el: '#adFileForm', title: 'Vincular planilha existente', text: 'Ou cole o link de uma planilha que já existe (ex.: LGO 03 2026). O app confere o acesso e cria as guias.' },
       { el: '#adImpForm', title: 'Importar planilhas mensais', text: 'Copia os indicadores e o HSE das planilhas mensais antigas (só leitura). Pode repetir: só entra o que mudou.' },
       c('Hubs', 'Todos os hubs, com a planilha do ano e quantos usuários têm acesso.'),
     ],

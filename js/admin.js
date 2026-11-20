@@ -130,14 +130,23 @@ window.Admin = (() => {
                 <label>AT do Parcel a partir de (hora da véspera)<input id="adHat" type="number" min="0" max="23" value="${esc(P.atFromHour != null ? P.atFromHour : 21)}"></label></div>
               <p class="muted small">Turno sem início e fim fica sem janela (o erro de etiquetagem fica sem etiquetador).</p>
             </details>
+            ${h.isNew ? `<label class="adm-chk"><input type="checkbox" id="adHcreate" checked> Criar a planilha de dados de ${esc(CT().year())} (“${esc(CT().fileTitle('ID', CT().year()))}”)</label>` : ''}
             <div class="adm-actions"><button type="submit" class="btn-primary solid" id="adHubSave">Salvar hub</button></div>
           </form>
+          ${st.made && st.made.hub === h.id ? `<div class="adm-made"><b>✓ Planilha criada:</b> <a href="${esc(st.made.url)}" target="_blank" rel="noopener">${esc(st.made.title)}</a>
+            <p class="muted small">Ela está no seu Google Drive. Agora compartilhe: abra a planilha → <b>Compartilhar</b> → em <b>Acesso geral</b> escolha a
+              organização (qualquer pessoa da empresa com o link) e o papel <b>Editor</b>. Se quiser, mova para a pasta do hub no Drive.</p></div>` : ''}
           ${h.isNew ? '' : `<div class="adm-files"><div class="adm-lbl">Planilha de dados por ano</div>
             ${files.length ? `<ul>${files.map(f => `<li><b>${esc(f.ano)}</b> · <a href="${esc(f.url)}" target="_blank" rel="noopener">abrir</a> ${f.status === 'inativo' ? '<span class="pill warn">inativa</span>' : ''} <span class="muted small">${esc(when(f.at))}</span></li>`).join('')}</ul>` : '<p class="muted small">Nenhuma planilha vinculada: o hub não grava nada até ter uma.</p>'}
+            ${(() => { const has = y => files.some(f => f.ano === String(y) && f.status !== 'inativo'); const y = Number(CT().year()); const next = has(y) ? y + 1 : y;
+              return `<div class="adm-create"><div class="adm-pair adm-pair-f"><label>Criar planilha do ano<input id="adCano" type="text" inputmode="numeric" maxlength="4" value="${next}"></label>
+                <div class="adm-actions"><button type="button" class="btn-primary solid" data-ad="createfile" ${st.creating ? 'disabled' : ''}>${st.creating ? 'Criando…' : 'Criar planilha'}</button></div></div>
+                <p class="muted small">Cria “${esc(CT().fileTitle(h.id, next))}” no seu Drive, com todas as guias do app, e já vincula ao hub.</p></div>`; })()}
+            <div class="adm-lbl">Ou vincular uma planilha que já existe</div>
             <form class="adm-form adm-file" id="adFileForm">
               <div class="adm-pair adm-pair-f"><label>Ano<input id="adFano" type="text" inputmode="numeric" value="${esc(CT().year())}" maxlength="4"></label>
               <label>Link da planilha<input id="adFurl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label></div>
-              <p class="muted small">Crie a planilha no Drive do hub, compartilhe com você como Editor e cole o link: o app cria as guias.</p>
+              <p class="muted small">Cole o link de uma planilha em que você é Editor: o app cria as guias que faltarem.</p>
               <div class="adm-actions"><button type="submit" class="btn-primary" id="adFileSave">Vincular planilha</button></div>
             </form></div>
           ${h.id === ((window.APP_CONFIG.CENTRAL_SEED || {}).hub || '') && window.APP_CONFIG.BASE_SHEET_URL ? `<div class="adm-files"><div class="adm-lbl">Migrar a planilha-base antiga</div>
@@ -189,11 +198,25 @@ window.Admin = (() => {
       cfg: { ...(h.cfg || {}), PARCEL, METAS: METASv, RECEB_JANELAS: JANv } };
     const btn = $('adHubSave');
     btn.disabled = true; btn.textContent = 'Salvando…';
+    const create = h.isNew && $('adHcreate') && $('adHcreate').checked;
     try {
       await CT().saveHub(rec);
-      ui.toast(`Hub ${rec.id.toUpperCase()} salvo`);
-      st.hub = CT().hubs().find(x => x.id === rec.id.trim().toUpperCase()) || null; draw();
+      const id = rec.id.trim().toUpperCase();
+      ui.toast(`Hub ${id} salvo`);
+      st.hub = CT().hubs().find(x => x.id === id) || null; draw();
+      if (create) await createFile(id, CT().year());
     } catch (e) { ui.toast(String(e.message || e), true); btn.disabled = false; btn.textContent = 'Salvar hub'; }
+  }
+  // Cria a planilha de dados do hub no ano (Central.createFile) e mostra o lembrete de compartilhar.
+  async function createFile(hubId, ano) {
+    if (st.creating) return;
+    st.creating = true; draw();
+    try {
+      const made = await CT().createFile(hubId, ano);
+      st.made = { ...made, hub: hubId };
+      ui.toast(`Planilha “${made.title}” criada e vinculada`);
+    } catch (e) { ui.toast(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), true); }
+    st.creating = false; draw();
   }
   async function saveFile() {
     const h = st.hub;
@@ -354,8 +377,9 @@ window.Admin = (() => {
       const d = t.dataset;
       if (d.adView) { st.view = d.adView; draw(); return; }
       if (d.adEdit) { const u = CT().users().find(x => x.email === d.adEdit); st.user = u ? { ...u, hubs: u.hubs.slice() } : null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
-      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+      if (d.adHub) { st.impLinks = null; st.impMsg = ''; st.migMsg = ''; st.made = null; st.hub = CT().hubs().find(x => x.id === d.adHub) || null; draw(); main.querySelector('.adm-card').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       if (d.ad === 'newuser') { st.user = null; draw(); }
+      else if (d.ad === 'createfile' && st.hub) createFile(st.hub.id, ($('adCano').value || '').trim());
       else if (d.ad === 'newhub') { st.hub = null; draw(); }
       else if (d.ad === 'migrate') migrateLegacy();
       else if (d.ad === 'logsReload') { lg.rows = null; draw(); }

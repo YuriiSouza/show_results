@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('hubApi', {
   cacheSet: (month, data) => ipcRenderer.invoke('cache:set', month, data),
   cacheClear: () => ipcRenderer.invoke('cache:clear'),
   baseEnsure: id => ipcRenderer.invoke('base:ensure', id),
+  baseCreate: title => ipcRenderer.invoke('base:create', title),
   baseRead: id => ipcRenderer.invoke('base:read', id),
   baseReadAll: id => ipcRenderer.invoke('base:readAll', id),
   baseReadTab: (id, tab) => ipcRenderer.invoke('base:readTab', id, tab),

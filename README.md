@@ -361,6 +361,8 @@ Com `CENTRAL_SHEET_URL` preenchido em `js/config.js`, o app passa a ler a **plan
   que ele mesmo tem e dá no máximo o próprio papel (Admin > Gerente > Site líder > Líder > Qualidade > Analista; só o
   Admin dá Admin); não altera o próprio acesso nem quem está acima dele. Quem aguarda hub aparece no topo da lista e
   num aviso ao abrir o app. Hubs, planilhas do ano e Registros são só do Admin.
+- **Criar planilha do ano** (Hubs, só Admin; também ao cadastrar um hub novo): o app cria `Dashboard · HUB · ANO` no Drive
+  de quem clicou, com todas as guias e cabeçalhos, e vincula na Central. O compartilhamento com a organização é manual.
 - Compartilhamento: a Central e as planilhas de dados dos hubs ficam como **Editor para a organização** (Workspace);
   o app controla o que cada papel vê e grava (Gerente é só consulta).
 - **Indicadores** (o que vinha das planilhas mensais) ficam na guia `Indicadores` da planilha do hub: uma linha por dia e

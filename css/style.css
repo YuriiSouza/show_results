@@ -1274,3 +1274,7 @@ body.tv #btnTour { display: none; }
 .nowrap { white-space: nowrap; }
 /* Usuários aguardando hub (cadastro automático no primeiro login) */
 .adm-wait { display: block; animation: none; cursor: default; border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; font-weight: 600; font-size: 13px; }
+/* Criar a planilha de dados do hub no ano */
+.adm-create { margin: 6px 0 14px; }
+.adm-made { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--good, #2e9e5b); border-radius: 10px; background: color-mix(in srgb, var(--good, #2e9e5b) 10%, var(--surface)); font-size: 14px; }
+.adm-made p { margin: 6px 0 0; }
