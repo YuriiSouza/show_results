@@ -72,6 +72,44 @@ window.Reports = (() => {
     return null;
   }
 
+  // Recebimento por hora salvo do turno (guia RecebimentoHora). O turno fica no dia em que começou: se o líder pôs o
+  // início à noite (a partir das 18:00), o turno da madrugada do report está salvo no dia anterior.
+  function recebHora(iso, turno) {
+    const B = window.Base;
+    if (!B || !B.enabled || !B.enabled() || !B.recebGet) return null;
+    const [y, mo, dd] = iso.split('-').map(Number);
+    const prev = new Date(Date.UTC(y, mo - 1, dd - 1)).toISOString().slice(0, 10);
+    const night = x => !!x && +String(x.inicio || '').split(':')[0] >= 18;
+    const cur = B.recebGet(iso, turno), before = B.recebGet(prev, turno);
+    const x = cur && !night(cur) ? cur : night(before) ? before : null;
+    if (!x) return null;
+    const saved = x.at ? new Date(x.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    return { ...x, saved };
+  }
+  // Gráfico pequeno do Parcial (SVG, acompanha a escala do report): recebido em cada hora do turno e o acumulado.
+  function recebChart(rh, total) {
+    const hours = ((rh && rh.res && rh.res.hours) || []).filter(h => h && h.ts);
+    if (!hours.length) return `<section class="rs rpx-chart"><h3>📈 Recebimento do turno</h3><div class="muted small rpx-chart-empty">Sem Recebimento por hora salvo para este turno. Consulte e salve na tela <b>Recebimento por hora</b>.</div></section>`;
+    const hm = ts => new Date(ts * 1000).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+    const W = 880, Hh = 120, padB = 18, padT = 14, n = hours.length, bw = Math.min(56, (W - 8) / n - 6);
+    const max = Math.max(1, ...hours.map(h => Number(h.total) || 0));
+    let acc = 0;
+    const accs = hours.map(h => (acc += Number(h.total) || 0));
+    const accMax = Math.max(acc, Number(total) || 0, 1);
+    const x = i => 4 + (i + 0.5) * ((W - 8) / n);
+    const bars = hours.map((h, i) => { const v = Number(h.total) || 0, bh = (Hh - padB - padT) * v / max, y = Hh - padB - bh;
+      return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" class="rc-bar"/>
+        <text x="${x(i).toFixed(1)}" y="${(y - 3).toFixed(1)}" class="rc-v">${f.int(v)}</text>
+        <text x="${x(i).toFixed(1)}" y="${Hh - 4}" class="rc-l">${hm(h.ts)}</text>`; }).join('');
+    const line = accs.map((v, i) => `${x(i).toFixed(1)},${(Hh - padB - (Hh - padB - padT) * v / accMax).toFixed(1)}`).join(' ');
+    const pct = total ? ` de ${f.int(total)} (${f.pct(acc / total, 0)})` : '';
+    const ritmo = rh.res.ritmo ? ` · ritmo ${f.int(Math.round(rh.res.ritmo))}/h` : '';
+    return `<section class="rs rpx-chart"><h3>📈 Recebimento do turno <span class="rs-sum">${f.int(acc)}${pct}${ritmo} · ${esc(rh.turno)} até ${hm(hours[n - 1].ts + 3600)}</span></h3>
+      <svg viewBox="0 0 ${W} ${Hh}" class="rc-svg" role="img" aria-label="Recebido por hora no turno">${bars}
+        <polyline points="${line}" class="rc-acc"/></svg>
+      <div class="rc-leg"><span class="rc-k bar"></span> recebido na hora <span class="rc-k acc"></span> acumulado${total ? ' (topo = Total)' : ''}</div></section>`;
+  }
+
   // ---------- Dia do report (setas + calendário) ----------
   // Qualquer dia pode ser aberto, mesmo sem dados nas guias: os campos ficam vazios para preencher à mão.
   const pad = n => String(n).padStart(2, '0');
@@ -123,12 +161,19 @@ window.Reports = (() => {
 
     if (k.type === 'parcial') {
       const t = k.turno, s = SHIFT[t], S2 = s.toUpperCase();
+      // Parcial = um momento no meio do turno: Recebido vem do Recebimento por hora salvo (T3 = AM, T1 = PM1); Total = Volume
+      // projetado dos Lançamentos. (O Fechamento usa o Recebimento confirmado nos Lançamentos.)
+      const rh = recebHora(toIso(d), C.REPORT.auditShift[t]);
+      const rhHow = rh && `Recebimento por hora · ${rh.turno} de ${dmyIso(rh.date)} (último salvamento ${rh.saved})`;
+      const rhRec = rh && rh.res && rh.res.recebido != null ? src(Number(rh.res.recebido), 'auto', `${rhHow}: recebido no turno`) : null;
+      const projTotal = g(m.rec.projetado, `${G(S.recebimento)} · Volume projetado`);
+      const total = firstOf(projTotal, rh && rh.meta != null && !isNaN(rh.meta) ? src(rh.meta, 'auto', `${rhHow}: pacotes a receber`) : null);
       // Total só na linha Recebimento; o % de cada linha é o Recebido dela ÷ Total de Recebimento.
       const rows = ['Recebimento', 'LM', 'XPT', 'Backlog'].map(l => {
         const id = l.toLowerCase();
         return { label: l, fields: [
-          l === 'Recebimento' ? F(`${id}_total`, 'Total', null) : null,
-          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2} (turno ${t})`) : null),
+          l === 'Recebimento' ? F(`${id}_total`, 'Total', total) : null,
+          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? firstOf(rhRec, g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2} (turno ${t})`)) : null),
           F(`${id}_pct`, '% Recebido', null, { calc: vals => {
             const a = num(vals.recebimento_total), b = num(vals[`${id}_rec`]);
             return a && b != null ? src(f.pct(b / a, 1), 'calc', `${l} recebido ÷ Total de Recebimento`) : null;
@@ -137,7 +182,7 @@ window.Reports = (() => {
       });
       return {
         title: `Report parcial de turno ${t}`, sub: `Turno ${t} · ${S2}`,
-        layout: 'parcial',
+        layout: 'parcial', rh,
         table: { title: 'Volumes', icon: '📦', cols: ['Total', 'Recebido', '% Recebido'], rows },
         sections: [
           sec('hor', '🕒', 'Horários', [
@@ -343,7 +388,8 @@ window.Reports = (() => {
     if (def.layout === 'parcial') {
       // Grade 2x2: Volumes | Horários / Quantidade | Observação — cada linha com a mesma altura.
       const [hor, qtd] = def.sections;
-      body = `<div class="rpx-body rpx-grid2">${table}${secHtml(hor, 0)}${secHtml(qtd, 1)}${obsHtml.replace('rpx-obs', 'rpx-obs rs')}</div>`;
+      const tot = num(r.vals.recebimento_total);
+      body = `<div class="rpx-body rpx-grid2">${table}${secHtml(hor, 0)}${secHtml(qtd, 1)}${obsHtml.replace('rpx-obs', 'rpx-obs rs')}${recebChart(def.rh, tot)}</div>`;
     } else {
       // Distribui as seções em colunas de altura parecida; os blocos esticam até o fim da coluna.
       const n = 4;
