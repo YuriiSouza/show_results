@@ -192,9 +192,9 @@ T1 usa as colunas **PM** das guias e T3 as colunas **AM**; o Report Geral é o *
   (o rascunho de quem está editando continua por cima).
 - **"* N sem valor"** leva ao primeiro campo vazio; **Fontes** mostra de onde veio cada valor; **Limpar edições** volta
   tudo às guias (também só vale depois de Salvar).
-- **Parciais:** o **Total** e o **Recebido** da linha Recebimento vêm do **Recebimento por hora** salvo do turno
-  (T3 = AM, T1 = PM1): Total = *Pacotes a receber* e Recebido = *Recebido no turno* (o último salvamento). Sem Recebimento
-  por hora salvo, o Recebido vem da guia Recebimento (AM/PM) e o Total fica para digitar.
+- **Recebimento nos reports:** todos os reports usam o que foi **salvo nos Lançamentos de indicadores** (Recebimento AM =
+  T3, Recebimento PM = T1, Total recebido, Packed XPT, XPT carregado). O Recebimento por hora entra só como sugestão nos
+  Lançamentos; depois de confirmado e salvo lá, aparece nos reports. O **Total** do Parcial fica para digitar.
 - **Reversa do turno (fechamentos):** On hold, Avaria HUB, Avaria SOC e Retorno SOC vêm do total do dia nos Lançamentos
   (o mesmo número no T1 e no T3; edite se o turno for diferente).
 - O **Report Geral** reaproveita o que foi preenchido nos fechamentos (atestado soma T1 + T3) e puxa do **Audit de gestão**

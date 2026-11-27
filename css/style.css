@@ -1278,3 +1278,5 @@ body.tv #btnTour { display: none; }
 .adm-create { margin: 6px 0 14px; }
 .adm-made { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--good, #2e9e5b); border-radius: 10px; background: color-mix(in srgb, var(--good, #2e9e5b) 10%, var(--surface)); font-size: 14px; }
 .adm-made p { margin: 6px 0 0; }
+.kiosk.kiosk-wait { display: flex; align-items: center; justify-content: center; text-align: center; }
+.kiosk.kiosk-wait .kiosk-body { display: grid; gap: 16px; justify-items: center; }

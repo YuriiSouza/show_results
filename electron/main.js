@@ -15,7 +15,7 @@ const DATA_DIR = () => app.getPath('userData');
 const LOG_DIR = () => path.join(DATA_DIR(), 'logs');
 const SLOW_MS = { 'sheets:fetch': 8000, 'base:read': 6000, 'base:readAll': 15000, 'base:append': 6000, 'base:ensure': 6000, 'central:read': 5000,
   'central:ensure': 6000, 'central:append': 5000, 'parcel:track': 8000, 'parcel:at': 8000, 'spx:wfm': 10000 };
-const NO_TIMING = new Set(['auth:sign-in', 'updater:download', 'updater:check', 'log:write', 'log:take', 'log:open']);
+const NO_TIMING = new Set(['win:fullscreen', 'auth:sign-in', 'updater:download', 'updater:check', 'log:write', 'log:take', 'log:open']);
 const logQueue = [];   // erros e alertas ainda não enviados à planilha
 function logWrite(entry) {
   const e = { t: new Date().toISOString(), src: 'app', ...entry };
@@ -326,6 +326,7 @@ ipcMain.handle('reports:set', (_e, date, data) => { writePrivate(reportFile(date
 ipcMain.handle('log:write', (_e, entry) => { if (entry && typeof entry === 'object') logWrite({ ...entry, src: 'tela' }); return true; });
 ipcMain.handle('log:take', () => logQueue.splice(0));
 ipcMain.handle('log:open', () => { fs.mkdirSync(LOG_DIR(), { recursive: true }); return shell.openPath(LOG_DIR()); });
+ipcMain.handle('win:fullscreen', (e, on) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setFullScreen(!!on); return true; });
 ipcMain.handle('app:openExternal', (_e, url) => { if (/^https:\/\//.test(String(url))) shell.openExternal(url); });
 
 // ---------- IPC ----------

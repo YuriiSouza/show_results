@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('hubApi', {
   platform: 'desktop',
   os: process.platform, // 'win32' | 'linux' | 'darwin'
   openExternal: url => ipcRenderer.invoke('app:openExternal', url),
+  setFullscreen: on => ipcRenderer.invoke('win:fullscreen', on),
   reportGet: date => ipcRenderer.invoke('reports:get', date),
   reportSet: (date, data) => ipcRenderer.invoke('reports:set', date, data),
   auditList: () => ipcRenderer.invoke('audit:list'),

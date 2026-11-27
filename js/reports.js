@@ -72,21 +72,6 @@ window.Reports = (() => {
     return null;
   }
 
-  // Recebimento por hora salvo do turno (guia RecebimentoHora). O turno fica no dia em que começou: se o líder pôs o
-  // início à noite (a partir das 18:00), o turno da madrugada do report está salvo no dia anterior.
-  function recebHora(iso, turno) {
-    const B = window.Base;
-    if (!B || !B.enabled || !B.enabled() || !B.recebGet) return null;
-    const [y, mo, dd] = iso.split('-').map(Number);
-    const prev = new Date(Date.UTC(y, mo - 1, dd - 1)).toISOString().slice(0, 10);
-    const night = x => !!x && +String(x.inicio || '').split(':')[0] >= 18;
-    const cur = B.recebGet(iso, turno), before = B.recebGet(prev, turno);
-    const x = cur && !night(cur) ? cur : night(before) ? before : null;
-    if (!x) return null;
-    const saved = x.at ? new Date(x.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
-    return { ...x, saved };
-  }
-
   // ---------- Dia do report (setas + calendário) ----------
   // Qualquer dia pode ser aberto, mesmo sem dados nas guias: os campos ficam vazios para preencher à mão.
   const pad = n => String(n).padStart(2, '0');
@@ -138,17 +123,12 @@ window.Reports = (() => {
 
     if (k.type === 'parcial') {
       const t = k.turno, s = SHIFT[t], S2 = s.toUpperCase();
-      // Recebimento por hora do turno (T3 = AM, T1 = PM1): Total = pacotes a receber; Recebido = recebido no turno.
-      const rh = recebHora(toIso(d), C.REPORT.auditShift[t]);
-      const rhHow = rh && `Recebimento por hora · ${rh.turno} de ${dmyIso(rh.date)} (último salvamento ${rh.saved})`;
-      const rhTotal = rh && rh.meta != null && !isNaN(rh.meta) ? src(rh.meta, 'auto', `${rhHow}: pacotes a receber`) : null;
-      const rhRec = rh && rh.res && rh.res.recebido != null ? src(Number(rh.res.recebido), 'auto', `${rhHow}: recebido no turno`) : null;
       // Total só na linha Recebimento; o % de cada linha é o Recebido dela ÷ Total de Recebimento.
       const rows = ['Recebimento', 'LM', 'XPT', 'Backlog'].map(l => {
         const id = l.toLowerCase();
         return { label: l, fields: [
-          l === 'Recebimento' ? F(`${id}_total`, 'Total', rhTotal) : null,
-          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? firstOf(rhRec, g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2} (turno ${t})`)) : null),
+          l === 'Recebimento' ? F(`${id}_total`, 'Total', null) : null,
+          F(`${id}_rec`, 'Recebido', l === 'Recebimento' ? g(m.rec[s], `${G(S.recebimento)} · Recebimento ${S2} (turno ${t})`) : null),
           F(`${id}_pct`, '% Recebido', null, { calc: vals => {
             const a = num(vals.recebimento_total), b = num(vals[`${id}_rec`]);
             return a && b != null ? src(f.pct(b / a, 1), 'calc', `${l} recebido ÷ Total de Recebimento`) : null;

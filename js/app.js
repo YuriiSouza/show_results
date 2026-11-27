@@ -1270,6 +1270,15 @@
   }
 
   (async () => {
+    // Modo registro que ficou aberto: cobre a tela desde o início (os dados não aparecem enquanto o app carrega).
+    const kioskCover = window.Piso && window.Piso.kioskPending && window.Piso.kioskPending() ? (() => {
+      const c = document.createElement('div');
+      c.className = 'kiosk kiosk-wait';
+      c.innerHTML = '<div class="kiosk-body"><div class="kiosk-lbl">Abrindo o modo registro…</div></div>';
+      document.body.appendChild(c); document.body.classList.add('kiosk-on');
+      if (api && api.setFullscreen) api.setFullscreen(true).catch(() => {});
+      return c;
+    })() : null;
     // Multi-hub: lê a planilha Central antes de montar a tela (usuário, hub e configuração do hub).
     if (window.Central && window.Central.on()) {
       const endC = window.AppLog ? window.AppLog.timer('central', 'Ler a planilha Central') : () => {};
@@ -1282,7 +1291,16 @@
     $('appVersion').textContent = window.APP_VERSION || '—';
     window.Updater.start();
     setAuto();
-    refresh({ silent: true }).then(() => { if (!accessBlock()) window.Tour.autoStart(); });
+    refresh({ silent: true }).then(() => {
+      if (accessBlock()) { if (kioskCover) { kioskCover.remove(); document.body.classList.remove('kiosk-on'); } return; }
+      // Modo registro (Erros de piso) que ficou aberto: reabre direto nele, em tela cheia, sem tutorial.
+      if (kioskCover) {
+        selectTab('erros');
+        if (!window.Piso.restoreKiosk(pisoCtx, kioskCover)) kioskCover.innerHTML = '<div class="kiosk-body"><div class="kiosk-lbl">Não foi possível abrir o modo registro (sem conexão com a planilha).</div><button class="kiosk-save" onclick="location.reload()">Tentar de novo</button></div>';
+        return;
+      }
+      window.Tour.autoStart();
+    });
     loginGate();
   })();
 })();

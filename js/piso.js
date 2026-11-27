@@ -1868,9 +1868,22 @@ window.Piso = (() => {
       erro = 'Senha incorreta.';
     }
   }
-  async function openKiosk() {
-    if (!baseOn()) return ui.toast('Entre com a conta Google para registrar erros.', true);
-    const r = await modal('🖥 Modo registro', `<p class="muted">Tela cheia para os colaboradores registrarem os erros. Eles só bipam o pacote e escolhem o tipo de erro — os responsáveis <b>não</b> aparecem.</p>
+  // O modo registro fica guardado no aparelho até o líder sair com a senha: se fecharem o app (ou saírem da tela cheia
+  // com F11 e fecharem), ao abrir de novo ele volta direto no modo registro, em tela cheia.
+  const KIOSK_LS = 'hub.kiosk';
+  const kioskSaved = () => { try { return JSON.parse(localStorage.getItem(KIOSK_LS) || 'null'); } catch (e) { return null; } };
+  const kioskKeep = v => { try { if (v) localStorage.setItem(KIOSK_LS, JSON.stringify(v)); else localStorage.removeItem(KIOSK_LS); } catch (e) { /* sem armazenamento */ } };
+  // Tela cheia da janela (no computador pelo processo principal, que funciona mesmo sem clique; no celular, pelo navegador).
+  function fullscreen(on) {
+    const a = api();
+    if (a && a.setFullscreen) return a.setFullscreen(on).catch(() => {});
+    if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  async function openKiosk(restore = null) {
+    if (document.querySelector('.kiosk')) return;
+    if (!baseOn()) return restore ? null : ui.toast('Entre com a conta Google para registrar erros.', true);
+    const r = restore ? { btn: 'ok', data: { turno: TURNOS.includes(restore.turno) ? restore.turno : TURNOS[0] } } : await modal('🖥 Modo registro', `<p class="muted">Tela cheia para os colaboradores registrarem os erros. Eles só bipam o pacote e escolhem o tipo de erro — os responsáveis <b>não</b> aparecem.</p>
       <div class="pz-int-form"><label>Turno <select id="kTurno">${TURNOS.map(t => `<option ${t === se.turno ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
       ${api() && api().parcelTrack ? `<p class="muted small">${window.SpxSession.isActive() ? '✓ Sessão SPX ativa: o responsável pela etiquetagem é buscado na hora.' : '⚠ Sem Sessão SPX: os erros de etiquetagem ficam para você completar depois (botão "Buscar responsável").'}</p>` : ''}`,
       [['cancel', 'Cancelar', 'btn-ghost'], ['ok', 'Abrir em tela cheia', 'btn-primary solid']], null, dlg => ({ turno: dlg.querySelector('#kTurno').value }));
@@ -1897,7 +1910,8 @@ window.Piso = (() => {
       <div class="kiosk-last"><div class="kiosk-lbl">Últimos registros</div><ul id="kLast"><li class="muted">Nenhum ainda</li></ul></div>`;
     document.body.appendChild(el);
     document.body.classList.add('kiosk-on');
-    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    kioskKeep({ turno: K.turno, at: new Date().toISOString() });
+    fullscreen(true);
     const q = id => el.querySelector('#' + id);
     const code = () => q('kCode').value.trim().toUpperCase();
     const ready = () => PC.CODE_RE.test(code()) && K.tipo && (K.tipo === 'etiq' || (K.tipo === 'xpt' ? !!q('kRota').value.trim() : rotaLetra(q('kRota').value) && rotaNum(q('kRota').value)));
@@ -1938,7 +1952,8 @@ window.Piso = (() => {
       if (k === 'exit') {
         if (!(await askKioskPassword())) { q('kCode').focus(); return; }
         el.remove(); document.body.classList.remove('kiosk-on');
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        kioskKeep(null);
+        fullscreen(false);
         if (ui.isActive('erros')) drawErros();
       } else if (k === 'save') save();
       else { K.tipo = k; say(''); sync(); if (k === 'sort') q('kRota').focus(); }
@@ -1988,6 +2003,16 @@ window.Piso = (() => {
     leave: () => { st.inMapa = false; },
     renderMapa: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderMapa(ctx); },
     renderErros: ctx => { bind(ctx); if (se.tipo === 'sort' && !se.time) se.time = nowHm(); renderErros(ctx); },
+    // Ao abrir o app: se o modo registro ficou aberto, volta para ele (em tela cheia). O app chama depois de carregar.
+    kioskPending: () => !!kioskSaved(),
+    restoreKiosk: (ctx, cover) => {
+      const k = kioskSaved();
+      if (!k || !baseOn()) return false;
+      bind(ctx); ui = ctx;
+      if (cover) cover.remove();
+      openKiosk(k);
+      return true;
+    },
     // Para testes.
     _: { nk, sameName, slotsOf, versionAt, parseLetras, slotDesc, bancadaNo, isDw, DEFAULT_LAYOUT, propagate, verDiff, xptBase, sameXpt, destsOf, mergeMaps, dividir, audRoutes, audWho, rotasDe, faixaLetra, totalRotas, parseRota },
   };
